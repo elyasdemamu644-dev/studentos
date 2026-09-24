@@ -1,0 +1,1148 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "StudentOS API",
+    "description": "Personal academic operating system — REST API for web and mobile clients.\n\nAuthentication uses HS256 JWT access tokens (short-lived) and refresh tokens stored in the database. Attach the access token as `Authorization: Bearer <token>` or via the `x-access-token` header.\n\nAll authenticated endpoints return the standard envelope from the shared contract: `{ success: true, data: T, meta?: ... }` on success and `{ success: false, error: { code, message } }` on failure.\n\n**Ownership model:** Every resource (academic year, semester, course, task, note, study session, goal, etc.) belongs to a single user. Users can only see and modify their own resources. Unauthorized access returns `FORBIDDEN`. Missing resources return `NOT_FOUND`.",
+    "version": "0.1.0",
+    "contact": {
+      "name": "StudentOS",
+      "url": "https://github.com/elyasdemamu/StudentOS"
+    },
+    "license": {
+      "name": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "Base path for all endpoints"
+    }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Authentication and account management" },
+    { "name": "Academics", "description": "Academic years and semesters" },
+    { "name": "Courses", "description": "University courses" },
+    { "name": "Tasks", "description": "Student tasks and subtasks" },
+    { "name": "Dashboard", "description": "Aggregated student overview" }
+  ],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a new account",
+        "description": "Creates a new student account. The password is hashed with Argon2id (never stored in plain text). Returns the public user profile (no password hash).",
+        "operationId": "register",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RegisterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_UserPublic" }
+              }
+            }
+          },
+          "409": {
+            "description": "Email already in use",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log in",
+        "description": "Authenticates with email + password and returns an access token (JWT), its lifetime in seconds, and the public user profile. For web clients, also sets an HTTP-only `refresh_token` cookie.",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "headers": {
+              "Set-Cookie": {
+                "description": "HTTP-only refresh_token cookie (web clients only)",
+                "schema": {
+                  "type": "string",
+                  "example": "refresh_token=eyJ...; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Lax"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid email or password",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Refresh access token",
+        "description": "Uses a valid refresh token to issue a new access token + refresh token pair (rotation). Invalidates the old refresh token. Web clients also get a new HTTP-only cookie.",
+        "operationId": "refresh",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RefreshRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token pair refreshed",
+            "headers": {
+              "Set-Cookie": {
+                "description": "New HTTP-only refresh_token cookie",
+                "schema": {
+                  "type": "string",
+                  "example": "refresh_token=eyJ...; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Lax"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RefreshResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired refresh token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log out",
+        "description": "Invalidates the refresh token so it cannot be reused. Clears the HTTP-only refresh cookie for web clients.",
+        "operationId": "logout",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RefreshRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logged out",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_LoggedOut" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Get current user profile",
+        "description": "Returns the public profile of the authenticated user.",
+        "operationId": "getMe",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Current user",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_UserPublic" }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/academic-years": {
+      "get": {
+        "tags": ["Academics"],
+        "summary": "List academic years",
+        "description": "Returns the authenticated user's academic years, newest first. Supports cursor-based pagination via `after` and `limit`.",
+        "operationId": "listAcademicYears",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "description": "Opaque cursor for pagination (base64 JSON of last record's id).",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Page size (max 100, default 20).",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "description": "Filter by name or code (case-insensitive substring).",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_AcademicYearList" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Academics"],
+        "summary": "Create an academic year",
+        "description": "Creates a new academic year for the authenticated user (e.g. \"2026-2027\"). Years are ordered by start date.",
+        "operationId": "createAcademicYear",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateAcademicYearRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_AcademicYear" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/semesters": {
+      "get": {
+        "tags": ["Academics"],
+        "summary": "List semesters",
+        "description": "Returns the authenticated user's semesters. Optionally filter by academic year via `academicYearId`.",
+        "operationId": "listSemesters",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "academicYearId",
+            "description": "Filter to a specific academic year.",
+            "required": false,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "description": "Pagination cursor.",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Page size.",
+            "required": false,
+            "schema": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_SemesterList" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Academics"],
+        "summary": "Create a semester",
+        "description": "Creates a new semester under the authenticated user's account. Associates it with an academic year if `academicYearId` is provided.",
+        "operationId": "createSemester",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateSemesterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_Semester" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/courses": {
+      "get": {
+        "tags": ["Courses"],
+        "summary": "List courses",
+        "description": "Returns the authenticated user's courses. Supports filtering by `academicYearId`, `semesterId`, `status`, text search on `name`/`code`, and pagination. Returns the total count in `meta`.",
+        "operationId": "listCourses",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "academicYearId",
+            "required": false,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "in": "query",
+            "name": "semesterId",
+            "required": false,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/CourseStatus" }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "description": "Search by name or code.",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list with total count",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_CourseList" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Courses"],
+        "summary": "Create a course",
+        "description": "Creates a new course for the authenticated user. Optionally associate with an academic year and/or semester. The `code` field is optional (e.g. \"CS-301\").",
+        "operationId": "createCourse",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateCourseRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_Course" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/courses/{id}": {
+      "get": {
+        "tags": ["Courses"],
+        "summary": "Get a course",
+        "description": "Returns a single course by ID. Only the owning user can access it.",
+        "operationId": "getCourse",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Course",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_Course" }
+              }
+            }
+          },
+          "404": {
+            "description": "Course not found or not owned by user",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Courses"],
+        "summary": "Update a course",
+        "description": "Partially updates a course. Only fields provided are changed. Only the owning user can update.",
+        "operationId": "updateCourse",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateCourseRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_Course" }
+              }
+            }
+          },
+          "404": { "description": "Not found or not owned" }
+        }
+      },
+      "delete": {
+        "tags": ["Courses"],
+        "summary": "Delete a course",
+        "description": "Soft-deletes a course (sets `deletedAt`). Only the owning user can delete. Associated tasks are NOT cascaded — they remain but orphaned (the owning user retains them).",
+        "operationId": "deleteCourse",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_Boolean" }
+              }
+            }
+          },
+          "404": { "description": "Not found or not owned" }
+        }
+      }
+    },
+    "/tasks": {
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "List tasks",
+        "description": "Returns the authenticated user's tasks with optional filtering by `status`, `type`, `priority`, `courseId`, due date window (`dueAfter`/`dueBefore`), and text search. Supports pagination.",
+        "operationId": "listTasks",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/TaskStatus" }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/TaskType" }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/TaskPriority" }
+          },
+          {
+            "in": "query",
+            "name": "courseId",
+            "description": "Filter to tasks in a specific course.",
+            "required": false,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "in": "query",
+            "name": "dueAfter",
+            "description": "Tasks due on or after this date (ISO 8601).",
+            "required": false,
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "in": "query",
+            "name": "dueBefore",
+            "description": "Tasks due before this date.",
+            "required": false,
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "description": "Search by title or description.",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated task list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_TaskList" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Tasks"],
+        "summary": "Create a task",
+        "description": "Creates a new task for the authenticated user. Optionally scope to a course by `courseId`. The task type defaults to `ASSIGNMENT` if not specified. Can include subtasks in one request via the `subtasks` array.",
+        "operationId": "createTask",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateTaskRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse_Task" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tasks/{id}": {
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "Get a task",
+        "description": "Returns a single task by ID with its subtasks and tags. Only the owning user can access it.",
+        "operationId": "getTask",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Task with relations", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuccessResponse_Task" } } } },
+          "404": { "description": "Not found or not owned" }
+        }
+      },
+      "patch": {
+        "tags": ["Tasks"],
+        "summary": "Update a task",
+        "description": "Partially updates a task (title, description, type, priority, status, due date, course). Subtasks can be added/updated by ID in the same call. Only the owning user can update.",
+        "operationId": "updateTask",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateTaskRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuccessResponse_Task" } } } },
+          "404": { "description": "Not found or not owned" }
+        }
+      },
+      "delete": {
+        "tags": ["Tasks"],
+        "summary": "Delete a task",
+        "description": "Soft-deletes a task and its subtasks. Only the owning user can delete.",
+        "operationId": "deleteTask",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuccessResponse_Boolean" } } } },
+          "404": { "description": "Not found or not owned" }
+        }
+      }
+    },
+    "/tasks/{id}/complete": {
+      "post": {
+        "tags": ["Tasks"],
+        "summary": "Complete a task",
+        "description": "Sets the task status to `COMPLETED` and records `completedAt` with the user's current timezone. If the task had subtasks, only those already marked `COMPLETED` count toward a completion summary. This is equivalent to `PATCH /tasks/:id` with `status: COMPLETED` but semantically clearer for the client.",
+        "operationId": "completeTask",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Task completed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuccessResponse_Task" } } } },
+          "404": { "description": "Not found or not owned" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "HS256 JWT access token. Send as `Authorization: Bearer <token>` or `x-access-token: <token>`."
+      }
+    },
+    "schemas": {
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["email", "password", "firstName", "lastName"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "example": "elyas@studentos.dev" },
+          "password": { "type": "string", "minLength": 8, "format": "password", "example": "correct-horse-battery-staple" },
+          "firstName": { "type": "string", "minLength": 1, "maxLength": 100, "example": "Elyas" },
+          "lastName": { "type": "string", "minLength": 1, "maxLength": 100, "example": "Demamu" },
+          "university": { "type": "string", "maxLength": 200, "nullable": true, "example": "Adis Abeba Science and Technology" },
+          "department": { "type": "string", "maxLength": 200, "nullable": true, "example": "Computer Science" },
+          "academicYear": { "type": "string", "nullable": true, "example": "2026-2027" },
+          "timezone": { "type": "string", "default": "UTC" }
+        },
+        "additionalProperties": false
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "format": "password" }
+        },
+        "additionalProperties": false
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": ["refreshToken"],
+        "properties": {
+          "refreshToken": { "type": "string", "description": "The refresh token from a previous login or refresh response." }
+        },
+        "additionalProperties": false
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": { "type": "string", "description": "Short-lived JWT access token." },
+          "expiresIn": { "type": "integer", "description": "Access token lifetime in seconds." },
+          "user": { "$ref": "#/components/schemas/UserPublic" }
+        }
+      },
+      "RefreshResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": { "type": "string" },
+          "expiresIn": { "type": "integer" },
+          "user": { "$ref": "#/components/schemas/UserPublic" }
+        }
+      },
+      "LoggedOut": {
+        "type": "object",
+        "properties": {
+          "loggedOut": { "type": "boolean", "const": true }
+        }
+      },
+      "UserPublic": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "university": { "type": "string", "nullable": true },
+          "department": { "type": "string", "nullable": true },
+          "academicYear": { "type": "string", "nullable": true },
+          "timezone": { "type": "string" },
+          "profilePicture": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false,
+        "description": "Public user representation. Never includes password hash."
+      },
+      "CreateAcademicYearRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100, "example": "2026-2027" },
+          "startDate": { "type": "string", "format": "date" },
+          "endDate": { "type": "string", "format": "date" }
+        },
+        "additionalProperties": false
+      },
+      "CreateSemesterRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100, "example": "Fall 2026" },
+          "academicYearId": { "type": "string", "format": "uuid", "nullable": true },
+          "startDate": { "type": "string", "format": "date" },
+          "endDate": { "type": "string", "format": "date" },
+          "isCurrent": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      },
+      "CreateCourseRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 200, "example": "Database Systems" },
+          "code": { "type": "string", "nullable": true, "maxLength": 50, "example": "CS-301" },
+          "academicYearId": { "type": "string", "format": "uuid", "nullable": true },
+          "semesterId": { "type": "string", "format": "uuid", "nullable": true },
+          "instructor": { "type": "string", "nullable": true, "maxLength": 200 },
+          "description": { "type": "string", "nullable": true, "maxLength": 2000 },
+          "credits": { "type": "number", "minimum": 0, "maximum": 100, "default": 0 },
+          "color": { "type": "string", "nullable": true, "description": "Hex color for the course (e.g. `#3B82F6`). Used in calendar and dashboard." },
+          "status": { "$ref": "#/components/schemas/CourseStatus" }
+        },
+        "additionalProperties": false
+      },
+      "UpdateCourseRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "code": { "type": "string", "nullable": true },
+          "academicYearId": { "type": "string", "format": "uuid", "nullable": true },
+          "semesterId": { "type": "string", "format": "uuid", "nullable": true },
+          "instructor": { "type": "string", "nullable": true },
+          "description": { "type": "string", "nullable": true },
+          "credits": { "type": "number", "minimum": 0, "maximum": 100 },
+          "color": { "type": "string", "nullable": true },
+          "status": { "$ref": "#/components/schemas/CourseStatus" }
+        },
+        "additionalProperties": false
+      },
+      "CourseStatus": {
+        "type": "string",
+        "enum": ["UPCOMING", "ACTIVE", "COMPLETED"],
+        "default": "ACTIVE",
+        "example": "ACTIVE"
+      },
+      "TaskStatus": {
+        "type": "string",
+        "enum": ["TODO", "IN_PROGRESS", "COMPLETED", "ARCHIVED"],
+        "default": "TODO"
+      },
+      "TaskType": {
+        "type": "string",
+        "enum": ["ASSIGNMENT", "EXAM", "PROJECT", "STUDY", "MEETING", "DEADLINE", "OTHER"],
+        "default": "ASSIGNMENT"
+      },
+      "TaskPriority": {
+        "type": "string",
+        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+        "default": "MEDIUM"
+      },
+      "CreateTaskRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 500, "example": "Finish REST API assignment" },
+          "description": { "type": "string", "nullable": true, "maxLength": 4000 },
+          "type": { "$ref": "#/components/schemas/TaskType" },
+          "priority": { "$ref": "#/components/schemas/TaskPriority" },
+          "status": { "$ref": "#/components/schemas/TaskStatus" },
+          "dueDate": { "type": "string", "format": "date-time", "nullable": true },
+          "courseId": { "type": "string", "format": "uuid", "nullable": true, "description": "Scope the task to a course. The course MUST belong to the same user." },
+          "tags": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CreateTaskTagRequest" },
+            "default": [],
+            "maxItems": 20
+          },
+          "subtasks": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CreateTaskSubtaskRequest" },
+            "default": [],
+            "maxItems": 50
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateTaskTagRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 50 }
+        },
+        "additionalProperties": false
+      },
+      "CreateTaskSubtaskRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "additionalProperties": false
+      },
+      "UpdateTaskRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": { "type": "string", "nullable": true },
+          "type": { "$ref": "#/components/schemas/TaskType" },
+          "priority": { "$ref": "#/components/schemas/TaskPriority" },
+          "status": { "$ref": "#/components/schemas/TaskStatus" },
+          "dueDate": { "type": "string", "format": "date-time", "nullable": true },
+          "courseId": { "type": "string", "format": "uuid", "nullable": true },
+          "subtasks": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/UpdateTaskSubtaskRequest" },
+            "default": []
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateTaskSubtaskRequest": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "If provided, update an existing subtask. If omitted, create a new one." },
+          "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "status": { "$ref": "#/components/schemas/TaskStatus" }
+        },
+        "additionalProperties": false
+      },
+      "AcademicYear": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "startDate": { "type": "string", "format": "date", "nullable": true },
+          "endDate": { "type": "string", "format": "date", "nullable": true },
+          "status": { "type": "string", "enum": ["UPCOMING", "ACTIVE", "COMPLETED"], "description": "Computed from the current date relative to start/end" },
+          "semesters": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Semester" },
+            "description": "Included only when the request asks for nested relations"
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false,
+        "description": "An academic year (e.g. 2026-2027). The `status` field is server-computed based on the current date."
+      },
+      "Semester": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "academicYearId": { "type": "string", "format": "uuid", "nullable": true },
+          "academicYear": { "$ref": "#/components/schemas/AcademicYear", "description": "Included only when requested" },
+          "startDate": { "type": "string", "format": "date", "nullable": true },
+          "endDate": { "type": "string", "format": "date", "nullable": true },
+          "isCurrent": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["UPCOMING", "ACTIVE", "COMPLETED"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "Course": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "code": { "type": "string", "nullable": true },
+          "academicYearId": { "type": "string", "format": "uuid", "nullable": true },
+          "semesterId": { "type": "string", "format": "uuid", "nullable": true },
+          "academicYear": { "$ref": "#/components/schemas/AcademicYear", "description": "Included only when requested" },
+          "semester": { "$ref": "#/components/schemas/Semester", "description": "Included only when requested" },
+          "instructor": { "type": "string", "nullable": true },
+          "description": { "type": "string", "nullable": true },
+          "credits": { "type": "number" },
+          "color": { "type": "string", "nullable": true },
+          "status": { "$ref": "#/components/schemas/CourseStatus" },
+          "taskCount": { "type": "integer", "description": "Number of non-deleted tasks in this course. Included when requested." },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "deletedAt": { "type": "string", "format": "date-time", "nullable": true }
+        },
+        "additionalProperties": false
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "type": { "$ref": "#/components/schemas/TaskType" },
+          "priority": { "$ref": "#/components/schemas/TaskPriority" },
+          "status": { "$ref": "#/components/schemas/TaskStatus" },
+          "dueDate": { "type": "string", "format": "date-time", "nullable": true },
+          "completedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "courseId": { "type": "string", "format": "uuid", "nullable": true },
+          "course": { "$ref": "#/components/schemas/Course", "description": "Included only when requested" },
+          "tags": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TaskTag" },
+            "description": "Included only when requested"
+          },
+          "subtasks": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TaskSubtask" },
+            "description": "Included only when requested"
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "deletedAt": { "type": "string", "format": "date-time", "nullable": true }
+        },
+        "additionalProperties": false
+      },
+      "TaskTag": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "color": { "type": "string", "nullable": true }
+        },
+        "additionalProperties": false
+      },
+      "TaskSubtask": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/TaskStatus" },
+          "position": { "type": "integer" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "DashboardResponse": {
+        "type": "object",
+        "properties": {
+          "courses": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "active": { "type": "integer" },
+              "upcoming": { "type": "integer" }
+            },
+            "additionalProperties": false
+          },
+          "tasks": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "completed": { "type": "integer" },
+              "overdue": { "type": "integer" },
+              "dueToday": { "type": "integer" },
+              "pending": { "type": "integer" }
+            },
+            "additionalProperties": false
+          },
+          "today": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "$ref": "#/components/schemas/DashboardEventItem" },
+                { "$ref": "#/components/schemas/DashboardTaskItem" }
+              ]
+            },
+            "description": "Combined agenda for the current day (courses with start times + tasks due today), sorted by time/title. Empty if nothing is scheduled."
+          },
+          "upcoming": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DashboardTaskItem" },
+            "description": "Tasks due in the next 7 days that are not yet completed. Sorted by due date."
+          },
+          "recentStudy": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "format": "uuid" },
+                "topic": { "type": "string", "nullable": true },
+                "startedAt": { "type": "string", "format": "date-time" },
+                "durationMinutes": { "type": "integer", "nullable": true },
+                "focusRating": { "type": "integer", "nullable": true },
+                "courseId": { "type": "string", "format": "uuid", "nullable": true }
+              },
+              "additionalProperties": false
+            },
+            "description": "Most recent study sessions (up to 5, newest first). Included only when the user has study sessions."
+          },
+          "greeting": {
+            "type": "object",
+            "properties": {
+              "message": { "type": "string", "description": "Time-aware greeting (Good morning/afternoon/evening, FirstName)." },
+              "summary": { "type": "string", "description": "One-line summary like `You have 3 tasks due this week. You studied 6h 20m this week.`" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "DashboardEventItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "type": { "type": "string", "const": "COURSE_EVENT" },
+          "title": { "type": "string" },
+          "time": { "type": "string", "format": "date-time" },
+          "courseId": { "type": "string", "format": "uuid" },
+          "color": { "type": "string", "nullable": true }
+        },
+        "additionalProperties": false
+      },
+      "DashboardTaskItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "type": { "type": "string", "const": "TASK" },
+          "title": { "type": "string" },
+          "time": { "type": "string", "format": "date-time", "description": "The due date for tasks" },
+          "status": { "$ref": "#/components/schemas/TaskStatus" },
+          "priority": { "$ref": "#/components/schemas/TaskPriority" }
+        },
+        "additionalProperties": false
+      },
+      "AcademicYearList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/AcademicYear" } },
+          "hasMore": { "type": "boolean" },
+          "nextCursor": { "type": "string", "nullable": true }
+        },
+        "additionalProperties": false
+      },
+      "SemesterList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Semester" } },
+          "hasMore": { "type": "boolean" },
+          "nextCursor": { "type": "string", "nullable": true }
+        },
+        "additionalProperties": false
+      },
+      "CourseList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Course" } },
+          "hasMore": { "type": "boolean" },
+          "nextCursor": { "type": "string", "nullable": true },
+          "total": { "type": "integer", "description": "Total count of non-deleted courses matching the filter (ignoring pagination)." }
+        },
+        "additionalProperties": false
+      },
+      "TaskList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } },
+          "hasMore": { "type": "boolean" },
+          "nextCursor": { "type": "string", "nullable": true }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "0.0.1",
+  "name": "StudentOS",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["apps/*/dist/**"]
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "apps/api/src/**",
+        "apps/api/tests/**",
+        "apps/api/prisma/**",
+        "package.json",
+        "pnpm-lock.yaml"
+      ]
+    }
+  }
+}

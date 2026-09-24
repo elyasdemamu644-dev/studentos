@@ -1,0 +1,23 @@
+{
+  "name": "student-os",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "start": "npm --prefix apps/api start",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:migrate": "turbo run db:migrate",
+    "db:generate": "turbo run db:generate",
+    "db:push": "turbo run db:push"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "pnpm@9.15.0"
+}
