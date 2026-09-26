@@ -1,18 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  addMonths,
-  eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
-  format,
-  isSameMonth,
-  isToday,
-  parseISO,
-  startOfMonth,
-  startOfWeek,
-} from "date-fns";
+import { addMonths, format, isSameMonth, isToday, startOfMonth } from "date-fns";
 import { ChevronLeft, ChevronRight, Clock, Link2, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
@@ -26,7 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useDeleteEvent, useEvents } from "@/features/events/hooks";
+import { useCalendarEvents, useDeleteEvent } from "@/features/events/hooks";
+import { buildCalendar, mapEventsToCalendarDays, toDayKey } from "@/features/events/calendar-utils";
 import { EventFormDialog } from "@/features/events/event-form";
 import { EVENT_TYPE_LABELS } from "@/lib/labels";
 import { formatTime } from "@/lib/format";
@@ -35,44 +25,23 @@ import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function toDayKey(date: Date): string {
-  return format(date, "yyyy-MM-dd");
-}
-
 export default function CalendarPage() {
   const [anchor, setAnchor] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [formDate, setFormDate] = useState(() => toDayKey(new Date()));
   const [editing, setEditing] = useState<CalEvent | undefined>(undefined);
   const [deleting, setDeleting] = useState<CalEvent | undefined>(undefined);
 
-  const start = startOfMonth(anchor);
-  const end = endOfMonth(anchor);
-
-  const events = useEvents({
-    startFrom: start.toISOString(),
-    startTo: end.toISOString(),
-    limit: 500,
-  });
+  const calendar = useMemo(() => buildCalendar(anchor), [anchor]);
+  const { cells, start, end } = calendar;
+  const events = useCalendarEvents(calendar.query);
   const deleteEvent = useDeleteEvent();
 
-  const cells = useMemo(() => {
-    const gridStart = startOfWeek(start, { weekStartsOn: 0 });
-    const gridEnd = endOfWeek(end, { weekStartsOn: 0 });
-    return eachDayOfInterval({ start: gridStart, end: gridEnd });
-  }, [start, end]);
-
-  const byDay = useMemo(() => {
-    const map = new Map<string, CalEvent[]>();
-    for (const item of events.data?.items ?? []) {
-      const key = toDayKey(parseISO(item.startAt));
-      const list = map.get(key) ?? [];
-      list.push(item);
-      map.set(key, list);
-    }
-    for (const list of map.values()) list.sort((a, b) => a.startAt.localeCompare(b.startAt));
-    return map;
-  }, [events.data]);
+  const byDay = useMemo(
+    () => mapEventsToCalendarDays(events.data?.items ?? [], start, end),
+    [events.data, start, end],
+  );
 
   const selectedEvents = useMemo(() => {
     if (!selectedDay) return [];
@@ -81,10 +50,15 @@ export default function CalendarPage() {
 
   const openDay = (day: Date) => setSelectedDay(day);
 
+  const openAdd = (day: Date) => {
+    setEditing(undefined);
+    setFormDate(toDayKey(day));
+    setFormOpen(true);
+  };
+
   const openAddForDay = (day: Date) => {
     setSelectedDay(day);
-    setEditing(undefined);
-    setFormOpen(true);
+    openAdd(day);
   };
 
   const openEdit = (event: CalEvent) => {
@@ -103,7 +77,13 @@ export default function CalendarPage() {
         title="Calendar"
         description="Classes, exams and commitments for the month."
         actions={
-          <Button size="sm" onClick={() => openAddForDay(new Date())}>
+          <Button
+            size="sm"
+            onClick={() => {
+              const now = new Date();
+              openAdd(isSameMonth(now, anchor) ? now : startOfMonth(anchor));
+            }}
+          >
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> New event
           </Button>
         }
@@ -265,7 +245,7 @@ export default function CalendarPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         event={editing}
-        defaultDate={selectedDay ? toDayKey(selectedDay) : toDayKey(new Date())}
+        defaultDate={formDate}
       />
 
       <Dialog open={Boolean(deleting)} onOpenChange={(o) => !o && setDeleting(undefined)}>

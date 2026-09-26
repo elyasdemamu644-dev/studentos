@@ -143,6 +143,41 @@ export function authRequestJson(
   );
 }
 
+/** Unwraps the response payload while preserving access to `.data` and outer envelope properties.
+ * This allows both `res.data.id` and `res.data.data.id` (or `res.body.data.id`) to work consistently. */
+export function createDataProxy(body: any): any {
+  if (body === null || typeof body !== "object") {
+    return body;
+  }
+
+  const inner = body.data !== undefined ? body.data : body;
+
+  if (inner === null || typeof inner !== "object") {
+    return inner;
+  }
+
+  return new Proxy(inner, {
+    get(target, prop, receiver) {
+      if (prop === "data") {
+        return inner;
+      }
+      if (prop in target) {
+        const val = Reflect.get(target, prop, receiver);
+        return typeof val === "function" ? val.bind(target) : val;
+      }
+      if (prop in body) {
+        const val = Reflect.get(body, prop);
+        return typeof val === "function" ? val.bind(body) : val;
+      }
+      return undefined;
+    },
+    has(target, prop) {
+      if (prop === "data") return true;
+      return prop in target || prop in body;
+    },
+  });
+}
+
 /** Chained supertest wrapper — exposes .data (parsed body) instead of .body,
  *  so tests can write `res.data.id` consistently. supertest v7's `request(app)`
  *  has no `.set`, so auth is attached inside each verb method. */
@@ -183,7 +218,7 @@ export class AuthRequestChained {
   expect(status: number): Promise<AuthRequestChained> {
     return this.test.expect(status).then((r) => {
       // attach .data for test convenience
-      (r as any).data = r.body;
+      (r as any).data = createDataProxy(r.body);
       return r as any;
     });
   }
@@ -195,12 +230,14 @@ export class AuthRequestChained {
   ): Promise<T | TResult1 | TResult2> {
     return this.test.then(
       (res) => {
+        const proxy = createDataProxy(res.body);
         const wrapped = new AuthRequestChained(this.token);
         (wrapped as any).test = this.test;
-        (wrapped as any).data = res.body;
+        (wrapped as any).data = proxy;
         (wrapped as any).status = res.status;
         (wrapped as any).headers = res.headers;
-        (res as any).data = res.body;
+        (wrapped as any).body = res.body;
+        (res as any).data = proxy;
         if (onFulfilled) return onFulfilled(res as any);
         return res as any;
       },
@@ -216,10 +253,11 @@ async function positionalAuthRequestJson(
   body?: unknown,
 ): Promise<request.Response> {
   const req = request(app)[method](path).set("Authorization", `Bearer ${token}`);
-  if (body !== undefined) {
-    return (req as request.Test).send(body) as unknown as Promise<request.Response>;
-  }
-  return (req as request.Test).then((r) => r) as Promise<request.Response>;
+  const res = body !== undefined
+    ? await (req as request.Test).send(body)
+    : await (req as request.Test);
+  (res as any).data = createDataProxy(res.body);
+  return res as request.Response;
 }
 
 // ── authRequest (overloaded) ─────────────────────────────────────────
@@ -259,7 +297,10 @@ export function authRequest(
     path = arg3 as string;
   }
 
-  return request(app)[method](path).set("Authorization", `Bearer ${token}`);
+  return (request(app)[method](path).set("Authorization", `Bearer ${token}`) as request.Test).then((res) => {
+    (res as any).data = createDataProxy(res.body);
+    return res as request.Response;
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────

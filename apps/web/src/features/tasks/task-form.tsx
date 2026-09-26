@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -53,7 +54,7 @@ export function toDateValue(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  return format(d, "yyyy-MM-dd");
 }
 
 export function TaskFormDialog({
@@ -91,7 +92,7 @@ export function TaskFormDialog({
         priority: task.priority,
         type: task.type,
         dueDate: toDateValue(task.dueDate),
-        estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : "",
+        estimatedMinutes: task.estimatedMinutes != null ? String(task.estimatedMinutes) : "",
       });
     } else {
       reset(EMPTY_VALUES);
@@ -106,7 +107,7 @@ export function TaskFormDialog({
       priority: values.priority as TaskPriority,
       type: values.type as TaskType,
       dueDate: values.dueDate ? new Date(`${values.dueDate}T23:59:59`).toISOString() : null,
-      estimatedMinutes: values.estimatedMinutes ? Number(values.estimatedMinutes) : null,
+      estimatedMinutes: values.estimatedMinutes === "" ? null : Number(values.estimatedMinutes),
     };
     if (task) {
       await updateTask.mutateAsync({ id: task.id, input: payload });
@@ -163,12 +164,12 @@ export function TaskFormDialog({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="task-course">Course</Label>
-            <Select value={watch("courseId")} onValueChange={(v) => setValue("courseId", v, { shouldValidate: true })}>
+            <Select value={watch("courseId") || "none"} onValueChange={(v) => setValue("courseId", v === "none" ? "" : v, { shouldValidate: true })}>
               <SelectTrigger id="task-course">
                 <SelectValue placeholder="No course" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No course</SelectItem>
+                <SelectItem value="none">No course</SelectItem>
                 {(courses.data ?? []).map((c: Course) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name}
@@ -187,7 +188,7 @@ export function TaskFormDialog({
           <Input id="task-est" type="number" min={0} placeholder="e.g. 45" {...register("estimatedMinutes")} />
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <LoadingButton type="submit" loading={isSubmitting}>
             {task ? "Save changes" : "Create task"}
           </LoadingButton>

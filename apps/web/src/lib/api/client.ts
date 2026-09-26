@@ -20,7 +20,7 @@ import {
 
 export type { ApiClientError } from "./errors";
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1").replace(/\/$/, "");
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1").replace(/\/$/, "");
 
 const AUTH_PROBLEM_CODES = new Set(["AUTH_TOKEN_EXPIRED", "AUTH_INVALID_TOKEN"]);
 

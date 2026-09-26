@@ -129,12 +129,12 @@ export function CourseFormDialog({
         </div>
         <div className="space-y-2">
           <Label htmlFor="course-semester">Semester</Label>
-          <Select value={watch("semesterId")} onValueChange={(v) => setValue("semesterId", v, { shouldValidate: true })}>
+          <Select value={watch("semesterId") || "none"} onValueChange={(v) => setValue("semesterId", v === "none" ? "" : v, { shouldValidate: true })}>
             <SelectTrigger id="course-semester">
               <SelectValue placeholder="No semester" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">No semester</SelectItem>
+              <SelectItem value="none">No semester</SelectItem>
               {(semesters.data ?? []).map((s) => (
                 <SelectItem key={s.id} value={s.id}>
                   {s.name}
@@ -163,7 +163,7 @@ export function CourseFormDialog({
           <Textarea id="course-description" rows={3} {...register("description")} />
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <LoadingButton type="submit" loading={isSubmitting}>
             {course ? "Save changes" : "Create course"}
           </LoadingButton>

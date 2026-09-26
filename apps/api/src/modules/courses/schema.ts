@@ -65,12 +65,12 @@ export const courseWithSemesterSchema = courseSchema.extend({
 // ─────────────────────────────────────────────
 
 export const courseCreateSchema = z.object({
-  code: courseCodeSchema,
+  code: courseCodeSchema.nullable().optional(),
   name: z.string().min(1).max(200),
-  credits: z.number().int().min(0).max(50).optional(),
-  description: z.string().max(2000).optional(),
+  credits: z.number().int().min(0).max(50).nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
   instructor: z.string().max(200).nullable().optional(),
-  semesterId: idSchema,
+  semesterId: idSchema.nullable().optional(),
 });
 
 export const courseUpdateSchema = z.object({

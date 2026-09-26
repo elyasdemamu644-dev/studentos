@@ -2,12 +2,12 @@ import { z } from "zod";
 
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
+  description: z.string().max(2000).nullable().optional(),
   type: z.enum(["ASSIGNMENT", "HOMEWORK", "PROJECT", "READING", "PRACTICE", "REVISION", "OTHER"]).optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
-  dueDate: z.string().datetime().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
   estimatedMinutes: z.number().int().min(0).max(10080).nullable().optional(),
-  courseId: z.string().min(1).optional(),
+  courseId: z.string().min(1).nullable().optional(),
   status: z.enum(["TODO", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
   completedAt: z.string().datetime().nullable().optional(),
 });
@@ -34,7 +34,7 @@ export type TaskUpdate = z.infer<typeof updateTaskSchema>;
 export type Task = TaskCreate & {
   id: string;
   completedAt: string | null;
-  course: { id: string; code: string; name: string } | null;
+  course: { id: string; code: string | null; name: string } | null;
   createdAt: string;
   updatedAt: string;
 };

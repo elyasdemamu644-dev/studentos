@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app } from "@/app";
-import { registerAndLogin, authRequestJson } from "./helpers";
+import { registerAndLogin, authRequestJson, prisma } from "./helpers";
 
 const BASE = "/api/v1";
 
 describe("Courses Module — StudentOS MVP", () => {
   let accessToken: string;
+  let userId: string;
   let anotherAccessToken: string;
   let academicYearId: string;
   let semesterId: string;
@@ -19,6 +20,7 @@ describe("Courses Module — StudentOS MVP", () => {
       password: "SafePass1!",
     });
     accessToken = user.accessToken;
+    userId = user.user.id;
 
     const anotherUser = await registerAndLogin({
       email: "courses-other@studentos.test",
@@ -93,6 +95,44 @@ describe("Courses Module — StudentOS MVP", () => {
       expect(res.data.code).toBe("CS-404");
     });
 
+    it("persists the nullable payload sent by the course form", async () => {
+      const res = await authRequestJson(accessToken)
+        .post(`${BASE}/courses`)
+        .send({
+          name: "Frontend Minimum Course",
+          code: null,
+          credits: null,
+          instructor: null,
+          semesterId: null,
+          description: null,
+        })
+        .expect(201);
+
+      expect(res.data.success).toBe(true);
+      expect(res.data.name).toBe("Frontend Minimum Course");
+      expect(res.data.code).toBeNull();
+      expect(res.data.credits).toBeNull();
+      expect(res.data.instructor).toBeNull();
+      expect(res.data.semesterId).toBeNull();
+      expect(res.data.description).toBeNull();
+      expect(res.data.semester).toBeNull();
+      expect(res.data.status).toBe("ACTIVE");
+
+      const persisted = await prisma.course.findUnique({
+        where: { id: res.data.id },
+      });
+      expect(persisted).toMatchObject({
+        userId,
+        name: "Frontend Minimum Course",
+        code: null,
+        credits: null,
+        instructor: null,
+        semesterId: null,
+        description: null,
+        status: "ACTIVE",
+      });
+    });
+
     it("rejects creation when semester belongs to another user", async () => {
       await authRequestJson(accessToken)
         .post(`${BASE}/courses`)
@@ -104,11 +144,23 @@ describe("Courses Module — StudentOS MVP", () => {
         .expect(404);
     });
 
-    it("validates required fields", async () => {
-      await authRequestJson(accessToken)
+    it("validates required fields without persisting the course", async () => {
+      const countBefore = await prisma.course.count({ where: { userId } });
+      const res = await authRequestJson(accessToken)
         .post(`${BASE}/courses`)
-        .send({ name: "" })
+        .send({
+          name: "",
+          code: null,
+          credits: null,
+          instructor: null,
+          semesterId: null,
+          description: null,
+        })
         .expect(400);
+
+      expect(res.data.success).toBe(false);
+      expect(res.data.error.code).toBe("VALIDATION_ERROR");
+      expect(await prisma.course.count({ where: { userId } })).toBe(countBefore);
     });
   });
 
@@ -119,8 +171,8 @@ describe("Courses Module — StudentOS MVP", () => {
         .get(`${BASE}/courses`)
         .expect(200);
 
-      expect(res.data.data).toHaveLength(2); // Database Systems + Lowercase Code
-      expect(res.data.data[0].name).toBe("Lowercase Code"); // newest first
+      expect(res.data.data).toHaveLength(3);
+      expect(res.data.data[0].name).toBe("Frontend Minimum Course");
     });
 
     it("returns empty list for a new user with no courses", async () => {

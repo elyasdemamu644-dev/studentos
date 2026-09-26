@@ -96,27 +96,28 @@ export const coursesService = {
    *  - the code is unique within the semester
    */
   async create(userId: string, input: CourseCreate) {
-    // Verify the semester chain is owned by the user
-    const semester = await prisma.semester.findFirst({
-      where: {
-        id: input.semesterId,
-        academicYear: { userId },
-      },
-    });
+    if (input.semesterId) {
+      const semester = await prisma.semester.findFirst({
+        where: {
+          id: input.semesterId,
+          academicYear: { userId },
+        },
+      });
 
-    if (!semester) {
-      throw new NotFoundError("Semester not found");
+      if (!semester) {
+        throw new NotFoundError("Semester not found");
+      }
     }
 
     const course = await prisma.course.create({
       data: {
         userId,
-        code: input.code.toUpperCase(),
+        code: input.code?.toUpperCase() ?? null,
         name: input.name,
         credits: input.credits ?? null,
         description: input.description ?? null,
         instructor: input.instructor ?? null,
-        semesterId: input.semesterId,
+        semesterId: input.semesterId ?? null,
         status: "ACTIVE",
       },
       include: {

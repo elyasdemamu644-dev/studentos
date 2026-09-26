@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -60,11 +61,11 @@ const EMPTY_VALUES: EventFormValues = {
   description: "",
 };
 
-function isoToDateInput(iso: string | null | undefined): string {
+export function isoToDateInput(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  return format(d, "yyyy-MM-dd");
 }
 
 function isoToTimeInput(iso: string | null | undefined): string {
@@ -88,6 +89,7 @@ export function EventFormDialog({
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const courses = useCourses();
+  const mutationError = event ? updateEvent.error : createEvent.error;
 
   const {
     register,
@@ -116,7 +118,7 @@ export function EventFormDialog({
         description: event.description ?? "",
       });
     } else {
-      reset({ ...EMPTY_VALUES, startDate: defaultDate ?? new Date().toISOString().slice(0, 10) });
+      reset({ ...EMPTY_VALUES, startDate: defaultDate ?? format(new Date(), "yyyy-MM-dd") });
     }
   }, [open, event, defaultDate, reset]);
 
@@ -199,12 +201,15 @@ export function EventFormDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="event-course">Course</Label>
-            <Select value={watch("courseId")} onValueChange={(v) => setValue("courseId", v, { shouldValidate: true })}>
+            <Select
+              value={watch("courseId") || "none"}
+              onValueChange={(v) => setValue("courseId", v === "none" ? "" : v, { shouldValidate: true })}
+            >
               <SelectTrigger id="event-course">
                 <SelectValue placeholder="No course" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No course</SelectItem>
+                <SelectItem value="none">No course</SelectItem>
                 {(courses.data ?? []).map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name}
@@ -218,8 +223,13 @@ export function EventFormDialog({
           <Label htmlFor="event-description">Description</Label>
           <Textarea id="event-description" rows={2} {...register("description")} />
         </div>
+        {mutationError && (
+          <p role="alert" className="text-sm text-danger">
+            {mutationError instanceof Error ? mutationError.message : "Could not save the event"}
+          </p>
+        )}
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <LoadingButton type="submit" loading={isSubmitting}>
             {event ? "Save changes" : "Add event"}
           </LoadingButton>

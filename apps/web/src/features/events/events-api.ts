@@ -20,6 +20,21 @@ export function listEvents(params: EventListParams = {}): Promise<Page<CalEvent>
   return api.get<Page<CalEvent>>(qs ? `/events?${qs}` : "/events");
 }
 
+export async function listAllEvents(
+  params: Omit<EventListParams, "limit" | "cursor"> = {},
+): Promise<Page<CalEvent>> {
+  const items: CalEvent[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const page = await listEvents({ ...params, limit: 100, cursor });
+    items.push(...page.items);
+    cursor = page.hasMore ? page.nextCursor ?? undefined : undefined;
+  } while (cursor);
+
+  return { items, hasMore: false, nextCursor: null };
+}
+
 export function getEvent(id: string): Promise<CalEvent> {
   return api.get<CalEvent>(`/events/${id}`);
 }

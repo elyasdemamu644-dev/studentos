@@ -16,10 +16,19 @@ export const eventsService = {
     if (courseId) where.courseId = courseId;
     if (type) where.type = type;
     if (startFrom || startTo) {
-      where.startAt = {
-        ...(startFrom ? { gte: new Date(startFrom) } : {}),
-        ...(startTo ? { lte: new Date(startTo) } : {}),
-      };
+      where.AND = [
+        ...(startFrom
+          ? [
+              {
+                OR: [
+                  { startAt: { gte: new Date(startFrom) } },
+                  { endAt: { gte: new Date(startFrom) } },
+                ],
+              },
+            ]
+          : []),
+        ...(startTo ? [{ startAt: { lte: new Date(startTo) } }] : []),
+      ];
     }
 
     const records = await prisma.event.findMany({

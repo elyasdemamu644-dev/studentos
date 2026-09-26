@@ -24,7 +24,7 @@ export const config = {
   isTest: nodeEnv === "test",
 
   // Server
-  port: Number(process.env.PORT ?? 3000),
+  port: Number(process.env.PORT ?? 3001),
   host: process.env.HOST ?? "0.0.0.0",
 
   // Database — must be set (Prisma connection string)
@@ -57,7 +57,7 @@ export const config = {
   s3UsePathStyle: process.env.S3_USE_PATH_STYLE === "true",
 
   // CORS — origins allowed to hit the API (web app + mobile)
-  corsOrigins: (process.env.CORS_ORIGINS ?? "http://localhost:3001")
+  corsOrigins: (process.env.CORS_ORIGINS ?? "http://localhost:3000")
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean),

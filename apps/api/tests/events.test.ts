@@ -1,16 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { app } from "@/app";
-import { registerAndLogin, authRequestJson } from "./helpers";
+import { registerAndLogin, authRequestJson, prisma } from "./helpers";
 
 const BASE = "/api/v1";
 
 describe("Events Module", () => {
   let token: string;
+  let userId: string;
   let courseId: string;
 
   beforeAll(async () => {
     const auth = await registerAndLogin("events@test.com", "Pass123!");
     token = auth.token;
+    userId = auth.user.id;
 
     const yearRes = await authRequestJson("post", `${BASE}/academics/years`, token, {
       name: "2037-2038",
@@ -46,6 +48,20 @@ describe("Events Module", () => {
       expect(res.body.data.title).toBe("Final exam");
       expect(res.body.data.type).toBe("EXAM");
       expect(res.body.data.startAt).toBe("2037-12-10T09:00:00.000Z");
+
+      const persisted = await prisma.event.findUnique({
+        where: { id: res.body.data.id },
+      });
+      expect(persisted).toMatchObject({
+        userId,
+        courseId: null,
+        title: "Final exam",
+        description: null,
+        type: "EXAM",
+        startAt: new Date("2037-12-10T09:00:00.000Z"),
+        endAt: new Date("2037-12-10T11:00:00.000Z"),
+        location: "Hall B",
+      });
     });
 
     it("should link an event to a course", async () => {
@@ -98,6 +114,41 @@ describe("Events Module", () => {
       expect(res.status).toBe(200);
       expect(res.body.data.items).toHaveLength(1);
       expect(res.body.data.items[0].courseId).toBe(courseId);
+    });
+
+    it("returns events that overlap the requested range", async () => {
+      const created = await authRequestJson("post", `${BASE}/events`, token, {
+        title: "Multi-day workshop",
+        startAt: "2038-01-01T09:00:00.000Z",
+        endAt: "2038-01-03T17:00:00.000Z",
+      });
+
+      const res = await authRequestJson(
+        "get",
+        `${BASE}/events?startFrom=2038-01-02T00:00:00.000Z&startTo=2038-01-02T23:59:59.999Z`,
+        token,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items.map((event: { id: string }) => event.id)).toContain(created.body.data.id);
+
+      await authRequestJson("delete", `${BASE}/events/${created.body.data.id}`, token);
+    });
+
+    it("rejects invalid and reversed date ranges", async () => {
+      const reversed = await authRequestJson(
+        "get",
+        `${BASE}/events?startFrom=2038-02-02T00:00:00.000Z&startTo=2038-02-01T00:00:00.000Z`,
+        token,
+      );
+      expect(reversed.status).toBe(400);
+
+      const invalid = await authRequestJson(
+        "get",
+        `${BASE}/events?startFrom=not-a-date&startTo=2038-02-01T00:00:00.000Z`,
+        token,
+      );
+      expect(invalid.status).toBe(400);
     });
   });
 

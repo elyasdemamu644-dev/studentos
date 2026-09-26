@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "@/app";
-import { registerAndLogin, authRequest, authRequestJson } from "./helpers";
+import { registerAndLogin, authRequest, authRequestJson, prisma } from "./helpers";
 
 const BASE = "/api/v1";
 
@@ -84,20 +84,70 @@ describe("Tasks Module", () => {
       expect(res.body.data.estimatedMinutes).toBe(90);
     });
 
-    it("should create a task without course", async () => {
+    it("persists the nullable payload sent by the task form", async () => {
       const res = await authRequestJson(
         "post",
         `${BASE}/tasks`,
         token,
         {
           title: "General reminder",
-          type: "OTHER",
+          description: null,
+          courseId: null,
           priority: "LOW",
+          type: "OTHER",
+          dueDate: null,
+          estimatedMinutes: null,
         },
       );
 
       expect(res.status).toBe(201);
-      expect(res.body.data.courseId).toBeUndefined();
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty("id");
+      expect(res.body.data.title).toBe("General reminder");
+      expect(res.body.data.description).toBeNull();
+      expect(res.body.data.courseId).toBeNull();
+      expect(res.body.data.course).toBeNull();
+      expect(res.body.data.dueDate).toBeNull();
+      expect(res.body.data.estimatedMinutes).toBeNull();
+      expect(res.body.data.status).toBe("TODO");
+
+      const persisted = await prisma.task.findUnique({
+        where: { id: res.body.data.id },
+      });
+      expect(persisted).toMatchObject({
+        userId,
+        title: "General reminder",
+        description: null,
+        courseId: null,
+        type: "OTHER",
+        priority: "LOW",
+        status: "TODO",
+        dueDate: null,
+        estimatedMinutes: null,
+      });
+    });
+
+    it("rejects an invalid task without persisting it", async () => {
+      const countBefore = await prisma.task.count({ where: { userId } });
+      const res = await authRequestJson(
+        "post",
+        `${BASE}/tasks`,
+        token,
+        {
+          title: "",
+          description: null,
+          courseId: null,
+          priority: "MEDIUM",
+          type: "ASSIGNMENT",
+          dueDate: null,
+          estimatedMinutes: null,
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("VALIDATION_ERROR");
+      expect(await prisma.task.count({ where: { userId } })).toBe(countBefore);
     });
   });
 

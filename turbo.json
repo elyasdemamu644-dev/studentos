@@ -1,7 +1,11 @@
 {
-  "$schema": "0.0.1",
-  "name": "StudentOS",
+  "$schema": "https://turbo.build/schema.json",
   "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {},
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["apps/*/dist/**"]

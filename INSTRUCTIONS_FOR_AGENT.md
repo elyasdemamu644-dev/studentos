@@ -68,7 +68,7 @@ Mounting lives in `apps/api/src/routes/index.ts`. Subtasks/task-tags mount at th
 ## Verification state
 
 - **19 test files** in `apps/api/tests/`
-- **162 tests, 0 failures** (`pnpm --filter @studentos/api test`)
+- **166 tests, 0 failures** (`pnpm --filter @studentos/api test`)
 - **`npm --prefix apps/api run build` passes** (tsc)
 - No lint config exists in the repo, so the `tsc` build doubles as the lint/type gate.
 
@@ -110,4 +110,4 @@ These are intentionally not implemented in Phase 2:
 ## Gotchas for future work
 
 - Prisma `createMany` uses a single `now()` timestamp for all rows — tests depending on `createdAt` ordering must seed explicit timestamps.
-- Keep the repo green: run `pnpm --filter @studentos/api test` (all 162 tests) and `npm --prefix apps/api run build` (tsc) after any change. The old build failure "Cannot find module 'zod'" in `packages/shared` was fixed by declaring `zod` in that package's dependencies — don't remove it.
+- Keep the repo green: run `pnpm --filter @studentos/api test` (all 166 tests) and `npm --prefix apps/api run build` (tsc) after any change. The old build failure "Cannot find module 'zod'" in `packages/shared` was fixed by declaring `zod` in that package's dependencies — don't remove it.

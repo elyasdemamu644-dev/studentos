@@ -270,7 +270,7 @@ function mapTask(record: {
   completedAt: Date | null;
   course: {
     id: string;
-    code: string;
+    code: string | null;
     name: string;
   } | null;
 }) {
@@ -283,7 +283,7 @@ function mapTask(record: {
     status: record.status,
     dueDate: record.dueDate ? record.dueDate.toISOString() : null,
     estimatedMinutes: record.estimatedMinutes,
-    courseId: record.courseId ?? undefined,
+    courseId: record.courseId,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     completedAt: record.completedAt ? record.completedAt.toISOString() : null,
@@ -293,6 +293,6 @@ function mapTask(record: {
           code: record.course.code,
           name: record.course.name,
         }
-      : undefined,
+      : null,
   };
 }

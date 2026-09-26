@@ -11,6 +11,15 @@ export function useEvents(params: api.EventListParams = {}) {
   });
 }
 
+export function useCalendarEvents(
+  params: Omit<api.EventListParams, "limit" | "cursor"> = {},
+) {
+  return useQuery({
+    queryKey: ["events", "calendar", params],
+    queryFn: () => api.listAllEvents(params),
+  });
+}
+
 export function useCreateEvent() {
   const qc = useQueryClient();
   return useMutation({
