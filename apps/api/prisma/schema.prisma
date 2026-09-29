@@ -21,47 +21,48 @@ datasource db {
 // ─────────────────────────────────────────────
 
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  passwordHash    String
-  firstName       String
-  lastName        String
-  university      String?
-  department      String?
-  academicYear    String?
-  timezone        String    @default("UTC")
-  profilePicture  String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  university     String?
+  department     String?
+  academicYear   String?
+  timezone       String   @default("UTC")
+  profilePicture String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Auth tokens (refresh token stored here for rotation/invalidation)
-  refreshTokens   RefreshToken[]
+  refreshTokens RefreshToken[]
 
   // Academic structure
-  academicYears  AcademicYear[]
-  semesters      Semester[]       @relation("SemestersByUser")
-  courses        Course[]
+  academicYears AcademicYear[]
+  semesters     Semester[]     @relation("SemestersByUser")
+  courses       Course[]
 
   // Direct resource ownership (courses, tasks, notes, etc. are under semesters/courses mostly)
   // But some top-level entities belong directly to user:
-  tasks          Task[]           // standalone tasks not tied to a course
-  notes          Note[]
-  events         Event[]
-  goals          Goal[]
-  notifications  Notification[]
-  studySessions  StudySession[]
-  resources      Resource[]       // top-level resources not under a course
-  grades         Grade[]
+  tasks         Task[] // standalone tasks not tied to a course
+  notes         Note[]
+  events        Event[]
+  goals         Goal[]
+  notifications Notification[]
+  studySessions StudySession[]
+  resources     Resource[] // top-level resources not under a course
+  grades        Grade[]
 
   // AI
   aiConversations AiConversation[]
   aiMessages      AiMessage[]
+  aiConnections   AiConnection[]
 
   // AI study plans (owned by user but entries belong to tasks)
-  aiStudyPlans    AiStudyPlan[]
+  aiStudyPlans AiStudyPlan[]
 
   // Settings (key/value for flexible preferences)
-  settings       UserSetting[]
+  settings UserSetting[]
 
   @@map("users")
 }
@@ -95,15 +96,15 @@ model UserSetting {
 // ─────────────────────────────────────────────
 
 model AcademicYear {
-  id        String   @id @default(cuid())
+  id        String             @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String   // e.g. "2026 / 2027"
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String // e.g. "2026 / 2027"
   startDate DateTime
   endDate   DateTime
   status    AcademicYearStatus @default(UPCOMING)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
   semesters Semester[]
 
@@ -117,19 +118,19 @@ enum AcademicYearStatus {
 }
 
 model Semester {
-  id          String   @id @default(cuid())
+  id             String         @id @default(cuid())
   academicYearId String
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
-  name        String   // e.g. "2026/27 — Semester 1"
-  startDate   DateTime
-  endDate     DateTime
-  status      SemesterStatus @default(UPCOMING)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  academicYear   AcademicYear   @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  name           String // e.g. "2026/27 — Semester 1"
+  startDate      DateTime
+  endDate        DateTime
+  status         SemesterStatus @default(UPCOMING)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  courses     Course[]
-  user        User     @relation("SemestersByUser", fields: [userId], references: [id], onDelete: Cascade)
-  userId      String
+  courses Course[]
+  user    User     @relation("SemestersByUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId  String
 
   @@map("semesters")
 }
@@ -145,20 +146,20 @@ enum SemesterStatus {
 // ─────────────────────────────────────────────
 
 model Course {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   semesterId  String?
-  semester    Semester? @relation(fields: [semesterId], references: [id], onDelete: SetNull)
+  semester    Semester?    @relation(fields: [semesterId], references: [id], onDelete: SetNull)
   name        String
-  code        String?  // e.g. "SE-204"
+  code        String? // e.g. "SE-204"
   description String?
   instructor  String?
-  credits     Int?     // e.g. 5
-  color       String   @default("#6366f1") // hex color, shadcn-compatible
+  credits     Int? // e.g. 5
+  color       String       @default("#6366f1") // hex color, shadcn-compatible
   status      CourseStatus @default(ACTIVE)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   // Child entities
   tasks         Task[]
@@ -182,30 +183,30 @@ enum CourseStatus {
 // ─────────────────────────────────────────────
 
 model Task {
-  id               String     @id @default(cuid())
+  id               String       @id @default(cuid())
   userId           String
-  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   courseId         String?
-  course           Course?    @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  course           Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
   title            String
   description      String?
-  type             TaskType   @default(OTHER)
+  type             TaskType     @default(OTHER)
   priority         TaskPriority @default(MEDIUM)
-  status           TaskStatus  @default(TODO)
+  status           TaskStatus   @default(TODO)
   dueDate          DateTime?
-  estimatedMinutes Int?       // estimated duration in minutes
+  estimatedMinutes Int? // estimated duration in minutes
   completedAt      DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   // Subtasks
-  subtasks         TaskSubtask[]
+  subtasks TaskSubtask[]
 
   // Study sessions that track this task
-  studySessions    StudySession[]
+  studySessions StudySession[]
 
   // Tags (simple many-to-many via join, or use a tags array column if MVP wants simplicity)
-  taskTags         TaskTag[]
+  taskTags TaskTag[]
 
   @@map("tasks")
 }
@@ -235,15 +236,15 @@ enum TaskStatus {
 }
 
 model TaskSubtask {
-  id        String   @id @default(cuid())
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  title     String
-  status    TaskStatus @default(TODO)
-  position  Int      @default(0) // ordering
+  id          String     @id @default(cuid())
+  taskId      String
+  task        Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title       String
+  status      TaskStatus @default(TODO)
+  position    Int        @default(0) // ordering
   completedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   @@map("task_subtasks")
 }
@@ -253,7 +254,7 @@ model TaskTag {
   taskId    String
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   name      String
-  color     String?  // optional tag color
+  color     String? // optional tag color
   createdAt DateTime @default(now())
 
   @@unique([taskId, name])
@@ -297,7 +298,7 @@ model Note {
   courseId  String?
   course    Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
   title     String
-  content   String   // Markdown body
+  content   String // Markdown body
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -309,23 +310,23 @@ model Note {
 // ─────────────────────────────────────────────
 
 model Resource {
-  id          String        @id @default(cuid())
-  userId      String
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId    String?
-  course      Course?       @relation(fields: [courseId], references: [id], onDelete: SetNull)
-  title       String
-  description String?
-  url         String?       // populated when storageType = URL
-  storageType ResourceStorageType @default(URL)
+  id           String              @id @default(cuid())
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId     String?
+  course       Course?             @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  title        String
+  description  String?
+  url          String? // populated when storageType = URL
+  storageType  ResourceStorageType @default(URL)
   // When storageType = UPLOAD, these point to S3-compatible storage:
-  fileKey     String?       // S3 object key (e.g. "studentos/{userId}/resources/{id}/{fileName}")
-  fileName    String?       // original filename
-  fileSize    Int?          // bytes
-  mimeType    String?       // e.g. "application/pdf"
-  resourceType ResourceType @default(OTHER)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  fileKey      String? // S3 object key (e.g. "studentos/{userId}/resources/{id}/{fileName}")
+  fileName     String? // original filename
+  fileSize     Int? // bytes
+  mimeType     String? // e.g. "application/pdf"
+  resourceType ResourceType        @default(OTHER)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
   @@map("resources")
 }
@@ -350,19 +351,19 @@ enum ResourceType {
 // ─────────────────────────────────────────────
 
 model Event {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   courseId    String?
-  course      Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  course      Course?   @relation(fields: [courseId], references: [id], onDelete: SetNull)
   title       String
   description String?
   type        EventType @default(OTHER)
   startAt     DateTime
   endAt       DateTime?
   location    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@map("events")
 }
@@ -383,19 +384,19 @@ enum EventType {
 // ─────────────────────────────────────────────
 
 model StudySession {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId      String?
-  course        Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
-  taskId        String?
-  task          Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  topic         String?  // e.g. "Normalization"
-  startedAt     DateTime
-  endedAt       DateTime?
-  durationMinutes Int?   // computed from startedAt/endedAt, stored for analytics
-  focusRating   Int?     // 1-5 stars
-  createdAt     DateTime @default(now())
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId        String?
+  course          Course?   @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  taskId          String?
+  task            Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  topic           String? // e.g. "Normalization"
+  startedAt       DateTime
+  endedAt         DateTime?
+  durationMinutes Int? // computed from startedAt/endedAt, stored for analytics
+  focusRating     Int? // 1-5 stars
+  createdAt       DateTime  @default(now())
 
   @@map("study_sessions")
 }
@@ -405,18 +406,18 @@ model StudySession {
 // ─────────────────────────────────────────────
 
 model Goal {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   description String?
   deadline    DateTime?
   status      GoalStatus @default(ACTIVE)
-  progress    Int      @default(0) // 0-100
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  progress    Int        @default(0) // 0-100
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  milestones  GoalMilestone[]
+  milestones GoalMilestone[]
 
   @@map("goals")
 }
@@ -428,15 +429,15 @@ enum GoalStatus {
 }
 
 model GoalMilestone {
-  id          String   @id @default(cuid())
+  id          String          @id @default(cuid())
   goalId      String
-  goal        Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  goal        Goal            @relation(fields: [goalId], references: [id], onDelete: Cascade)
   title       String
   status      MilestoneStatus @default(TODO)
-  position    Int      @default(0)
+  position    Int             @default(0)
   completedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@map("goal_milestones")
 }
@@ -452,19 +453,19 @@ enum MilestoneStatus {
 // ─────────────────────────────────────────────
 
 model Grade {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId    String?
-  course      Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
-  title       String   // e.g. "Database Midterm"
-  score       Float?   // points earned
-  maxScore    Float?   // points possible
-  weight      Float?   // weight in course grade (percentage or fraction)
-  type        GradeType @default(ASSESSMENT)
-  recordedAt  DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId   String?
+  course     Course?   @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  title      String // e.g. "Database Midterm"
+  score      Float? // points earned
+  maxScore   Float? // points possible
+  weight     Float? // weight in course grade (percentage or fraction)
+  type       GradeType @default(ASSESSMENT)
+  recordedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@map("grades")
 }
@@ -485,24 +486,24 @@ enum GradeType {
 // ─────────────────────────────────────────────
 
 model Notification {
-  id          String           @id @default(cuid())
+  id          String               @id @default(cuid())
   userId      String
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   message     String
   type        NotificationType
   delivery    NotificationDelivery @default(IN_APP) // MVP = IN_APP only
-  channel     String?          // for future: push, email, sms, telegram (null = in-app)
-  status      NotificationStatus @default(UNREAD)
+  channel     String? // for future: push, email, sms, telegram (null = in-app)
+  status      NotificationStatus   @default(UNREAD)
   readAt      DateTime?
-  relatedType String?          // e.g. "TASK", "EXAM", "GOAL" — what this notification is about
-  relatedId   String?          // id of the related entity
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  relatedType String? // e.g. "TASK", "EXAM", "GOAL" — what this notification is about
+  relatedId   String? // id of the related entity
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
 
-  @@map("notifications")
   @@index([userId, status])
   @@index([userId, createdAt])
+  @@map("notifications")
 }
 
 enum NotificationType {
@@ -534,15 +535,15 @@ enum NotificationStatus {
 // ─────────────────────────────────────────────
 
 model AiConversation {
-  id        String   @id @default(cuid())
+  id        String             @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String   // e.g. "Database normalization session"
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String // e.g. "Database normalization session"
   type      AiConversationType @default(CHAT)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
-  messages  AiMessage[]
+  messages AiMessage[]
 
   @@map("ai_conversations")
 }
@@ -556,20 +557,20 @@ enum AiConversationType {
 }
 
 model AiMessage {
-  id        String   @id @default(cuid())
-  conversationId String
+  id              String         @id @default(cuid())
+  conversationId  String
   conversation    AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role      AiMessageRole @default(USER)
-  content   String
+  role            AiMessageRole  @default(USER)
+  content         String
   // Optional: store the AI's raw context snapshot for debugging/replay
-  contextSnapshot String?   // JSON-safe string of what was sent to the model
-  createdAt DateTime @default(now())
+  contextSnapshot String? // JSON-safe string of what was sent to the model
+  createdAt       DateTime       @default(now())
 
-  @@map("ai_messages")
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([conversationId, createdAt])
-
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("ai_messages")
 }
 
 enum AiMessageRole {
@@ -579,36 +580,57 @@ enum AiMessageRole {
 }
 
 // ─────────────────────────────────────────────
+// 12. AI CONNECTIONS (user-owned provider connections)
+// ─────────────────────────────────────────────
+
+model AiConnection {
+  id                  String   @id @default(cuid()) @map("id")
+  userId              String   @map("user_id")
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider            String   @map("provider")
+  model               String?  @map("model")
+  endpoint            String?  @map("endpoint")
+  credentialsEncrypted String  @map("credentials_encrypted")
+  enabled             Boolean  @default(true) @map("enabled")
+  isActive            Boolean  @default(false) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, provider])
+  @@map("ai_connections")
+}
+
+// ─────────────────────────────────────────────
 // 13. AI STUDY PLANS (created by AI, linked to tasks/events)
 // ─────────────────────────────────────────────
 
 model AiStudyPlan {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String   // e.g. "Database Exam Prep — 6 days"
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String // e.g. "Database Exam Prep — 6 days"
   examDate  DateTime?
   courseId  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  entries   AiStudyPlanEntry[]
+  entries AiStudyPlanEntry[]
 
   @@map("ai_study_plans")
 }
 
 model AiStudyPlanEntry {
-  id              String   @id @default(cuid())
+  id              String               @id @default(cuid())
   studyPlanId     String
-  studyPlan       AiStudyPlan @relation(fields: [studyPlanId], references: [id], onDelete: Cascade)
-  dayNumber       Int      // 1-indexed day in the plan
-  title           String   // e.g. "Chapter 1"
+  studyPlan       AiStudyPlan          @relation(fields: [studyPlanId], references: [id], onDelete: Cascade)
+  dayNumber       Int // 1-indexed day in the plan
+  title           String // e.g. "Chapter 1"
   description     String?
-  durationMinutes Int      // planned duration
+  durationMinutes Int // planned duration
   status          StudyPlanEntryStatus @default(PENDING)
-  taskId          String?  // if the AI created a task for this entry
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  taskId          String? // if the AI created a task for this entry
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   @@map("ai_study_plan_entries")
 }

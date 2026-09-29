@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { AiMessage, Conversation, ConversationType, Page } from "@/features/api-types";
+import type { AiMessage, Conversation, ConversationType, Page } from "@/types/api-types";
 
 export interface ConversationListParams {
   type?: ConversationType;

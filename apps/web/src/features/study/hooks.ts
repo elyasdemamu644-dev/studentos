@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { StudySession } from "@/features/api-types";
+import type { StudySession } from "@/types/api-types";
 import * as api from "./study-api";
 
 export function useSessions(params: api.SessionListParams = {}) {

@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "turbo run dev",
-    "start": "npm --prefix apps/api start",
+    "start": "pnpm --filter @studentos/api start",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
@@ -15,9 +15,5 @@
     "turbo": "^2.3.0",
     "typescript": "^5.7.0"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "packageManager": "pnpm@9.15.0"
 }

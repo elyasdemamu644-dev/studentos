@@ -14,6 +14,7 @@ import grades from "@/modules/grades/routes";
 import notifications from "@/modules/notifications/routes";
 import settings from "@/modules/settings/routes";
 import ai from "@/modules/ai/routes";
+import aiConnections from "@/modules/ai-connections/routes";
 import subtasks from "@/modules/subtasks/routes";
 import taskTags from "@/modules/task-tags/routes";
 
@@ -37,6 +38,7 @@ apiRouter.use("/settings", settings);
 
 // AI assistant
 apiRouter.use("/ai", ai);
+apiRouter.use("/ai-connections", aiConnections);
 
 // Subtasks/tags are mounted at the root because their routers define the
 // full `/tasks/:taskId/...` paths themselves.

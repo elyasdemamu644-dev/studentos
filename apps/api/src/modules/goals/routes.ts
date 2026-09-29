@@ -9,9 +9,10 @@ import {
   updateGoalSchema,
   createMilestoneSchema,
   updateMilestoneSchema,
+  type GoalListQuery,
   type GoalCreate,
-  type GoalUpdate,
   type MilestoneCreate,
+  type GoalUpdate,
   type MilestoneUpdate,
 } from "./schema";
 
@@ -24,12 +25,10 @@ const idParam = { id: z.string().min(1) };
 
 router.get("/", zValidator("query", queryGoalSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { limit, cursor, status } = req.query as unknown as {
-      limit?: number;
-      cursor?: string;
-      status?: "ACTIVE" | "COMPLETED" | "CANCELLED";
-    };
-    const result = await goalsService.list(req.currentUser!.id, { limit, cursor, status });
+    const result = await goalsService.list(
+      req.currentUser!.id,
+      req.query as unknown as GoalListQuery,
+    );
     return res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 });

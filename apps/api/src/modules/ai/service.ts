@@ -100,7 +100,7 @@ export const aiService = {
     const wantsReply = input.generateReply ?? true;
 
     if (wantsReply && role === "USER") {
-      const provider = getAIProvider();
+      const provider = await getAIProvider(userId);
       if (!provider.isConfigured()) {
         throw new AiProviderNotConfiguredError();
       }

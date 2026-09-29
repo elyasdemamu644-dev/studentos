@@ -7,6 +7,7 @@ import {
   queryResourceSchema,
   createResourceSchema,
   updateResourceSchema,
+  type ResourceListQuery,
   type ResourceCreate,
   type ResourceUpdate,
 } from "./schema";
@@ -18,20 +19,10 @@ const idParam = { id: z.string().min(1) };
 
 router.get("/", zValidator("query", queryResourceSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { limit, cursor, courseId, resourceType, search } = req.query as unknown as {
-      limit?: number;
-      cursor?: string;
-      courseId?: string;
-      resourceType?: "PDF" | "VIDEO" | "AUDIO" | "SLIDES" | "LINK" | "DOCUMENT" | "OTHER";
-      search?: string;
-    };
-    const result = await resourcesService.list(req.currentUser!.id, {
-      limit,
-      cursor,
-      courseId,
-      resourceType,
-      search,
-    });
+    const result = await resourcesService.list(
+      req.currentUser!.id,
+      req.query as unknown as ResourceListQuery,
+    );
     return res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 });

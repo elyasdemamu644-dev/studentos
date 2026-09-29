@@ -5,7 +5,7 @@ import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { Course, Task, TaskPriority, TaskType } from "@/features/api-types";
+import type { Course, Task, TaskPriority, TaskType } from "@/types/api-types";
 import { PRIORITY_LABELS, TASK_TYPE_LABELS } from "@/lib/labels";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

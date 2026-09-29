@@ -9,9 +9,14 @@ import {
   CalendarClock,
   FileText,
   GraduationCap,
+  Library,
   ListTodo,
+  MapPin,
+  Paperclip,
   Pencil,
   StickyNote,
+  Target,
+  Timer,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -20,17 +25,16 @@ import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
 import { TaskCard } from "@/components/domain/task-card";
-import { EventCard } from "@/components/domain/event-card";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useCourse, useDeleteCourse } from "@/features/courses/hooks";
+import { Progress } from "@/components/ui/progress";
+import { useCourse, useCourseSummary, useDeleteCourse } from "@/features/courses/hooks";
 import { CourseFormDialog } from "@/features/courses/course-form";
-import { useEvents } from "@/features/events/hooks";
 import { useNotes } from "@/features/notes/hooks";
-import { useGrades } from "@/features/grades/hooks";
 import { useCompleteTask, useTasks, useUpdateTask } from "@/features/tasks/hooks";
 import { DialogShell } from "@/features/tasks/task-form";
-import { formatDate } from "@/lib/format";
+import { EVENT_TYPE_LABELS } from "@/lib/labels";
+import { formatDate, formatMinutes, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export default function CourseDetailPage() {
@@ -40,17 +44,19 @@ export default function CourseDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // The summary is the single rollup for every aggregate on this page, so the
+  // numbers cannot disagree with each other the way per-module counts did.
   const course = useCourse(id);
+  const summary = useCourseSummary(id);
+  // Only the two lists that need full records are fetched separately.
   const tasks = useTasks({ courseId: id, limit: 100 });
-  const events = useEvents({ courseId: id, startFrom: new Date().toISOString(), limit: 20 });
   const notes = useNotes({ courseId: id, limit: 100 });
-  const grades = useGrades({ courseId: id, limit: 20 });
 
   const completeTask = useCompleteTask();
   const updateTask = useUpdateTask();
   const deleteCourse = useDeleteCourse();
 
-  if (course.isPending) {
+  if (course.isPending || summary.isPending) {
     return (
       <div className="space-y-6">
         <div className="h-8 w-1/3 animate-pulse rounded bg-muted" />
@@ -64,13 +70,18 @@ export default function CourseDetailPage() {
     return <ErrorState error={course.error} retry={() => course.refetch()} />;
   }
 
+  if (summary.isError) {
+    return <ErrorState error={summary.error} retry={() => summary.refetch()} />;
+  }
+
   const data = course.data!;
+  const roll = summary.data!;
   const taskItems = tasks.data?.items ?? [];
   const openTasks = taskItems.filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
   const completedTasks = taskItems.filter((t) => t.status === "COMPLETED");
-  const eventItems = events.data?.items ?? [];
   const noteItems = notes.data?.items ?? [];
-  const gradeItems = grades.data?.items ?? [];
+  const upcoming = roll.events.upcoming;
+  const nextExam = roll.nextExam;
 
   const toggleTask = (taskId: string, done: boolean) => {
     if (done) {
@@ -119,7 +130,12 @@ export default function CourseDetailPage() {
             <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
               <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit
             </Button>
-            <Button variant="ghost" size="sm" className="text-danger hover:text-danger" onClick={() => setDeleteOpen(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-danger hover:text-danger"
+              onClick={() => setDeleteOpen(true)}
+            >
               <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Delete
             </Button>
           </div>
@@ -130,18 +146,55 @@ export default function CourseDetailPage() {
         <StatCard
           icon={ListTodo}
           label="Open tasks"
-          value={openTasks.length}
-          tone={openTasks.length > 0 ? "warning" : "success"}
+          value={roll.tasks.open}
+          hint={
+            roll.tasks.total > 0
+              ? `${roll.tasks.completed}/${roll.tasks.total} done${roll.tasks.overdue > 0 ? ` · ${roll.tasks.overdue} overdue` : ""}`
+              : "No tasks yet"
+          }
+          tone={roll.tasks.overdue > 0 ? "danger" : roll.tasks.open > 0 ? "warning" : "success"}
         />
-        <StatCard icon={CalendarClock} label="Upcoming events" value={eventItems.length} />
-        <StatCard icon={StickyNote} label="Notes" value={noteItems.length} />
         <StatCard
           icon={GraduationCap}
-          label="Grades"
-          value={gradeItems.length}
-          hint={gradeItems.some((g) => g.score != null && g.maxScore) ? "Tap Analytics for the full breakdown" : "No grades recorded yet"}
+          label="Grade average"
+          value={roll.grades.average !== null ? `${roll.grades.average}%` : "—"}
+          hint={
+            roll.grades.total > 0
+              ? `${roll.grades.scored} of ${roll.grades.total} scored`
+              : "No grades recorded yet"
+          }
+        />
+        <StatCard
+          icon={Timer}
+          label="Study time"
+          value={formatMinutes(roll.study.totalMinutes)}
+          hint={`${roll.study.sessions} session${roll.study.sessions === 1 ? "" : "s"} logged`}
+        />
+        <StatCard
+          icon={CalendarClock}
+          label="Next exam"
+          value={nextExam ? formatDate(nextExam.startAt, "MMM d") : "—"}
+          hint={
+            nextExam
+              ? `${nextExam.title}${nextExam.location ? ` · ${nextExam.location}` : ""}`
+              : roll.events.examCount > 0
+                ? `${roll.events.examCount} exam${roll.events.examCount === 1 ? "" : "s"} in the past`
+                : "No exam scheduled"
+          }
         />
       </div>
+
+      {roll.tasks.total > 0 && roll.tasks.progress !== null && (
+        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+          <div className="mb-2 flex items-center justify-between text-sm">
+            <span className="font-medium">Task progress</span>
+            <span className="text-muted-foreground">
+              {roll.tasks.completed} of {roll.tasks.total} complete · {roll.tasks.progress}%
+            </span>
+          </div>
+          <Progress value={roll.tasks.progress} />
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-border bg-card p-5 shadow-card">
@@ -155,15 +208,42 @@ export default function CourseDetailPage() {
               </Link>
             </Button>
           </div>
-          {events.isPending ? (
-            <ListSkeleton rows={2} />
-          ) : eventItems.length === 0 ? (
-            <EmptyState icon={CalendarClock} title="Nothing scheduled" description="Events for this course will appear here." className="py-6" />
+          {upcoming.length === 0 ? (
+            <EmptyState
+              icon={CalendarClock}
+              title="Nothing scheduled"
+              description="Events for this course will appear here."
+              className="py-6"
+            />
           ) : (
             <ul className="space-y-2.5">
-              {eventItems.slice(0, 5).map((event) => (
-                <li key={event.id}>
-                  <EventCard event={event} />
+              {upcoming.slice(0, 6).map((event) => (
+                <li
+                  key={event.id}
+                  className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2"
+                >
+                  <span
+                    className={cn(
+                      "h-2 w-2 shrink-0 rounded-full",
+                      event.type === "EXAM" ? "bg-danger" : "bg-primary",
+                    )}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm">{event.title}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {formatDate(event.startAt, "MMM d")} · {formatTime(event.startAt)}
+                      {event.location && (
+                        <span className="ml-1 inline-flex items-center gap-0.5">
+                          <MapPin className="h-3 w-3" aria-hidden />
+                          {event.location}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <Badge variant={event.type === "EXAM" ? "danger" : "muted"} className="shrink-0">
+                    {EVENT_TYPE_LABELS[event.type] ?? event.type}
+                  </Badge>
                 </li>
               ))}
             </ul>
@@ -184,12 +264,20 @@ export default function CourseDetailPage() {
           {tasks.isPending ? (
             <ListSkeleton rows={3} />
           ) : openTasks.length === 0 ? (
-            <EmptyState icon={ListTodo} title="All caught up" description="No open tasks for this course right now." className="py-6" />
+            <EmptyState
+              icon={ListTodo}
+              title="All caught up"
+              description="No open tasks for this course right now."
+              className="py-6"
+            />
           ) : (
             <ul className="space-y-2.5">
               {openTasks.slice(0, 6).map((task) => (
                 <li key={task.id}>
-                  <TaskCard task={task} onToggle={() => toggleTask(task.id, task.status === "COMPLETED")} />
+                  <TaskCard
+                    task={task}
+                    onToggle={() => toggleTask(task.id, task.status === "COMPLETED")}
+                  />
                 </li>
               ))}
             </ul>
@@ -222,7 +310,10 @@ export default function CourseDetailPage() {
             <ul className="space-y-2.5">
               {noteItems.slice(0, 6).map((note) => (
                 <li key={note.id}>
-                  <Link href={`/notes?note=${note.id}`} className="block rounded-lg border border-border bg-background p-3 transition-colors hover:border-primary/40">
+                  <Link
+                    href={`/notes?note=${note.id}`}
+                    className="block rounded-lg border border-border bg-background p-3 transition-colors hover:border-primary/40"
+                  >
                     <span className="block truncate text-sm font-medium">{note.title}</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">
                       {formatDate(note.updatedAt)} · {note.content.length} chars
@@ -245,17 +336,25 @@ export default function CourseDetailPage() {
               </Link>
             </Button>
           </div>
-          {grades.isPending ? (
-            <ListSkeleton rows={2} />
-          ) : gradeItems.length === 0 ? (
-            <EmptyState icon={FileText} title="No grades recorded" description="Record results on the Analytics page and they will show up here." className="py-6" />
+          {roll.grades.recent.length === 0 ? (
+            <EmptyState
+              icon={FileText}
+              title="No grades recorded"
+              description="Record results on the Analytics page and they will show up here."
+              className="py-6"
+            />
           ) : (
             <ul className="space-y-2.5">
-              {gradeItems.slice(0, 6).map((grade) => (
-                <li key={grade.id} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm">
+              {roll.grades.recent.slice(0, 6).map((grade) => (
+                <li
+                  key={grade.id}
+                  className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm"
+                >
                   <span className="min-w-0 flex-1 truncate">
                     {grade.title}
-                    {grade.type && <span className="ml-2 text-xs uppercase text-muted-foreground">{grade.type.toLowerCase()}</span>}
+                    <span className="ml-2 text-xs uppercase text-muted-foreground">
+                      {grade.type.toLowerCase()}
+                    </span>
                   </span>
                   <span className="ml-2 shrink-0 font-semibold text-primary">
                     {grade.score != null ? grade.score : "—"}
@@ -264,6 +363,58 @@ export default function CourseDetailPage() {
                 </li>
               ))}
             </ul>
+          )}
+        </section>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+          <h2 className="mb-4 flex items-center gap-2 font-semibold">
+            <Paperclip className="h-4 w-4 text-primary" aria-hidden /> Resources
+          </h2>
+          <div className="flex items-center gap-4">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Library className="h-6 w-6" aria-hidden />
+            </span>
+            <div>
+              <p className="text-2xl font-bold tracking-tight">{roll.resources.total}</p>
+              <p className="text-sm text-muted-foreground">
+                resource{roll.resources.total === 1 ? "" : "s"} linked to this course
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline" size="sm" className="mt-4">
+            <Link href={`/resources?course=${id}`}>
+              Browse resource library
+              <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </Button>
+        </section>
+
+        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+          <h2 className="mb-4 flex items-center gap-2 font-semibold">
+            <Target className="h-4 w-4 text-primary" aria-hidden /> Related goals
+          </h2>
+          {roll.goals.relatedActive === 0 ? (
+            <EmptyState
+              icon={Target}
+              title="No active goals"
+              description="Goals whose title matches this course are linked here automatically."
+              className="py-6"
+            />
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                {roll.goals.relatedActive} active goal
+                {roll.goals.relatedActive === 1 ? "" : "s"} matched to this course by name.
+              </p>
+              <Button asChild variant="outline" size="sm" className="mt-4">
+                <Link href="/goals">
+                  Open goals
+                  <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+                </Link>
+              </Button>
+            </>
           )}
         </section>
       </div>
@@ -277,7 +428,9 @@ export default function CourseDetailPage() {
         description={`This removes "${data.name}" from your courses. Linked tasks, notes, events and grades will remain. This cannot be undone.`}
       >
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => setDeleteOpen(false)}>
+            Cancel
+          </Button>
           <LoadingButton
             variant="destructive"
             loading={deleteCourse.isPending}

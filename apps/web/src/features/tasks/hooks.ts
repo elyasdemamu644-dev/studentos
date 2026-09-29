@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Task } from "@/features/api-types";
+import type { Task } from "@/types/api-types";
 import * as api from "./tasks-api";
 
 export function useTasks(params: api.TaskListParams = {}) {
@@ -116,4 +116,4 @@ export function useDeleteSubtask(taskId: string) {
 }
 
 export type { Task };
-export type { Subtask } from "@/features/api-types";
+export type { Subtask } from "@/types/api-types";

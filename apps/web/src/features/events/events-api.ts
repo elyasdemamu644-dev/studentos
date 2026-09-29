@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { CalEvent, EventType, Page } from "@/features/api-types";
+import type { CalEvent, EventType, Page } from "@/types/api-types";
 
 export interface EventListParams {
   courseId?: string;

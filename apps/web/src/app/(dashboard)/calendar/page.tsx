@@ -20,7 +20,7 @@ import { buildCalendar, mapEventsToCalendarDays, toDayKey } from "@/features/eve
 import { EventFormDialog } from "@/features/events/event-form";
 import { EVENT_TYPE_LABELS } from "@/lib/labels";
 import { formatTime } from "@/lib/format";
-import type { CalEvent } from "@/features/api-types";
+import type { CalEvent } from "@/types/api-types";
 import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

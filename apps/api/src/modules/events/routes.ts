@@ -7,6 +7,7 @@ import {
   queryEventSchema,
   createEventSchema,
   updateEventSchema,
+  type EventListQuery,
   type EventCreate,
   type EventUpdate,
 } from "./schema";
@@ -18,22 +19,10 @@ const idParam = { id: z.string().min(1) };
 
 router.get("/", zValidator("query", queryEventSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { limit, cursor, courseId, type, startFrom, startTo } = req.query as unknown as {
-      limit?: number;
-      cursor?: string;
-      courseId?: string;
-      type?: "CLASS" | "EXAM" | "ASSIGNMENT" | "PROJECT" | "STUDY" | "MEETING" | "PERSONAL" | "OTHER";
-      startFrom?: string;
-      startTo?: string;
-    };
-    const result = await eventsService.list(req.currentUser!.id, {
-      limit,
-      cursor,
-      courseId,
-      type,
-      startFrom,
-      startTo,
-    });
+    const result = await eventsService.list(
+      req.currentUser!.id,
+      req.query as unknown as EventListQuery,
+    );
     return res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 });

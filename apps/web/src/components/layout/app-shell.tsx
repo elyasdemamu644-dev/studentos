@@ -1,12 +1,16 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   BarChart3,
   BookOpen,
+  CalendarClock,
   CalendarDays,
+  GraduationCap,
   LayoutDashboard,
+  Library,
   ListTodo,
   Settings,
   Sparkles,
@@ -17,7 +21,9 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ThemeModeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/domain/notification-bell";
 import { useAuth } from "@/features/auth/auth-provider";
+import { useGenerateNotifications } from "@/features/notifications/hooks";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -33,13 +39,25 @@ import { LogOut, User } from "lucide-react";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/courses", label: "Courses", icon: BookOpen },
+  { href: "/academics", label: "Academics", icon: GraduationCap },
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/exams", label: "Exams", icon: CalendarClock },
   { href: "/notes", label: "Notes", icon: StickyNote },
+  { href: "/resources", label: "Resources", icon: Library },
   { href: "/study", label: "Study", icon: Timer },
   { href: "/goals", label: "Goals", icon: Target },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/ai", label: "AI Assistant", icon: Sparkles },
+] as const;
+
+/** Shown in the mobile bottom bar, picked by href so reordering cannot break it. */
+export const MOBILE_NAV_HREFS = [
+  "/dashboard",
+  "/tasks",
+  "/courses",
+  "/study",
+  "/exams",
 ] as const;
 
 export { NAV_ITEMS };
@@ -175,7 +193,9 @@ function Sidebar() {
 
 function MobileNav() {
   const pathname = usePathname();
-  const mainItems = [NAV_ITEMS[0], NAV_ITEMS[2], NAV_ITEMS[1], NAV_ITEMS[5]];
+  const mainItems = NAV_ITEMS.filter((item) =>
+    (MOBILE_NAV_HREFS as readonly string[]).includes(item.href),
+  );
   return (
     <nav
       aria-label="Mobile primary"
@@ -216,6 +236,7 @@ function MobileHeader() {
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur lg:hidden">
       <Brand />
       <div className="flex items-center gap-2">
+        <NotificationBell />
         <ThemeModeToggle />
         {user && (
           <Link href="/settings" aria-label="Profile settings">
@@ -227,6 +248,37 @@ function MobileHeader() {
       </div>
     </header>
   );
+}
+
+function DesktopTopBar() {
+  return (
+    <header className="sticky top-0 z-20 hidden h-14 items-center justify-end gap-2 border-b border-border bg-background/90 px-6 backdrop-blur lg:flex">
+      <NotificationBell />
+      <ThemeModeToggle />
+    </header>
+  );
+}
+
+/**
+ * Creates any due reminders once per browser session after sign-in, so the
+ * bell and dashboard are populated on the first screen the user lands on.
+ */
+function NotificationBootstrap() {
+  const { status } = useAuth();
+  const generate = useGenerateNotifications();
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (status !== "authenticated" || started.current) return;
+    if (typeof window === "undefined") return;
+    if (window.sessionStorage.getItem("notifications:generated") === "1") return;
+
+    started.current = true;
+    window.sessionStorage.setItem("notifications:generated", "1");
+    generate.mutate();
+  }, [status, generate]);
+
+  return null;
 }
 
 export function AppShell({
@@ -241,7 +293,9 @@ export function AppShell({
       <Sidebar />
       <MobileNav />
       <div className="lg:pl-64">
+        <DesktopTopBar />
         <MobileHeader />
+        <NotificationBootstrap />
         <main className={cn("mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-8", className)}>
           {children}
         </main>

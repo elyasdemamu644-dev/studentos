@@ -1,5 +1,5 @@
 import { CalendarClock, Link2 } from "lucide-react";
-import type { Task } from "@/features/api-types";
+import type { Task } from "@/types/api-types";
 import { dueLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PriorityBadge } from "./priority-badge";
@@ -50,7 +50,7 @@ export function TaskCard({
           className="text-[10px] text-current"
           aria-hidden
         >
-          {done ? "✓" : ""}
+          {done ? "âœ“" : ""}
         </span>
       </button>
       <div className="min-w-0 flex-1">

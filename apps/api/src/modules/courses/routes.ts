@@ -3,7 +3,12 @@ import { z } from "zod";
 import { zValidator } from "@/lib/zod-validator-shim";
 import { authenticate, type AuthRequest } from "@/modules/auth/routes";
 import { coursesService } from "./service";
-import { courseListQuerySchema, courseCreateSchema, courseUpdateSchema } from "./schema";
+import {
+  courseListQuerySchema,
+  courseCreateSchema,
+  courseUpdateSchema,
+  type CourseListQuery,
+} from "./schema";
 
 const router = Router();
 router.use(authenticate);
@@ -16,11 +21,13 @@ function withEntity(entity: Record<string, unknown>) {
 
 router.get("/", zValidator("query", courseListQuerySchema), async (req: AuthRequest, res, next) => {
   try {
-    const { limit, cursor, search, status, semesterId } = req.query as any;
-    const result = await coursesService.list(req.currentUser!.id, {
-      limit: limit ? Number(limit) : undefined,
-      cursor,
-    }, { search, status, semesterId });
+    const { limit, cursor, search, status, semesterId } =
+      req.query as unknown as CourseListQuery;
+    const result = await coursesService.list(
+      req.currentUser!.id,
+      { limit, cursor },
+      { search, status, semesterId },
+    );
     return res.status(200).json({ success: true, data: result.items });
   } catch (error) { next(error); }
 });
@@ -36,6 +43,14 @@ router.get("/:id", zValidator("params", idParam), async (req: AuthRequest, res, 
   try {
     const course = await coursesService.getById(req.currentUser!.id, String(req.params.id));
     return res.status(200).json(withEntity(course));
+  } catch (error) { next(error); }
+});
+
+// Cross-system rollup (tasks, events, exams, notes, resources, grades, study).
+router.get("/:id/summary", zValidator("params", idParam), async (req: AuthRequest, res, next) => {
+  try {
+    const summary = await coursesService.getSummary(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: summary });
   } catch (error) { next(error); }
 });
 

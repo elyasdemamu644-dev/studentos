@@ -22,7 +22,7 @@ import {
   useMessages,
   useSendMessage,
 } from "@/features/ai/hooks";
-import type { AiMessage, ConversationType } from "@/features/api-types";
+import type { AiMessage, ConversationType } from "@/types/api-types";
 import { formatDate, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 

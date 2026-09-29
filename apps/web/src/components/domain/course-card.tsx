@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import type { Course } from "@/features/api-types";
+import type { Course } from "@/types/api-types";
 import { courseColor, courseColorSoft } from "@/features/courses/courses-api";
 import { cn } from "@/lib/utils";
 

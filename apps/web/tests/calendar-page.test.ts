@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCalendar, mapEventsToCalendarDays } from "@/features/events/calendar-utils";
 import { isoToDateInput } from "@/features/events/event-form";
-import type { CalEvent } from "@/features/api-types";
+import type { CalEvent } from "@/types/api-types";
 
 function makeEvent(overrides: Partial<CalEvent> = {}): CalEvent {
   return {

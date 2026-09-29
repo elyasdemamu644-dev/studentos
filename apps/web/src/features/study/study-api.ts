@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { StudySession, StudySessionListResult } from "@/features/api-types";
+import type { StudySession, StudySessionListResult } from "@/types/api-types";
 
 export interface SessionListParams {
   courseId?: string;

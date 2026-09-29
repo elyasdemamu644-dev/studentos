@@ -101,5 +101,5 @@ export function useDeleteMilestone(goalId: string) {
   });
 }
 
-export type { Goal } from "@/features/api-types";
-export type { GoalMilestone } from "@/features/api-types";
+export type { Goal } from "@/types/api-types";
+export type { GoalMilestone } from "@/types/api-types";

@@ -16,7 +16,7 @@ import {
 import {
   type AcademicYearCreate,
   type AcademicYearUpdate,
-} from "@/modules/academics/schema";
+} from "./schema";
 import type { Prisma } from "@prisma/client";
 
 // ─────────────────────────────────────────────

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { LoadingButton } from "@/components/ui/button";
 import { DialogShell } from "@/features/tasks/task-form";
-import type { Goal, GoalMilestone } from "@/features/api-types";
+import type { Goal, GoalMilestone } from "@/types/api-types";
 import { MILESTONE_STATUS_LABELS } from "@/lib/labels";
 import { formatDate } from "@/lib/format";
 import {

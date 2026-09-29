@@ -1,35 +1,171 @@
 import { prisma } from "@/lib/prisma";
 
+export type DashboardCourse = {
+  id: string;
+  code: string | null;
+  name: string;
+  status: string;
+  taskTotal: number;
+  taskCompleted: number;
+  /** 0-100, null when the course has no tasks yet. */
+  taskProgress: number | null;
+  /** 0-100 weighted/simple average of scored grades, null when none scored. */
+  gradeAverage: number | null;
+  gradeCount: number;
+};
+
 export type DashboardResponse = {
   academicYears: Array<{ id: string; name: string; startDate: string; endDate: string; status: string }>;
   currentAcademicYear: { id: string; name: string; startDate: string; endDate: string; status: string } | null;
   currentSemester: { id: string; name: string; academicYearId: string; startDate: string; endDate: string; status: string } | null;
-  courses: { total: number; active: number; recent: Array<{ id: string; code: string; name: string }> };
+  courses: {
+    total: number;
+    active: number;
+    completed: number;
+    recent: DashboardCourse[];
+  };
   tasks: {
     total: number;
     byStatus: Record<string, number>;
     byPriority: Record<string, number>;
+    overdue: number;
+    dueToday: number;
   };
-  upcomingTasks: Array<{ id: string; title: string; dueDate: string | null; priority: string; status: string }>;
-  // Phase 2 additions
+  upcomingTasks: Array<{
+    id: string;
+    title: string;
+    dueDate: string | null;
+    priority: string;
+    status: string;
+    course: { id: string; code: string | null; name: string } | null;
+  }>;
+  overdueTasks: Array<{
+    id: string;
+    title: string;
+    dueDate: string | null;
+    priority: string;
+    status: string;
+    course: { id: string; code: string | null; name: string } | null;
+  }>;
+  exams: {
+    /** Exams (Event rows of type EXAM) starting in the future, soonest first. */
+    upcoming: Array<{
+      id: string;
+      title: string;
+      startAt: string;
+      endAt: string | null;
+      location: string | null;
+      course: { id: string; code: string | null; name: string } | null;
+    }>;
+    nextInDays: number | null;
+  };
   events: {
-    today: Array<{ id: string; title: string; type: string; startAt: string; endAt: string }>;
-    upcoming: Array<{ id: string; title: string; type: string; startAt: string; endAt: string }>;
+    today: Array<{
+      id: string;
+      title: string;
+      type: string;
+      startAt: string;
+      endAt: string;
+      location: string | null;
+      course: { id: string; code: string | null; name: string } | null;
+    }>;
+    upcoming: Array<{
+      id: string;
+      title: string;
+      type: string;
+      startAt: string;
+      endAt: string;
+      location: string | null;
+      course: { id: string; code: string | null; name: string } | null;
+    }>;
   };
   studySessions: {
     todayMinutes: number;
     todayCount: number;
+    weekMinutes: number;
     recent: Array<{ id: string; topic: string | null; startedAt: string; endedAt: string | null; durationMinutes: number | null }>;
   };
-  activeGoals: Array<{ id: string; title: string; progress: number; deadline: string | null; status: string }>;
-  recentNotes: Array<{ id: string; title: string; updatedAt: string }>;
-  recentGrades: Array<{ id: string; title: string; score: number | null; maxScore: number | null; recordedAt: string }>;
-  notifications: { unreadCount: number };
+  activeGoals: Array<{
+    id: string;
+    title: string;
+    progress: number;
+    deadline: string | null;
+    status: string;
+    milestoneTotal: number;
+    milestoneCompleted: number;
+  }>;
+  recentNotes: Array<{ id: string; title: string; updatedAt: string; course: { id: string; code: string | null; name: string } | null }>;
+  recentGrades: Array<{
+    id: string;
+    title: string;
+    score: number | null;
+    maxScore: number | null;
+    type: string;
+    recordedAt: string;
+    course: { id: string; code: string | null; name: string } | null;
+  }>;
+  resources: { total: number };
+  notifications: {
+    unreadCount: number;
+    recent: Array<{
+      id: string;
+      title: string;
+      message: string;
+      type: string;
+      status: string;
+      relatedType: string | null;
+      relatedId: string | null;
+      createdAt: string;
+    }>;
+  };
+  /** Cross-system recent activity, newest first. */
+  activity: Array<{
+    id: string;
+    kind: "task" | "note" | "grade" | "event" | "goal" | "resource";
+    title: string;
+    detail: string | null;
+    at: string;
+    href: string | null;
+  }>;
 };
 
-// A task "counts" toward dashboard stats only when it is tied to a course,
-// and a course counts only when it owns at least one task. This keeps the
-// dashboard totals consistent across a full hierarchy vs. a partial one.
+type CourseRef = { id: string; code: string | null; name: string } | null;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function pct(numerator: number, denominator: number): number | null {
+  if (denominator <= 0) return null;
+  return Math.round((numerator / denominator) * 100);
+}
+
+/**
+ * Picks the semester the student is actually in: an explicit ACTIVE one, else
+ * the one whose date range contains today, else the next one to start, else the
+ * most recent past one. Ordering alone is not enough — a user with a completed
+ * and an upcoming semester would otherwise always land on the oldest.
+ */
+function resolveCurrentSemester<
+  T extends { id: string; academicYearId: string; startDate: Date; endDate: Date; status: string },
+>(semesters: T[], now: Date): T | null {
+  if (semesters.length === 0) return null;
+
+  const active = semesters.find((s) => s.status === "ACTIVE");
+  if (active) return active;
+
+  const containing = semesters.find((s) => s.startDate <= now && s.endDate >= now);
+  if (containing) return containing;
+
+  const upcoming = semesters
+    .filter((s) => s.startDate > now)
+    .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+  if (upcoming.length > 0) return upcoming[0];
+
+  const past = semesters
+    .filter((s) => s.endDate < now)
+    .sort((a, b) => b.endDate.getTime() - a.endDate.getTime());
+  return past[0] ?? null;
+}
+
 export const dashboardService = {
   async getDashboard(userId: string): Promise<DashboardResponse> {
     const now = new Date();
@@ -37,21 +173,35 @@ export const dashboardService = {
     startOfToday.setHours(0, 0, 0, 0);
     const startOfTomorrow = new Date(startOfToday);
     startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+    const startOfWeek = new Date(startOfToday);
+    startOfWeek.setDate(startOfWeek.getDate() - 7);
+
+    const courseRef = { select: { id: true, code: true, name: true } } as const;
 
     const [
       academicYears,
       semesters,
-      countedTasks,
-      taskCourses,
-      dueTasks,
+      allCourses,
+      allTasks,
       todayEvents,
       upcomingEvents,
+      upcomingExams,
       todaySessions,
+      weekSessions,
       recentSessions,
       activeGoals,
       recentNotes,
       recentGrades,
+      scoredGrades,
+      resourceTotal,
       unreadNotifications,
+      recentNotifications,
+      activityTasks,
+      activityNotes,
+      activityGrades,
+      activityEvents,
+      activityGoals,
+      activityResources,
     ] = await Promise.all([
       prisma.academicYear.findMany({
         where: { userId },
@@ -60,38 +210,41 @@ export const dashboardService = {
       }),
       prisma.semester.findMany({
         where: { userId },
-        orderBy: { startDate: "asc" },
+        orderBy: { startDate: "desc" },
         select: { id: true, name: true, academicYearId: true, startDate: true, endDate: true, status: true },
       }),
-      prisma.task.findMany({
-        where: { userId, courseId: { not: null } },
-        select: { status: true, priority: true },
-      }),
       prisma.course.findMany({
-        where: { userId, tasks: { some: {} } },
-        select: { id: true, code: true, name: true, status: true, createdAt: true },
+        where: { userId },
         orderBy: { createdAt: "desc" },
-        take: 5,
+        select: { id: true, code: true, name: true, status: true, createdAt: true },
       }),
       prisma.task.findMany({
-        where: { userId, dueDate: { not: null }, status: { not: "COMPLETED" } },
-        orderBy: { dueDate: "asc" },
-        take: 10,
-        select: { id: true, title: true, dueDate: true, priority: true, status: true },
+        where: { userId },
+        select: { id: true, title: true, courseId: true, status: true, priority: true, dueDate: true, updatedAt: true },
       }),
       prisma.event.findMany({
         where: { userId, startAt: { gte: startOfToday, lt: startOfTomorrow } },
         orderBy: { startAt: "asc" },
-        select: { id: true, title: true, type: true, startAt: true, endAt: true },
+        select: { id: true, title: true, type: true, startAt: true, endAt: true, location: true, course: courseRef },
       }),
       prisma.event.findMany({
         where: { userId, startAt: { gte: startOfTomorrow } },
         orderBy: { startAt: "asc" },
         take: 6,
-        select: { id: true, title: true, type: true, startAt: true, endAt: true },
+        select: { id: true, title: true, type: true, startAt: true, endAt: true, location: true, course: courseRef },
+      }),
+      prisma.event.findMany({
+        where: { userId, type: "EXAM", startAt: { gte: now } },
+        orderBy: { startAt: "asc" },
+        take: 5,
+        select: { id: true, title: true, startAt: true, endAt: true, location: true, course: courseRef },
       }),
       prisma.studySession.findMany({
         where: { userId, startedAt: { gte: startOfToday, lt: startOfTomorrow } },
+        select: { durationMinutes: true },
+      }),
+      prisma.studySession.findMany({
+        where: { userId, startedAt: { gte: startOfWeek, lt: startOfTomorrow } },
         select: { durationMinutes: true },
       }),
       prisma.studySession.findMany({
@@ -102,58 +255,225 @@ export const dashboardService = {
       }),
       prisma.goal.findMany({
         where: { userId, status: "ACTIVE" },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        select: { id: true, title: true, progress: true, deadline: true, status: true },
+        orderBy: [{ deadline: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
+        take: 6,
+        select: {
+          id: true,
+          title: true,
+          progress: true,
+          deadline: true,
+          status: true,
+          milestones: { select: { status: true } },
+        },
       }),
       prisma.note.findMany({
         where: { userId },
         orderBy: { updatedAt: "desc" },
         take: 5,
-        select: { id: true, title: true, updatedAt: true },
+        select: { id: true, title: true, updatedAt: true, course: courseRef },
       }),
       prisma.grade.findMany({
         where: { userId },
         orderBy: { recordedAt: "desc" },
         take: 5,
-        select: { id: true, title: true, score: true, maxScore: true, recordedAt: true },
+        select: { id: true, title: true, score: true, maxScore: true, type: true, recordedAt: true, course: courseRef },
       }),
+      prisma.grade.findMany({
+        where: { userId, score: { not: null }, maxScore: { gt: 0 } },
+        select: { courseId: true, score: true, maxScore: true, weight: true },
+      }),
+      prisma.resource.count({ where: { userId } }),
       prisma.notification.count({ where: { userId, status: "UNREAD" } }),
+      prisma.notification.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          title: true,
+          message: true,
+          type: true,
+          status: true,
+          relatedType: true,
+          relatedId: true,
+          createdAt: true,
+        },
+      }),
+      prisma.task.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+        take: 4,
+        select: { id: true, title: true, status: true, updatedAt: true },
+      }),
+      prisma.note.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+        take: 3,
+        select: { id: true, title: true, updatedAt: true },
+      }),
+      prisma.grade.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { id: true, title: true, createdAt: true },
+      }),
+      prisma.event.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { id: true, title: true, type: true, createdAt: true },
+      }),
+      prisma.goal.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { id: true, title: true, createdAt: true },
+      }),
+      prisma.resource.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { id: true, title: true, resourceType: true, createdAt: true },
+      }),
     ]);
 
+    // ── Tasks ──────────────────────────────────────────────
     const byStatus: Record<string, number> = {};
     const byPriority: Record<string, number> = {};
-    for (const t of countedTasks) {
+    for (const t of allTasks) {
       byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
       byPriority[t.priority] = (byPriority[t.priority] ?? 0) + 1;
     }
-    if (countedTasks.length > 0) byStatus.DELETED = byStatus.DELETED ?? 0;
 
-    const currentSemester = semesters[0] ?? null;
+    const openTasks = allTasks.filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
+    const overdueTasks = openTasks.filter((t) => t.dueDate !== null && t.dueDate < startOfToday);
+    const dueTodayTasks = openTasks.filter(
+      (t) => t.dueDate !== null && t.dueDate >= startOfToday && t.dueDate < startOfTomorrow,
+    );
 
-    let currentAcademicYear: DashboardResponse["currentAcademicYear"] = null;
-    if (currentSemester) {
-      const year = academicYears.find((y) => y.id === currentSemester.academicYearId) ?? null;
-      if (year) {
-        currentAcademicYear = {
-          id: year.id,
-          name: year.name,
-          startDate: year.startDate.toISOString(),
-          endDate: year.endDate.toISOString(),
-          status: year.status,
-        };
+    // Sort by due date (nulls last) so the soonest deadline leads.
+    const byDueDate = (a: (typeof openTasks)[number], b: (typeof openTasks)[number]) => {
+      if (a.dueDate === null) return 1;
+      if (b.dueDate === null) return -1;
+      return a.dueDate.getTime() - b.dueDate.getTime();
+    };
+
+    // ── Course aggregates ──────────────────────────────────
+    const tasksByCourse = new Map<string, { total: number; completed: number }>();
+    for (const t of allTasks) {
+      if (!t.courseId) continue;
+      const entry = tasksByCourse.get(t.courseId) ?? { total: 0, completed: 0 };
+      entry.total += 1;
+      if (t.status === "COMPLETED") entry.completed += 1;
+      tasksByCourse.set(t.courseId, entry);
+    }
+
+    // Weighted average when weights are present, otherwise a plain mean.
+    const gradeSums = new Map<string, { weighted: number; weightTotal: number; plain: number; count: number }>();
+    for (const g of scoredGrades) {
+      if (!g.courseId || g.score === null || g.maxScore === null || g.maxScore <= 0) continue;
+      const ratio = (g.score / g.maxScore) * 100;
+      const entry = gradeSums.get(g.courseId) ?? { weighted: 0, weightTotal: 0, plain: 0, count: 0 };
+      entry.plain += ratio;
+      entry.count += 1;
+      if (g.weight !== null && g.weight > 0) {
+        entry.weighted += ratio * g.weight;
+        entry.weightTotal += g.weight;
       }
+      gradeSums.set(g.courseId, entry);
     }
-    if (!currentAcademicYear && academicYears.length > 0) {
-      const first = academicYears[0];
-      currentAcademicYear = {
-        id: first.id,
-        name: first.name,
-        startDate: first.startDate.toISOString(),
-        endDate: first.endDate.toISOString(),
-        status: first.status,
+
+    const courseProgress: DashboardCourse[] = allCourses.slice(0, 6).map((c) => {
+      const t = tasksByCourse.get(c.id) ?? { total: 0, completed: 0 };
+      const g = gradeSums.get(c.id);
+      const gradeAverage = g
+        ? g.weightTotal > 0
+          ? Math.round(g.weighted / g.weightTotal)
+          : Math.round(g.plain / g.count)
+        : null;
+      return {
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        status: c.status,
+        taskTotal: t.total,
+        taskCompleted: t.completed,
+        taskProgress: pct(t.completed, t.total),
+        gradeAverage,
+        gradeCount: g?.count ?? 0,
       };
-    }
+    });
+
+    // ── Academics ──────────────────────────────────────────
+    const currentSemester = resolveCurrentSemester(semesters, now);
+    const currentAcademicYear = currentSemester
+      ? academicYears.find((y) => y.id === currentSemester.academicYearId) ?? null
+      : academicYears[0] ?? null;
+
+    const nextExam = upcomingExams[0] ?? null;
+
+    const activity: DashboardResponse["activity"] = [
+      ...activityTasks.map((t) => ({
+        id: `task-${t.id}`,
+        kind: "task" as const,
+        title: t.title,
+        detail: t.status === "COMPLETED" ? "Task completed" : `Task ${t.status.toLowerCase().replace("_", " ")}`,
+        at: t.updatedAt.toISOString(),
+        href: "/tasks",
+      })),
+      ...activityNotes.map((n) => ({
+        id: `note-${n.id}`,
+        kind: "note" as const,
+        title: n.title,
+        detail: "Note updated",
+        at: n.updatedAt.toISOString(),
+        href: `/notes?note=${n.id}`,
+      })),
+      ...activityGrades.map((g) => ({
+        id: `grade-${g.id}`,
+        kind: "grade" as const,
+        title: g.title,
+        detail: "Grade recorded",
+        at: g.createdAt.toISOString(),
+        href: "/analytics",
+      })),
+      ...activityEvents.map((e) => ({
+        id: `event-${e.id}`,
+        kind: "event" as const,
+        title: e.title,
+        detail: `${e.type.toLowerCase()} event added`,
+        at: e.createdAt.toISOString(),
+        href: "/calendar",
+      })),
+      ...activityGoals.map((g) => ({
+        id: `goal-${g.id}`,
+        kind: "goal" as const,
+        title: g.title,
+        detail: "Goal created",
+        at: g.createdAt.toISOString(),
+        href: "/goals",
+      })),
+      ...activityResources.map((r) => ({
+        id: `resource-${r.id}`,
+        kind: "resource" as const,
+        title: r.title,
+        detail: `${r.resourceType.toLowerCase()} resource added`,
+        at: r.createdAt.toISOString(),
+        href: "/resources",
+      })),
+    ]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, 8);
+
+    const mapEventRow = (e: (typeof todayEvents)[number]) => ({
+      id: e.id,
+      title: e.title,
+      type: e.type,
+      startAt: e.startAt.toISOString(),
+      endAt: (e.endAt ?? e.startAt).toISOString(),
+      location: e.location,
+      course: e.course as CourseRef,
+    });
 
     return {
       academicYears: academicYears.map((y) => ({
@@ -163,7 +483,15 @@ export const dashboardService = {
         endDate: y.endDate.toISOString(),
         status: y.status,
       })),
-      currentAcademicYear,
+      currentAcademicYear: currentAcademicYear
+        ? {
+            id: currentAcademicYear.id,
+            name: currentAcademicYear.name,
+            startDate: currentAcademicYear.startDate.toISOString(),
+            endDate: currentAcademicYear.endDate.toISOString(),
+            status: currentAcademicYear.status,
+          }
+        : null,
       currentSemester: currentSemester
         ? {
             id: currentSemester.id,
@@ -175,44 +503,68 @@ export const dashboardService = {
           }
         : null,
       courses: {
-        total: taskCourses.length,
-        active: taskCourses.filter((c) => c.status === "ACTIVE").length,
-        recent: taskCourses.map((c) => ({ id: c.id, code: c.code, name: c.name })),
+        total: allCourses.length,
+        active: allCourses.filter((c) => c.status === "ACTIVE").length,
+        completed: allCourses.filter((c) => c.status === "COMPLETED").length,
+        recent: courseProgress,
       },
       tasks: {
-        total: countedTasks.length,
+        total: allTasks.length,
         byStatus,
         byPriority,
+        overdue: overdueTasks.length,
+        dueToday: dueTodayTasks.length,
       },
-      upcomingTasks: dueTasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        dueDate: t.dueDate?.toISOString() ?? null,
-        priority: t.priority,
-        status: t.status,
-      })),
+      upcomingTasks: openTasks
+        .filter((t) => t.dueDate !== null && t.dueDate >= startOfToday)
+        .sort(byDueDate)
+        .slice(0, 8)
+        .map((t) => {
+          const course = allCourses.find((c) => c.id === t.courseId);
+          return {
+            id: t.id,
+            title: t.title,
+            dueDate: t.dueDate?.toISOString() ?? null,
+            priority: t.priority,
+            status: t.status,
+            course: course ? { id: course.id, code: course.code, name: course.name } : null,
+          };
+        }),
+      overdueTasks: overdueTasks
+        .sort(byDueDate)
+        .slice(0, 8)
+        .map((t) => {
+          const course = allCourses.find((c) => c.id === t.courseId);
+          return {
+            id: t.id,
+            title: t.title,
+            dueDate: t.dueDate?.toISOString() ?? null,
+            priority: t.priority,
+            status: t.status,
+            course: course ? { id: course.id, code: course.code, name: course.name } : null,
+          };
+        }),
+      exams: {
+        upcoming: upcomingExams.map((e) => ({
+          id: e.id,
+          title: e.title,
+          startAt: e.startAt.toISOString(),
+          endAt: e.endAt ? e.endAt.toISOString() : null,
+          location: e.location,
+          course: e.course as CourseRef,
+        })),
+        nextInDays: nextExam
+          ? Math.max(0, Math.ceil((nextExam.startAt.getTime() - now.getTime()) / DAY_MS))
+          : null,
+      },
       events: {
-        today: todayEvents.map((e) => ({
-          id: e.id,
-          title: e.title,
-          type: e.type,
-          startAt: e.startAt.toISOString(),
-          endAt: e.endAt ? e.endAt.toISOString() : e.startAt.toISOString(),
-        })),
-        upcoming: upcomingEvents.map((e) => ({
-          id: e.id,
-          title: e.title,
-          type: e.type,
-          startAt: e.startAt.toISOString(),
-          endAt: e.endAt ? e.endAt.toISOString() : e.startAt.toISOString(),
-        })),
+        today: todayEvents.map(mapEventRow),
+        upcoming: upcomingEvents.map(mapEventRow),
       },
       studySessions: {
-        todayMinutes: todaySessions.reduce(
-          (sum, s) => sum + (s.durationMinutes ?? 0),
-          0,
-        ),
+        todayMinutes: todaySessions.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0),
         todayCount: todaySessions.length,
+        weekMinutes: weekSessions.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0),
         recent: recentSessions.map((s) => ({
           id: s.id,
           topic: s.topic,
@@ -227,20 +579,39 @@ export const dashboardService = {
         progress: g.progress,
         deadline: g.deadline ? g.deadline.toISOString() : null,
         status: g.status,
+        milestoneTotal: g.milestones.length,
+        milestoneCompleted: g.milestones.filter((m) => m.status === "COMPLETED").length,
       })),
       recentNotes: recentNotes.map((n) => ({
         id: n.id,
         title: n.title,
         updatedAt: n.updatedAt.toISOString(),
+        course: n.course as CourseRef,
       })),
       recentGrades: recentGrades.map((g) => ({
         id: g.id,
         title: g.title,
         score: g.score,
         maxScore: g.maxScore,
+        type: g.type,
         recordedAt: g.recordedAt.toISOString(),
+        course: g.course as CourseRef,
       })),
-      notifications: { unreadCount: unreadNotifications },
+      resources: { total: resourceTotal },
+      notifications: {
+        unreadCount: unreadNotifications,
+        recent: recentNotifications.map((n) => ({
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          type: n.type,
+          status: n.status,
+          relatedType: n.relatedType,
+          relatedId: n.relatedId,
+          createdAt: n.createdAt.toISOString(),
+        })),
+      },
+      activity,
     };
   },
 };

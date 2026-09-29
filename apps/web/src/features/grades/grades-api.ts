@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { GradeRecord, GradeType, Page } from "@/features/api-types";
+import type { GradeRecord, GradeType, Page } from "@/types/api-types";
 
 export interface GradeListParams {
   courseId?: string;

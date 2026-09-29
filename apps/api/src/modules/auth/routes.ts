@@ -72,7 +72,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 /** AuthService — the business-logic layer for authentication. */
 export const authService = {
-  async register(email: string, password: string, firstName: string, lastName: string, opts?: {
+  async register(email: string, password: string, firstName?: string, lastName?: string, opts?: {
     university?: string | null;
     department?: string | null;
     academicYear?: string | null;

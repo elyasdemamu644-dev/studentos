@@ -47,6 +47,12 @@ export const config = {
   aiModel: process.env.AI_MODEL ?? "gpt-4o-mini",
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiBaseUrl: process.env.OPENAI_BASE_URL ?? undefined, // for compatible endpoints
+  geminiApiKey: process.env.GEMINI_API_KEY,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  openRouterApiKey: process.env.OPENROUTER_API_KEY,
+  ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
+  customAiEndpoint: process.env.CUSTOM_AI_ENDPOINT,
+  customAiApiKey: process.env.CUSTOM_AI_API_KEY,
 
   // S3-compatible storage
   s3Endpoint: process.env.S3_ENDPOINT,

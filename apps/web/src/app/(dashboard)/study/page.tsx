@@ -34,7 +34,7 @@ import {
   useSessions,
   useStartSession,
 } from "@/features/study/hooks";
-import type { StudySession } from "@/features/api-types";
+import type { StudySession } from "@/types/api-types";
 import { formatMinutes, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 

@@ -175,8 +175,21 @@ describe("Cross-User Isolation", () => {
         .set("Authorization", `Bearer ${aliceToken}`);
 
       expect(aliceDash.status).toBe(200);
-      expect(aliceDash.body.data.courses.total).toBe(0);
-      expect(aliceDash.body.data.tasks.total).toBe(0);
+      // Alice owns exactly one course and one task, so her dashboard must
+      // surface her own records and none of Bob's.
+      expect(aliceDash.body.data.courses.total).toBe(1);
+      expect(aliceDash.body.data.tasks.total).toBe(1);
+
+      const courseCodes: string[] = aliceDash.body.data.courses.recent.map(
+        (c: { code: string | null }) => c.code,
+      );
+      const activityTitles: string[] = aliceDash.body.data.activity.map(
+        (a: { title: string }) => a.title,
+      );
+      expect(courseCodes).toContain("ALICE101");
+      expect(courseCodes).not.toContain("BOB101");
+      expect(activityTitles).toContain("Alice's secret task");
+      expect(activityTitles).not.toContain("Bob's task");
     });
   });
 });

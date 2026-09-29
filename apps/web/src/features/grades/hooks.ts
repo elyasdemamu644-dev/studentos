@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { GradeRecord } from "@/features/api-types";
+import type { GradeRecord } from "@/types/api-types";
 import * as api from "./grades-api";
 
 export function useGrades(params: api.GradeListParams = {}) {
@@ -54,4 +54,4 @@ export function useDeleteGrade() {
   });
 }
 
-export type { GradeRecord } from "@/features/api-types";
+export type { GradeRecord } from "@/types/api-types";

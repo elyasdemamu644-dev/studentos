@@ -1,5 +1,7 @@
 # StudentOS Frontend Progress
 
+> **Archived historical snapshot** (originally `apps/web/FRONTEND_PROGRESS.md`, moved 2026-09-27). Its test counts, page list and file paths are **not** current. `AI_CONTEXT.md` is the source of truth.
+
 ## Current Phase
 
 Frontend Implementation

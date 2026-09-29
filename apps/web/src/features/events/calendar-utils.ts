@@ -8,7 +8,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import type { CalEvent } from "@/features/api-types";
+import type { CalEvent } from "@/types/api-types";
 
 export function toDayKey(date: Date): string {
   return format(date, "yyyy-MM-dd");

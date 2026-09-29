@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { Note, Page } from "@/features/api-types";
+import type { Note, Page } from "@/types/api-types";
 
 export interface NoteListParams {
   courseId?: string;

@@ -1,7 +1,7 @@
 import { api } from "@/lib/api/client";
-import type { Page, Subtask, Task, TaskPriority, TaskStatus, TaskType } from "@/features/api-types";
+import type { Page, Subtask, Task, TaskPriority, TaskStatus, TaskType } from "@/types/api-types";
 
-export type { Task } from "@/features/api-types";
+export type { Task } from "@/types/api-types";
 
 export interface TaskListParams {
   status?: TaskStatus;

@@ -34,6 +34,7 @@ try {
 testEnv.NODE_ENV = 'test';
 testEnv.AI_ENABLED = 'false';
 testEnv.DATABASE_URL = testEnv.TEST_DATABASE_URL ?? 'postgresql://postgres@localhost:5432/studentos_test';
+testEnv.ENCRYPTION_KEY = testEnv.ENCRYPTION_KEY ?? 'test-encryption-key-for-studentos-tests-only--32bytes!!';
 
 export default defineConfig({
   resolve: {

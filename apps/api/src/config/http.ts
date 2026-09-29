@@ -78,6 +78,7 @@ export function notFoundHandler(req: Request, res: Response): void {
  *  - ApiError instances (mapped to structured error codes)
  *  - Prisma known errors (constraint violations, connection issues)
  *  - Zod validation errors
+ *  - body-parser errors (malformed or oversized request bodies)
  *  - Unexpected errors (logged, returns INTERNAL_ERROR)
  */
 export function globalErrorHandler(
@@ -102,6 +103,22 @@ export function globalErrorHandler(
       error: {
         code: "VALIDATION_ERROR",
         message: `Validation failed${fields.length ? ` on: ${fields.join(", ")}` : ""}`,
+      },
+    });
+    return;
+  }
+
+  // Body-parser rejects malformed or oversized payloads before any route runs.
+  // Those are client mistakes, so they must not surface as 500s.
+  if (isBodyParserError(error)) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: error.type === "entity.too.large" ? "PAYLOAD_TOO_LARGE" : "INVALID_JSON",
+        message:
+          error.type === "entity.too.large"
+            ? "Request body is too large"
+            : "Request body is not valid JSON",
       },
     });
     return;
@@ -146,6 +163,25 @@ function isPrismaKnownError(error: unknown): boolean {
     "code" in error &&
     typeof (error as any).code === "string" &&
     (error as any).code?.startsWith("P2") // P2000–P2099 known request errors
+  );
+}
+
+/** A body-parser failure (malformed JSON, oversized payload, bad encoding). */
+interface BodyParserError {
+  type: string;
+}
+
+/**
+ * body-parser tags its errors with a `type` field (e.g. "entity.parse.failed",
+ * "entity.too.large"), which is how we tell them apart from real faults.
+ */
+function isBodyParserError(error: unknown): error is BodyParserError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    typeof (error as any).type === "string" &&
+    (error as any).type.startsWith("entity.")
   );
 }
 

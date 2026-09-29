@@ -4,10 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./schemas/*": "./src/schemas/*.ts",
-    "./types/*": "./src/types/*.ts",
-    "./utils/*": "./src/utils/*.ts",
-    "./constants/*": "./src/constants/*.ts"
+    "./schemas/*": "./src/schemas/*.ts"
   },
   "dependencies": {
     "zod": "^3.24.0"

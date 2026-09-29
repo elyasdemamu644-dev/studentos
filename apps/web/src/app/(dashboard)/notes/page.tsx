@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useCourses } from "@/features/courses/hooks";
 import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from "@/features/notes/hooks";
-import type { Note } from "@/features/api-types";
+import type { Note } from "@/types/api-types";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 

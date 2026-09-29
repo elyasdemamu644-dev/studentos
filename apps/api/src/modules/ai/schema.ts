@@ -67,3 +67,10 @@ export type StudyPlanEntryStatus = z.infer<typeof studyPlanEntryStatusSchema>;
 export type CreateStudyPlanInput = z.infer<typeof createStudyPlanSchema>;
 export type UpdateStudyPlanInput = z.infer<typeof updateStudyPlanSchema>;
 export type UpdateStudyPlanEntryInput = z.infer<typeof updateStudyPlanEntrySchema>;
+export type AiProviderName =
+  | "openai"
+  | "gemini"
+  | "anthropic"
+  | "openrouter"
+  | "ollama"
+  | "custom";

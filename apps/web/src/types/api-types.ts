@@ -196,33 +196,78 @@ export interface Goal {
 // ── Notifications ─────────────────────────────────
 
 export type NotificationStatus = "UNREAD" | "READ" | "ARCHIVED";
+export type NotificationType =
+  | "ASSIGNMENT_DUE"
+  | "EXAM_REMINDER"
+  | "OVERDUE_TASK"
+  | "STUDY_REMINDER"
+  | "STUDY_PLAN_REMINDER"
+  | "GOAL_REMINDER"
+  | "GENERAL";
 
 export interface AppNotification {
   id: string;
   title: string;
   message: string;
-  type: string;
+  type: NotificationType;
+  delivery: string;
+  channel: string | null;
   status: NotificationStatus;
   readAt: string | null;
+  /** Set when the reminder was derived from another record. */
+  relatedType: string | null;
+  relatedId: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface NotificationsResult extends Page<AppNotification> {
   unreadCount: number;
 }
 
-// ── Resources / Grades ────────────────────────────
+/** Result of the reminder sweep (POST /notifications/generate). */
+export interface NotificationGenerateResult {
+  created: number;
+  scanned: number;
+  unreadCount: number;
+}
 
+// ── Resources ─────────────────────────────────────
+
+export type ResourceStorageType = "URL" | "UPLOAD";
+
+export type ResourceType =
+  | "PDF"
+  | "VIDEO"
+  | "AUDIO"
+  | "SLIDES"
+  | "LINK"
+  | "DOCUMENT"
+  | "OTHER";
+
+/**
+ * Mirrors the API resource mapper. `UPLOAD` storage is reserved for the
+ * deferred S3 phase, so the UI creates `URL` resources today and keeps the
+ * file metadata fields for records that already carry them.
+ */
 export interface ResourceRecord {
   id: string;
   courseId: string | null;
   title: string;
+  description: string | null;
   url: string | null;
-  fileType: string | null;
-  sizeBytes: number | null;
+  storageType: ResourceStorageType;
+  fileKey: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  resourceType: ResourceType;
   createdAt: string;
+  updatedAt: string;
   course?: CourseRef | null;
 }
+
+// ── Grades ────────────────────────────────────────
 
 export type GradeType =
   | "ASSIGNMENT"
@@ -281,7 +326,80 @@ export interface AiMessage {
   createdAt: string;
 }
 
+// ── AI connections ────────────────────────────────
+
+// Mirrors `AiProviderName` in `apps/api/src/modules/ai-connections/schema.ts`.
+export type AiProviderName =
+  | "openai"
+  | "gemini"
+  | "anthropic"
+  | "openrouter"
+  | "ollama"
+  | "custom";
+
+export interface AiConnection {
+  id: string;
+  provider: AiProviderName;
+  model: string | null;
+  endpoint: string | null;
+  enabled: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiConnectionTestResult {
+  success: boolean;
+  message: string;
+  model: string | null;
+  error: string | null;
+}
+
 // ── Dashboard ─────────────────────────────────────
+
+export interface DashboardCourse {
+  id: string;
+  code: string | null;
+  name: string;
+  status: CourseStatus;
+  taskTotal: number;
+  taskCompleted: number;
+  /** 0-100, or null when the course has no tasks. */
+  taskProgress: number | null;
+  /** 0-100 weighted average, or null when nothing is scored. */
+  gradeAverage: number | null;
+  gradeCount: number;
+}
+
+export interface DashboardEvent {
+  id: string;
+  title: string;
+  type: EventType;
+  startAt: string;
+  endAt: string;
+  location: string | null;
+  course: CourseRef | null;
+}
+
+export interface DashboardTask {
+  id: string;
+  title: string;
+  dueDate: string | null;
+  priority: TaskPriority;
+  status: TaskStatus;
+  course: CourseRef | null;
+}
+
+export type ActivityKind = "task" | "note" | "grade" | "event" | "goal" | "resource";
+
+export interface DashboardActivity {
+  id: string;
+  kind: ActivityKind;
+  title: string;
+  detail: string | null;
+  at: string;
+  href: string | null;
+}
 
 export interface DashboardData {
   academicYears: AcademicYear[];
@@ -290,25 +408,120 @@ export interface DashboardData {
   courses: {
     total: number;
     active: number;
-    recent: Array<{ id: string; code: string; name: string }>;
+    completed: number;
+    recent: DashboardCourse[];
   };
   tasks: {
     total: number;
     byStatus: Record<string, number>;
     byPriority: Record<string, number>;
+    overdue: number;
+    dueToday: number;
   };
-  upcomingTasks: Array<{ id: string; title: string; dueDate: string | null; priority: TaskPriority; status: TaskStatus }>;
+  upcomingTasks: DashboardTask[];
+  overdueTasks: DashboardTask[];
+  exams: {
+    upcoming: Array<Omit<DashboardEvent, "type">>;
+    /** Whole days until the next exam, or null when none is scheduled. */
+    nextInDays: number | null;
+  };
   events: {
-    today: Array<{ id: string; title: string; type: EventType; startAt: string; endAt: string }>;
-    upcoming: Array<{ id: string; title: string; type: EventType; startAt: string; endAt: string }>;
+    today: DashboardEvent[];
+    upcoming: DashboardEvent[];
   };
   studySessions: {
     todayMinutes: number;
     todayCount: number;
+    weekMinutes: number;
     recent: Array<{ id: string; topic: string | null; startedAt: string; endedAt: string | null; durationMinutes: number | null }>;
   };
-  activeGoals: Array<{ id: string; title: string; progress: number; deadline: string | null; status: GoalStatus }>;
-  recentNotes: Array<{ id: string; title: string; updatedAt: string }>;
-  recentGrades: Array<{ id: string; title: string; score: number | null; maxScore: number | null; recordedAt: string }>;
-  notifications: { unreadCount: number };
+  activeGoals: Array<{
+    id: string;
+    title: string;
+    progress: number;
+    deadline: string | null;
+    status: GoalStatus;
+    milestoneTotal: number;
+    milestoneCompleted: number;
+  }>;
+  recentNotes: Array<{ id: string; title: string; updatedAt: string; course: CourseRef | null }>;
+  recentGrades: Array<{
+    id: string;
+    title: string;
+    score: number | null;
+    maxScore: number | null;
+    type: GradeType;
+    recordedAt: string;
+    course: CourseRef | null;
+  }>;
+  resources: { total: number };
+  notifications: {
+    unreadCount: number;
+    recent: Array<{
+      id: string;
+      title: string;
+      message: string;
+      type: NotificationType;
+      status: NotificationStatus;
+      relatedType: string | null;
+      relatedId: string | null;
+      createdAt: string;
+    }>;
+  };
+  activity: DashboardActivity[];
+}
+
+// ── Course summary ────────────────────────────────
+
+/** Cross-system rollup returned by GET /courses/:id/summary. */
+export interface CourseSummary {
+  course: {
+    id: string;
+    name: string;
+    code: string | null;
+    status: CourseStatus;
+    credits: number | null;
+    semesterId: string | null;
+  };
+  tasks: {
+    total: number;
+    completed: number;
+    open: number;
+    overdue: number;
+    /** 0-100, or null when the course has no tasks. */
+    progress: number | null;
+    byStatus: Record<string, number>;
+  };
+  events: {
+    upcoming: Array<{
+      id: string;
+      title: string;
+      type: EventType;
+      startAt: string;
+      endAt: string | null;
+      location: string | null;
+    }>;
+    examCount: number;
+  };
+  nextExam: { id: string; title: string; startAt: string; location: string | null } | null;
+  notes: { total: number };
+  resources: { total: number };
+  grades: {
+    total: number;
+    scored: number;
+    /** 0-100 weighted average, or null when nothing is scored. */
+    average: number | null;
+    recent: Array<{
+      id: string;
+      title: string;
+      score: number | null;
+      maxScore: number | null;
+      weight: number | null;
+      type: GradeType;
+      recordedAt: string;
+    }>;
+  };
+  study: { sessions: number; totalMinutes: number };
+  goals: { relatedActive: number };
+  eventsToday: number;
 }

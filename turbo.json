@@ -16,6 +16,8 @@
         "apps/api/src/**",
         "apps/api/tests/**",
         "apps/api/prisma/**",
+        "apps/web/src/**",
+        "apps/web/tests/**",
         "package.json",
         "pnpm-lock.yaml"
       ]

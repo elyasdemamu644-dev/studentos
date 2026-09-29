@@ -1,5 +1,7 @@
 # StudentOS — Final QA Report
 
+> **Archived historical snapshot** (originally `QA_FINAL_REPORT.md` at the repo root, moved 2026-09-27). Its test counts and file paths describe the state of 2026-09-24 and are **not** current. `AI_CONTEXT.md` is the source of truth.
+
 **Date:** 2026-09-24 · **Stack:** Next.js web app + Express/Prisma API (PostgreSQL) + Fastify? no — Express.
 
 ## Summary

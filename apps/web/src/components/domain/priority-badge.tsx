@@ -1,6 +1,6 @@
 import { Check, Circle } from "lucide-react";
 import { AlertCircle } from "lucide-react";
-import type { TaskPriority, TaskStatus } from "@/features/api-types";
+import type { TaskPriority, TaskStatus } from "@/types/api-types";
 import { PRIORITY_LABELS } from "@/lib/labels";
 
 export function PriorityBadge({ priority }: { priority: TaskPriority }) {

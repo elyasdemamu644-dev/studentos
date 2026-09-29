@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { Goal, GoalMilestone, GoalStatus, MilestoneStatus, Page } from "@/features/api-types";
+import type { Goal, GoalMilestone, GoalStatus, MilestoneStatus, Page } from "@/types/api-types";
 
 export interface GoalListParams {
   status?: GoalStatus;

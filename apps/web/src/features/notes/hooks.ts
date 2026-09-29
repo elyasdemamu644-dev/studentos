@@ -48,4 +48,4 @@ export function useDeleteNote() {
   });
 }
 
-export type { Note } from "@/features/api-types";
+export type { Note } from "@/types/api-types";

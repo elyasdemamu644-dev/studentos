@@ -8,6 +8,7 @@ import {
   createStudySessionSchema,
   updateStudySessionSchema,
   completeStudySessionSchema,
+  type StudySessionListQuery,
   type StudySessionCreate,
   type StudySessionUpdate,
 } from "./schema";
@@ -19,24 +20,10 @@ const idParam = { id: z.string().min(1) };
 
 router.get("/", zValidator("query", queryStudySessionSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { limit, cursor, courseId, taskId, range, from, to } = req.query as unknown as {
-      limit?: number;
-      cursor?: string;
-      courseId?: string;
-      taskId?: string;
-      range?: "today" | "week" | "month";
-      from?: string;
-      to?: string;
-    };
-    const result = await studySessionsService.list(req.currentUser!.id, {
-      limit,
-      cursor,
-      courseId,
-      taskId,
-      range,
-      from,
-      to,
-    });
+    const result = await studySessionsService.list(
+      req.currentUser!.id,
+      req.query as unknown as StudySessionListQuery,
+    );
     return res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 });

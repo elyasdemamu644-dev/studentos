@@ -33,7 +33,7 @@ import {
 import { TaskFormDialog } from "@/features/tasks/task-form";
 import { useCourses } from "@/features/courses/hooks";
 import { PRIORITY_LABELS, TASK_TYPE_LABELS } from "@/lib/labels";
-import type { Task, TaskPriority, TaskType } from "@/features/api-types";
+import type { Task, TaskPriority, TaskType } from "@/types/api-types";
 import { cn } from "@/lib/utils";
 
 type View = "ALL" | "TODO" | "IN_PROGRESS" | "COMPLETED";

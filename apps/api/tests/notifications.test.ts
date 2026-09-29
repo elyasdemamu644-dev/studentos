@@ -135,4 +135,152 @@ describe("Notifications Module", () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe("POST /notifications/generate", () => {
+    const hourMs = 60 * 60 * 1000;
+    const dayMs = 24 * hourMs;
+    let genToken: string;
+    let genUserId: string;
+
+    beforeAll(async () => {
+      const auth = await registerAndLogin("notif-generate@test.com", "Pass123!");
+      genToken = auth.token;
+      genUserId = auth.user.id;
+
+      // Everything below is relative to "now" so the windows are deterministic.
+      const now = Date.now();
+
+      await prisma.task.createMany({
+        data: [
+          {
+            userId: genUserId,
+            title: "Due in two days",
+            status: "TODO",
+            dueDate: new Date(now + 2 * dayMs),
+          },
+          {
+            userId: genUserId,
+            title: "Overdue by one day",
+            status: "IN_PROGRESS",
+            dueDate: new Date(now - 1 * dayMs),
+          },
+          {
+            userId: genUserId,
+            title: "Far future task",
+            status: "TODO",
+            dueDate: new Date(now + 30 * dayMs),
+          },
+          {
+            userId: genUserId,
+            title: "Already done",
+            status: "COMPLETED",
+            dueDate: new Date(now + 1 * dayMs),
+          },
+        ],
+      });
+
+      await prisma.event.createMany({
+        data: [
+          {
+            userId: genUserId,
+            title: "Midterm",
+            type: "EXAM",
+            startAt: new Date(now + 3 * dayMs),
+            endAt: new Date(now + 3 * dayMs + 2 * hourMs),
+          },
+          {
+            userId: genUserId,
+            title: "Lecture",
+            type: "CLASS",
+            startAt: new Date(now + 1 * dayMs),
+            endAt: new Date(now + 1 * dayMs + hourMs),
+          },
+          {
+            userId: genUserId,
+            title: "Exam next month",
+            type: "EXAM",
+            startAt: new Date(now + 30 * dayMs),
+            endAt: new Date(now + 30 * dayMs + hourMs),
+          },
+        ],
+      });
+
+      await prisma.goal.create({
+        data: {
+          userId: genUserId,
+          title: "Finish thesis",
+          status: "ACTIVE",
+          deadline: new Date(now + 5 * dayMs),
+        },
+      });
+    });
+
+    it("should create reminders for in-window data only", async () => {
+      const res = await authRequestJson("post", `${BASE}/notifications/generate`, genToken);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.created).toBe(4); // 2 tasks + 1 exam + 1 goal
+      expect(res.body.data.scanned).toBe(4);
+
+      const list = await authRequestJson("get", `${BASE}/notifications`, genToken);
+      const types = list.body.data.items.map((n: { type: string }) => n.type);
+
+      expect(types).toContain("ASSIGNMENT_DUE");
+      expect(types).toContain("OVERDUE_TASK");
+      expect(types).toContain("EXAM_REMINDER");
+      expect(types).toContain("GOAL_REMINDER");
+
+      // Out-of-window and non-matching records must not be referenced.
+      const relatedTitles = list.body.data.items.map((n: { message: string }) => n.message);
+      const allMessages = relatedTitles.join(" ");
+      expect(allMessages).toContain("Due in two days");
+      expect(allMessages).toContain("Overdue by one day");
+      expect(allMessages).toContain("Midterm");
+      expect(allMessages).toContain("Finish thesis");
+      expect(allMessages).not.toContain("Far future task");
+      expect(allMessages).not.toContain("Already done");
+      expect(allMessages).not.toContain("Exam next month");
+      expect(allMessages).not.toContain("Lecture");
+    });
+
+    it("should be idempotent across repeated calls", async () => {
+      const second = await authRequestJson("post", `${BASE}/notifications/generate`, genToken);
+      expect(second.status).toBe(200);
+      expect(second.body.data.created).toBe(0);
+      expect(second.body.data.scanned).toBe(4);
+
+      const list = await authRequestJson("get", `${BASE}/notifications`, genToken);
+      expect(list.body.data.items).toHaveLength(4);
+    });
+
+    it("should link each reminder to its source record", async () => {
+      const list = await authRequestJson("get", `${BASE}/notifications`, genToken);
+      const exam = list.body.data.items.find(
+        (n: { type: string }) => n.type === "EXAM_REMINDER",
+      );
+
+      expect(exam.relatedType).toBe("EVENT");
+      expect(exam.relatedId).toBeTruthy();
+      expect(exam.status).toBe("UNREAD");
+      expect(exam.delivery).toBe("IN_APP");
+
+      const event = await prisma.event.findUnique({ where: { id: exam.relatedId } });
+      expect(event?.title).toBe("Midterm");
+    });
+
+    it("should not generate reminders for another user", async () => {
+      const other = await registerAndLogin("notif-generate-other@test.com", "Pass123!");
+
+      const res = await authRequestJson("post", `${BASE}/notifications/generate`, other.token);
+      expect(res.status).toBe(200);
+      expect(res.body.data.created).toBe(0);
+      expect(res.body.data.scanned).toBe(0);
+      expect(res.body.data.unreadCount).toBe(0);
+    });
+
+    it("should require authentication", async () => {
+      const res = await authRequestJson("post", `${BASE}/notifications/generate`, "");
+      expect(res.status).toBe(401);
+    });
+  });
 });

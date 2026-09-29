@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { NotificationsResult, Settings } from "@/features/api-types";
+import type { NotificationsResult, Settings } from "@/types/api-types";
 
 export function getSettings(): Promise<Settings> {
   return api.get<Settings>("/settings");

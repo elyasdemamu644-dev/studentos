@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { GoalCard } from "@/features/goals/goal-card";
 import { GoalFormDialog } from "@/features/goals/goal-form";
 import { useGoals } from "@/features/goals/hooks";
-import type { Goal, GoalStatus } from "@/features/api-types";
+import type { Goal, GoalStatus } from "@/types/api-types";
 import { cn } from "@/lib/utils";
 
 type Filter = "ALL" | GoalStatus;

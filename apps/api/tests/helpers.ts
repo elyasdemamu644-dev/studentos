@@ -43,6 +43,7 @@ export async function cleanupDb() {
     "ai_messages",
     "ai_study_plans",
     "ai_study_plan_entries",
+    "ai_connections",
   ];
   for (const table of tables) {
     await prismaClient.$executeRawUnsafe(`TRUNCATE TABLE "${table}" CASCADE`);

@@ -5,7 +5,7 @@ import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { CalEvent, EventType } from "@/features/api-types";
+import type { CalEvent, EventType } from "@/types/api-types";
 import { EVENT_TYPE_LABELS } from "@/lib/labels";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,11 +80,14 @@ export function EventFormDialog({
   onOpenChange,
   event,
   defaultDate,
+  lockType,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   event?: CalEvent;
   defaultDate?: string;
+  /** Force the event type (e.g. the exams page reuses this form for EXAM). */
+  lockType?: EventType;
 }) {
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
@@ -108,7 +111,7 @@ export function EventFormDialog({
     if (event) {
       reset({
         title: event.title,
-        type: event.type,
+        type: lockType ?? event.type,
         startDate: isoToDateInput(event.startAt),
         startTime: isoToTimeInput(event.startAt),
         endDate: isoToDateInput(event.endAt),
@@ -118,14 +121,18 @@ export function EventFormDialog({
         description: event.description ?? "",
       });
     } else {
-      reset({ ...EMPTY_VALUES, startDate: defaultDate ?? format(new Date(), "yyyy-MM-dd") });
+      reset({
+        ...EMPTY_VALUES,
+        type: lockType ?? EMPTY_VALUES.type,
+        startDate: defaultDate ?? format(new Date(), "yyyy-MM-dd"),
+      });
     }
-  }, [open, event, defaultDate, reset]);
+  }, [open, event, defaultDate, lockType, reset]);
 
   const onSubmit = async (values: EventFormValues) => {
     const payload = {
       title: values.title,
-      type: values.type as EventType,
+      type: lockType ?? (values.type as EventType),
       startAt: new Date(`${values.startDate}T${values.startTime || "09:00"}:00`).toISOString(),
       endAt:
         values.endDate && values.endTime
@@ -158,8 +165,12 @@ export function EventFormDialog({
         </div>
         <div className="space-y-2">
           <Label htmlFor="event-type">Type</Label>
-          <Select value={watch("type")} onValueChange={(v) => setValue("type", v as EventType, { shouldValidate: true })}>
-            <SelectTrigger id="event-type">
+          <Select
+            value={lockType ?? watch("type")}
+            onValueChange={(v) => setValue("type", v as EventType, { shouldValidate: true })}
+            disabled={Boolean(lockType)}
+          >
+            <SelectTrigger id="event-type" disabled={Boolean(lockType)}>
               <SelectValue placeholder="Type" />
             </SelectTrigger>
             <SelectContent>

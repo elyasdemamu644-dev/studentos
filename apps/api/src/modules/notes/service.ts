@@ -119,7 +119,7 @@ function mapNote(record: {
   content: string;
   createdAt: Date;
   updatedAt: Date;
-  course: { id: string; code: string; name: string } | null;
+  course: { id: string; code: string | null; name: string } | null;
 }) {
   return {
     id: record.id,

@@ -152,7 +152,14 @@ describe("Dashboard Module", () => {
       expect(d.tasks.byStatus.TODO).toBe(2);
       expect(d.tasks.byStatus.IN_PROGRESS).toBe(1);
       expect(d.tasks.byStatus.COMPLETED).toBe(1);
-      expect(d.tasks.byStatus.DELETED).toBe(0);
+      // byStatus only contains statuses that actually exist for the user, and
+      // soft-deleted tasks are excluded from the dashboard entirely.
+      expect(d.tasks.byStatus.DELETED).toBeUndefined();
+      const statusTotal = Object.values(d.tasks.byStatus as Record<string, number>).reduce(
+        (sum, n) => sum + n,
+        0,
+      );
+      expect(statusTotal).toBe(d.tasks.total);
 
       // Priority breakdown
       expect(d.tasks.byPriority).toBeInstanceOf(Object);

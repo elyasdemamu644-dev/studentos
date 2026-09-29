@@ -6,6 +6,7 @@ import { notificationsService } from "./service";
 import {
   queryNotificationSchema,
   updateNotificationSchema,
+  type NotificationListQuery,
   type UpdateNotificationInput,
 } from "./schema";
 
@@ -22,22 +23,21 @@ router.post("/read-all", async (req: AuthRequest, res, next) => {
   } catch (error) { next(error); }
 });
 
+// Derives reminder notifications from the user's live tasks, exams and goals.
+// Idempotent, so the client can call this on every load.
+router.post("/generate", async (req: AuthRequest, res, next) => {
+  try {
+    const result = await notificationsService.generateForUser(req.currentUser!.id);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
 router.get("/", zValidator("query", queryNotificationSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { limit, cursor, status, type, unread } = req.query as unknown as {
-      limit?: number;
-      cursor?: string;
-      status?: "UNREAD" | "READ" | "ARCHIVED";
-      type?: "ASSIGNMENT_DUE" | "EXAM_REMINDER" | "OVERDUE_TASK" | "STUDY_REMINDER" | "STUDY_PLAN_REMINDER" | "GOAL_REMINDER" | "GENERAL";
-      unread?: boolean;
-    };
-    const result = await notificationsService.list(req.currentUser!.id, {
-      limit,
-      cursor,
-      status,
-      type,
-      unread,
-    });
+    const result = await notificationsService.list(
+      req.currentUser!.id,
+      req.query as unknown as NotificationListQuery,
+    );
     return res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 });

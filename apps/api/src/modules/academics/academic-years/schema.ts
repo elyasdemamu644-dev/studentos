@@ -23,3 +23,6 @@ export const update = z.object({
   endDate: z.string().optional(),
   status: z.enum(["UPCOMING", "ACTIVE", "COMPLETED"]).optional(),
 });
+
+export type AcademicYearCreate = z.infer<typeof create>;
+export type AcademicYearUpdate = z.infer<typeof update>;

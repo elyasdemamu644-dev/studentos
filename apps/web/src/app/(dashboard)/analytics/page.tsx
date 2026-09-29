@@ -34,7 +34,7 @@ import { useGrades, useDeleteGrade } from "@/features/grades/hooks";
 import { GradeFormDialog } from "@/features/grades/grade-form";
 import { useCourses } from "@/features/courses/hooks";
 import { useSessions } from "@/features/study/hooks";
-import type { GradeRecord, GradeType } from "@/features/api-types";
+import type { GradeRecord, GradeType } from "@/types/api-types";
 import { formatDate, formatMinutes } from "@/lib/format";
 
 const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];

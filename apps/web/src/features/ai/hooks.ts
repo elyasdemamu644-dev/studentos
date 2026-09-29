@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { AiMessage, Conversation } from "@/features/api-types";
+import type { AiMessage, Conversation } from "@/types/api-types";
 import * as api from "./ai-api";
 
 export function useConversations(params: api.ConversationListParams = {}) {

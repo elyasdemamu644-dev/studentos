@@ -15,8 +15,9 @@ import { useAuth } from "@/features/auth/auth-provider";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { ACCENTS, THEME_PRESETS } from "@/lib/theme/themes";
 import { useMarkAllNotificationsRead, useNotifications, useSettings, useUpdateSettings } from "@/features/settings/hooks";
+import { AiConnectionsPanel } from "@/features/ai-connections/connection-list";
 import { relativeTime } from "@/lib/format";
-import type { Settings } from "@/features/api-types";
+import type { Settings } from "@/types/api-types";
 import { cn } from "@/lib/utils";
 
 const MODES: Array<{ value: "light" | "dark" | "system"; label: string }> = [
@@ -64,7 +65,7 @@ export default function SettingsPage() {
       <PageHeader
         kicker="Preferences"
         title="Settings"
-        description="Profile, appearance, notifications and app preferences."
+        description="Profile, appearance, AI connections, notifications and app preferences."
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -221,6 +222,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+
+      <AiConnectionsPanel />
 
       <section className="rounded-xl border border-border bg-card p-5 shadow-card">
         <h2 className="mb-1 flex items-center gap-2 font-semibold">
