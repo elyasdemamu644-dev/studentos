@@ -11,6 +11,7 @@ import {
   isCredentialFreeProvider,
 } from "./schema";
 import { z } from "zod";
+import { NotFoundError } from "@/config/errors";
 
 const router = Router();
 
@@ -64,7 +65,7 @@ router.post(
         req.currentUser.id,
         req.body
       );
-      res.status(201).json({ data: conn });
+      res.status(201).json({ success: true, data: conn });
     } catch (error) {
       next(error);
     }
@@ -86,7 +87,7 @@ router.get(
         parseInt(limit, 10) || 50,
         cursor || undefined
       );
-      res.json({ data: page });
+      res.json({ success: true, data: page });
     } catch (error) {
       next(error);
     }
@@ -105,10 +106,9 @@ router.get(
         req.currentUser.id
       );
       if (!conn) {
-        res.status(404).json({ error: "No active AI connection" });
-        return;
+        throw new NotFoundError("No active AI connection");
       }
-      res.json({ data: conn });
+      res.json({ success: true, data: conn });
     } catch (error) {
       next(error);
     }
@@ -125,7 +125,7 @@ router.get(
         (req.params as { id: string }).id,
         req.currentUser.id
       );
-      res.json({ data: conn });
+      res.json({ success: true, data: conn });
     } catch (error) {
       next(error);
     }
@@ -151,7 +151,7 @@ router.patch(
         req.currentUser.id,
         req.body
       );
-      res.json({ data: conn });
+      res.json({ success: true, data: conn });
     } catch (error) {
       next(error);
     }
@@ -186,7 +186,7 @@ router.post(
         req.currentUser.id,
         req.body
       );
-      res.json({ data: result });
+      res.json({ success: true, data: result });
     } catch (error) {
       next(error);
     }
@@ -210,7 +210,7 @@ router.post(
         req.body,
         (req.params as { id: string }).id
       );
-      res.json({ data: result });
+      res.json({ success: true, data: result });
     } catch (error) {
       next(error);
     }
@@ -227,7 +227,7 @@ router.post(
         (req.params as { id: string }).id,
         req.currentUser.id
       );
-      res.json({ data: conn });
+      res.json({ success: true, data: conn });
     } catch (error) {
       next(error);
     }

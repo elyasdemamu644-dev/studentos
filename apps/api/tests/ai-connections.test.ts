@@ -310,6 +310,97 @@ describe("AI Connections — StudentOS Phase 2", () => {
     });
   });
 
+  // ── Response envelope ────────────────────────────────────────────────────────
+  //
+  // The web client (apps/web/src/lib/api/client.ts) only unwraps a 2xx body
+  // when `success === true`; otherwise it throws "Request failed (<status>)"
+  // and the UI renders an error state even though the API returned 200. These
+  // tests pin `success: true` on every AI Connections success response so the
+  // envelope cannot silently drift from the rest of the API.
+
+  describe("response envelope", () => {
+    it("POST / returns success: true with the created connection", async () => {
+      const res = await authRequestJson("post", BASE, alice.token, {
+        provider: "ollama",
+        endpoint: "http://localhost:11434",
+        model: "llama3",
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      const id = res.body.data.id;
+      expect(id).toBeDefined();
+      await prisma.aiConnection.delete({ where: { id } });
+    });
+
+    it("GET / returns success: true alongside the page", async () => {
+      const res = await authRequestJson("get", BASE, alice.token);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty("items");
+      expect(res.body.data).toHaveProperty("hasMore");
+      expect(res.body.data).toHaveProperty("nextCursor");
+    });
+
+    it("GET /:id returns success: true", async () => {
+      const c = await createConn(alice.token);
+      const res = await authRequestJson("get", `${BASE}/${c.id}`, alice.token);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(c.id);
+      await prisma.aiConnection.delete({ where: { id: c.id } });
+    });
+
+    it("PATCH /:id returns success: true", async () => {
+      const c = await createConn(alice.token);
+      const res = await authRequestJson("patch", `${BASE}/${c.id}`, alice.token, {
+        model: "gpt-4o-mini",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.model).toBe("gpt-4o-mini");
+      await prisma.aiConnection.delete({ where: { id: c.id } });
+    });
+
+    it("POST /:id/activate returns success: true", async () => {
+      const c = await createConn(alice.token);
+      const res = await authRequestJson("post", `${BASE}/${c.id}/activate`, alice.token);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.isActive).toBe(true);
+      await prisma.aiConnection.delete({ where: { id: c.id } });
+    });
+
+    it("POST /test returns success: true", async () => {
+      const res = await authRequestJson("post", `${BASE}/test`, alice.token, {
+        provider: "ollama",
+        endpoint: "http://localhost:11434",
+        model: "llama3",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it("GET /active returns success: true when one is active", async () => {
+      const c = await createConn(alice.token);
+      await authRequestJson("post", `${BASE}/${c.id}/activate`, alice.token);
+      const res = await authRequestJson("get", `${BASE}/active`, alice.token);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(c.id);
+      await prisma.aiConnection.delete({ where: { id: c.id } });
+    });
+
+    it("GET /active uses the standard error envelope when none is active", async () => {
+      const res = await authRequestJson("get", `${BASE}/active`, alice.token);
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toMatchObject({
+        code: expect.any(String),
+        message: expect.stringContaining("No active AI connection"),
+      });
+    });
+  });
+
   // ── CRUD ─────────────────────────────────────────────────────────────────────
 
   describe("CRUD", () => {

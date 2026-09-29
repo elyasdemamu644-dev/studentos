@@ -1,8 +1,8 @@
 # AI_CONTEXT — StudentOS source of truth
 
-> **Snapshot:** 2026-09-27, verified after the structure cleanup. Every claim below was read from code or produced by running a command in this repo. Anything not verifiable is listed in [Unverified](#unverified).
+> **Snapshot:** 2026-09-29, after the first Phase 3 (Integration QA) browser pass. Every claim below was read from code or produced by running a command in this repo. Anything not verifiable is listed in [Unverified](#unverified).
 > **Scope:** this file is the onboarding document for AI agents. Human setup lives in [README.md](README.md); agent workflow rules live in [INSTRUCTIONS_FOR_AGENT.md](INSTRUCTIONS_FOR_AGENT.md).
-> **Latest AI work:** structure cleanup completed — see [§17 Change log](#17-latest-ai-work--change-log).
+> **Latest AI work:** Phase 3 browser QA — Gap #25 closed and 3 runtime defects fixed — see [§17 Change log](#17-latest-ai-work--change-log).
 
 ---
 
@@ -63,10 +63,10 @@ Design intent, as evidenced by the code:
 
 | Field | Value |
 |---|---|
-| Phase | Post-Phase-2. **Phase 2 is now closed out** (2026-09-28): all 261 API tests and 77 web tests pass, and the AI Connections settings UI exists. Phase 3 (Integration QA) has not been started. |
-| Last committed checkpoint | `a07ae08` — *chore: stabilize current studentos baseline* |
-| Working tree | **DIRTY — large uncommitted change set (see [§3](#3-git--checkpoint-state))** |
-| Tests | API **261/261 pass**, Web **77/77 pass** — 0 failures. Gap #20 is closed. |
+| Phase | Post-Phase-2. **Phase 2 is closed out** (2026-09-28): all API tests and 77 web tests pass, and the AI Connections settings UI exists. **Phase 3 (Integration QA) began 2026-09-29** and immediately found 4 runtime defects the green suites had hidden — gaps #25–#28, all now fixed. |
+| Last committed checkpoint | `079a453` — *chore: Phase 2 checkpoint — AI Connections, feature UI, structure cleanup* |
+| Working tree | Clean at `079a453`; the Gap #25 runtime fixes are the next checkpoint (see [§3](#3-git--checkpoint-state)). |
+| Tests | API **269/269 pass**, Web **77/77 pass** — 0 failures. Gap #20 is closed; 8 envelope regression tests added 2026-09-29 (gap #27). |
 | Builds | `tsc` (API) **passes**; `pnpm build` (root, both apps) **passes**; `next build` (Web) 20 routes |
 | Lint | `next lint` **clean** (web only, `src` + `tests`). No lint config exists for the API — `tsc` is its only gate. |
 | CI | **None.** There is no `.github/` directory. |
@@ -76,24 +76,18 @@ Design intent, as evidenced by the code:
 
 ## 3. Git & checkpoint state
 
-Branch `main`. Two commits total:
+Branch `main`. Three commits:
 
 ```
-a07ae08  chore: stabilize current studentos baseline      <- HEAD
+<new>  fix: Gap #25 + AI Connections runtime envelope, encryption key, web API URL
+079a453  chore: Phase 2 checkpoint — AI Connections, feature UI, structure cleanup
+a07ae08  chore: stabilize current studentos baseline
 f7fb172  Initial commit: StudentOS monorepo (Express API + Next.js web + shared schemas)
 ```
 
-**The working tree is not clean.** The committed tree and the working tree differ. When a task says "the current state", it means the **working tree** unless it says otherwise. `git diff` before you assume a file is unchanged.
+**The Phase 2 working tree is committed as of 079a453.** The previously "uncommitted" pages, features, API module and tests are now in history — that list is gone. A `git checkout`/clean is no longer destructive.
 
-Uncommitted work in progress:
-
-- New pages: `(dashboard)/academics/`, `(dashboard)/exams/`, `(dashboard)/notifications/`, `(dashboard)/resources/`
-- New features: `features/academics/`, `features/notifications/`, `features/resources/`, `components/domain/notification-bell.tsx`, `features/events/exam-utils.ts`
-- New API module: `modules/ai-connections/` (+ `src/lib/encryption.ts`) — compiles; 2 of its tests need a contract decision, see gap #20
-- Modified: `app-shell.tsx`, `dashboard/page.tsx`, `courses/[id]/page.tsx`, `labels.ts`, `api-types.ts`, plus API `routes.ts`/`service.ts` files, `ai/provider.ts` and `api/tsconfig.json`
-- New tests: API `ai-connections`, `course-summary`, `dashboard-command-center`, `malformed-body`; Web `app-shell`, `academic-forms`, `exam-utils`, `notification-utils`
-
-**Consequence for agents:** a `git checkout`/clean would destroy in-flight work.
+Note that two fixes from the 2026-09-29 session live **only in gitignored files** and are therefore NOT in the commit: the `ENCRYPTION_KEY` value in `apps/api/.env` (gap #26) and the `NEXT_PUBLIC_API_URL` correction in `apps/web/.env.local` (gap #28). A fresh clone reproduces both failures. Root cause is gap #22.
 
 ---
 
@@ -369,13 +363,13 @@ The whole rest of the API stays fully functional when no provider is configured.
 | File | Purpose | Gitignored |
 |---|---|---|
 | `apps/api/.env` | API runtime config (loaded by `src/config/index.ts` via `process.loadEnvFile`, and parsed by `vitest.config.ts`) | yes |
-| `apps/api/.env.example` | 4 documented keys: `DATABASE_URL`, `JWT_SECRET`, `PORT`, `HOST`, `NODE_ENV` | **yes — and that is a bug**: root `.gitignore` has a blanket `.env.example` rule, so this file is **not in the repository** even though the README tells you to copy it. See gap #22. |
-| `apps/web/.env.local` | `NEXT_PUBLIC_API_URL` | yes |
-| `apps/web/.env.local.example` | `NEXT_PUBLIC_API_URL` only | yes |
+| `apps/api/.env.example` | Documented keys: `DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_KEY` (added 2026-09-29), `PORT`, `HOST`, `NODE_ENV` | **yes — and that is a bug**: root `.gitignore` has a blanket `.env.example` rule, so this file is **not in the repository** even though the README tells you to copy it. See gap #22. |
+| `apps/web/.env.local` | `NEXT_PUBLIC_API_URL` — **must be the API origin `:3001`**, not the web origin; there is no Next.js rewrite proxy | yes |
+| `apps/web/.env.local.example` | `NEXT_PUBLIC_API_URL` only, correctly set to `:3001` | yes |
 
 Full key set: `NODE_ENV`, `PORT`, `HOST`, `DATABASE_URL`, `JWT_SECRET`, `JWT_ACCESS_EXPIRES_IN_SECONDS`, `JWT_REFRESH_EXPIRES_IN_SECONDS`, `COOKIE_DOMAIN`, `AI_ENABLED`, `AI_PROVIDER`, `AI_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_USE_PATH_STYLE`, `CORS_ORIGINS`, `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, `UPLOAD_MAX_FILE_SIZE_BYTES`, `UPLOAD_ALLOWED_MIME_TYPES`, plus `ENCRYPTION_KEY` and `TEST_DATABASE_URL` (uncommitted, added by AI Connections).
 
-Boot fails fast via `validateConfig()` if `DATABASE_URL` or `JWT_SECRET` are missing (see [§9](#9-ai-architecture) for the AI condition and the S3 pair rule). The checked-out local `.env` contains a placeholder `OPENAI_API_KEY=sk-local-placeholder`, which satisfies boot validation but will not produce real completions.
+Boot fails fast via `validateConfig()` if `DATABASE_URL`, `JWT_SECRET` or **`ENCRYPTION_KEY`** are missing (see [§9](#9-ai-architecture) for the AI condition and the S3 pair rule). The `ENCRYPTION_KEY` requirement was added 2026-09-29 (gap #26) so a missing key is a boot failure instead of a 500 on every AI Connections write. Any string is accepted — `lib/encryption.ts` SHA-256 hashes it to 32 bytes; generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. The checked-out local `.env` contains a placeholder `OPENAI_API_KEY=sk-local-placeholder`, which satisfies boot validation but will not produce real completions.
 
 ---
 
@@ -433,7 +427,7 @@ pnpm dev
 
 | Suite | Command | Result | Time |
 |---|---|---|---|
-| API | `pnpm --filter @studentos/api test` | **23 files, 261 tests — 0 fail** | ~48 s |
+| API | `pnpm --filter @studentos/api test` | **23 files, 269 tests — 0 fail** (261 + 8 envelope tests, 2026-09-29) | ~64 s |
 | Web | `pnpm --filter @studentos/web test` | **12 files, 77 tests, 0 failures** | ~40 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
 | API build | `pnpm --filter @studentos/api build` | **pass** — `dist/` emitted | ~8 s |
@@ -492,7 +486,10 @@ Ordered by how likely they are to bite you.
 | 22 | **`.env.example` files are gitignored, so the documented setup cannot work from a fresh clone.** Root `.gitignore` has a blanket `.env.example` rule, but `README.md` says `cp apps/api/.env.example apps/api/.env`. Needs a `!.env.example` negation. | `.gitignore:10` |
 | 23 | **`components/ui/checkbox.tsx`, `skeleton.tsx` and `tabs.tsx` are unused.** Left in place deliberately — they are part of a uniform 17-file Radix primitive set, and pruning them would break the pattern. | `apps/web/src/components/ui/` |
 | 24 | **The local `.env` pointed at a PostgreSQL role that did not exist** (`elyassql`; only `postgres` exists on this machine), so all 23 API suites failed in `beforeAll` with `PrismaClientInitializationError` and **0 tests actually ran** — 261 reported as "skipped". Fixed 2026-09-28 by switching both URLs to the `postgres` role. Worth knowing because a green-looking run of *nothing* is the failure mode: if the whole suite reports skipped, suspect the database credentials before anything else. | `apps/api/.env` |
-| 25 | **The dev database `studentos` has no `ai_connections` table** — verified 2026-09-28: `prisma.aiConnection.count()` fails with `P2021` (table does not exist) and `information_schema` lists no such table. `studentos_test` does have it (10 columns, no `active_at`), which is why the API suite is green. The dev DB was seeded with `db push` at a point before the model existed. The migration is marked applied in both DBs but never ran (gap #15), so nothing reconciles them. **The AI Connections UI will error against the dev database until `db push` or `migrate deploy` is run against `studentos`.** | `apps/api/.env` vs `prisma/schema.prisma` |
+| 25 | **RESOLVED 2026-09-29.** The dev database `studentos` had no `ai_connections` table (`P2021`); `migrate deploy` could not fix it because both migrations are recorded in `_prisma_migrations` with `applied_steps_count = 0` (gap #15), so it is a silent no-op. A `migrate diff` preview confirmed the change was purely additive (one `CREATE TABLE`, one unique index, one FK — no `DROP`/`ALTER`), then `prisma db push` was run against `studentos`. The table now exists with all 10 columns and `prisma.aiConnection.count()` succeeds. **The real fix for a new database is still `db push` + `prisma migrate resolve --applied`** — see gap #15; the migration files themselves are corrected but still never actually execute. | `apps/api/prisma/migrations/` |
+| 26 | **`ENCRYPTION_KEY` was absent from `apps/api/.env`**, so every AI Connections write returned 500 `INTERNAL_ERROR_DEV` ("ENCRYPTION_KEY environment variable is not set"). The API suite stayed green because `vitest.config.ts` sets it. A key was added locally and `validateConfig()` now checks it, so a missing key fails at **boot** with the standard "Missing required environment variables" message instead of 500ing per request. **The key itself is only in the gitignored `.env`** — a fresh clone still has no key and will not boot until one is generated. `apps/api/.env.example` is also gitignored (gap #22), so the documented key never reaches the repo either. | `apps/api/src/config/index.ts`, `apps/api/.env` |
+| 27 | **Every AI Connections endpoint omitted `success: true` from its success envelope.** The API returned `200 {"data":{...}}`, but `apps/web/src/lib/api/client.ts` only unwraps a 2xx body when `success === true` — so the Settings UI rendered "Request failed (200)" with a retry button on perfectly successful responses. All 8 responses now use the standard `{ success: true, data }` envelope, and the 404 on `GET /ai-connections/active` now throws `NotFoundError` instead of an ad-hoc `{ error }` body. **The 261 API tests missed this entirely** because they only asserted `res.body.data`, never `res.body.success`; 8 regression tests now pin the envelope. Every other module already conformed — AI Connections was the sole outlier. | `apps/api/src/modules/ai-connections/routes.ts`, `apps/web/src/lib/api/client.ts:110-113` |
+| 28 | **`apps/web/.env.local` pointed `NEXT_PUBLIC_API_URL` at `localhost:3000`** — the web server itself — so every API call 404'd and login was impossible. There is no Next.js rewrite proxy in `apps/web/next.config.mjs`, so the web app must target the API origin on `:3001`; `.env.local.example` already said `:3001`. The file is gitignored, so a fresh clone reproduces this. | `apps/web/.env.local` |
 
 ---
 
@@ -549,10 +546,10 @@ There is **no roadmap file in the repository**, so this is inferred from the unc
 
 **Phase 1 (Database Foundation) is complete as of 2026-09-26** — Prisma migration history established, both dev and test databases verified, development seed run, test isolation confirmed.
 
-**Phase 2 is complete as of 2026-09-28** — AI Connections is implemented end to end (API module, encrypted credential storage, per-user provider resolution, the Settings-page UI) and the whole suite is green. The repository structure was standardized 2026-09-27 (see [§17](#17-latest-ai-work--change-log)). Phase 3 (Integration QA) has **not** been started.
+**Phase 2 is complete as of 2026-09-28** — AI Connections is implemented end to end (API module, encrypted credential storage, per-user provider resolution, the Settings-page UI) and the whole suite is green. The repository structure was standardized 2026-09-27 (see [§17](#17-latest-ai-work--change-log)). Phase 3 (Integration QA) **started 2026-09-29**; the first browser sweep closed gap #25 and found three further runtime defects (#26–#28).
 
-1. **Finish and commit the in-flight work** — the Academics, Exams, Notifications and Resources screens, the dashboard command center, `GET /courses/:id/summary`, AI Connections, and the new tests. All still uncommitted. Nothing is committed since `a07ae08`.
-2. **Run Phase 3 (Integration QA).** Everything green here is a per-package signal against a local database; nothing exercises the two apps talking to each other in a browser, and there is no CI (gap #11).
+1. **Finish and commit the in-flight work** — DONE as of `079a453` (2026-09-28): the Academics, Exams, Notifications and Resources screens, the dashboard command center, `GET /courses/:id/summary`, AI Connections, and the new tests are all committed.
+2. **Continue Phase 3 (Integration QA)** — started 2026-09-29. The first browser pass found 4 defects (gaps #25–#28) that the green suites had hidden. The same two-app-in-a-browser sweep still needs to cover the other 12 dashboard routes; only `/login` and `/settings` have been driven end to end. There is still no CI (gap #11), so nothing prevents a regression like the envelope bug from landing again.
 3. **Regenerate the OpenAPI spec** (`docs/api/openapi.yaml`) so it covers the real surface, is actually YAML (or is renamed `.json`), and documents 404-not-403 ownership masking. It does not list `/ai-connections/*` at all.
 4. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
 5. **Implement or remove the parked features** — rate limiting, S3 uploads, notification delivery/notification scheduler, recurring tasks.
@@ -563,6 +560,36 @@ There is **no roadmap file in the repository**, so this is inferred from the unc
 ---
 
 ## 17. Latest AI work / change log
+
+### 2026-09-29 — Phase 3 (Integration QA) begun. Gap #25 closed; 3 more runtime defects found by the browser.
+
+The per-package suites were fully green and the AI Connections feature was still **unusable in a browser**. Running the two apps together and driving them with Chromium exposed four defects that no existing test covered. This is the payoff of Phase 3 and the reason gap #11 (no CI) matters: every one of these was invisible to `pnpm test`.
+
+**Environment / database (gap #25)**
+- `prisma migrate deploy` is a **no-op** against the dev DB: both migrations sit in `_prisma_migrations` with `applied_steps_count = 0` (they were baselined with `resolve --applied`, gap #15), so Prisma believes the work is done. The dev DB had no `ai_connections` table.
+- `prisma migrate diff` was run first to prove the change was additive — one `CREATE TABLE`, one unique index, one FK, no `DROP` or `ALTER` — then `prisma db push` applied it to `studentos`. Table now has all 10 columns; `prisma.aiConnection.count()` succeeds; the table was left empty (the UI test fixtures were deleted afterwards).
+
+**Bug 1 — missing `ENCRYPTION_KEY` (gap #26)**
+- `POST /ai-connections` returned `500 INTERNAL_ERROR_DEV: ENCRYPTION_KEY environment variable is not set`. `vitest.config.ts` supplies the key, so all 261 tests were green.
+- Added a random key to the gitignored `apps/api/.env` and a documented blank to `.env.example`.
+- `config.encryptionKey` added and checked in `validateConfig()`, so a missing key is now a **boot** failure with the standard message. Verified by temporarily stripping the key from `.env` and confirming the throw, then restoring it. `encryption.ts` still reads `process.env.ENCRYPTION_KEY` directly — `config` exists purely so the value can be validated.
+
+**Bug 2 — the response envelope (gap #27) — the one that broke the UI**
+- All 8 AI Connections success responses returned `{"data": …}` with **no `success` field**. `apps/web/src/lib/api/client.ts:110-113` only unwraps a 2xx body when `success === true`, so the Settings panel rendered `Request failed (200)` plus a retry button on a completely successful response.
+- All 8 now send `{ success: true, data }`. The 404 on `GET /ai-connections/active` now throws `NotFoundError` instead of an ad-hoc `res.status(404).json({ error })` body, so it uses the shared error envelope.
+- **The tests could not have caught this:** they asserted `res.body.data` and never `res.body.success`. 8 regression tests now pin the envelope on every endpoint, including the error shape. API 261 → 269.
+- Audited every other module for the same class of bug — AI Connections was the only offender; all other domains already conformed.
+
+**Bug 3 — wrong API URL (gap #28)**
+- `apps/web/.env.local` set `NEXT_PUBLIC_API_URL=http://localhost:3000/api/v1`, i.e. the web server itself, and `next.config.mjs` defines no rewrite proxy. Every API call 404'd and login was impossible. `.env.local.example` already had the correct `:3001`.
+
+**Verification**
+- API **269/269**, web **77/77**, `tsc --noEmit` clean in both apps, `next lint` clean, `pnpm build` 2/2, `prisma migrate status` up to date.
+- Browser E2E (Chromium, `pnpm dev`): login → Settings → empty state → create Ollama connection → row renders → persists across reload → activate → delete → empty state restored. No credential material present in the DOM.
+
+**Method note.** Three early UI checks produced false readings and were discarded: `items=` counts were wrong because the list returns `{items, hasMore, nextCursor}` rather than a bare array (a PowerShell bug on my side, not a product bug); a selector missed because the provider field is a Radix `Select`, not a native `<select>`; and a screenshot was unreadable because this model has no image input. Switching to raw response bodies and DOM assertions is what actually surfaced the envelope bug. Do not trust a green UI check you have not read the raw payload for.
+
+**Still unfixed.** Gaps #26 and #28 exist only in gitignored files, so a fresh clone still fails to boot and cannot log in. Closing gap #22 (`.env.example` gitignored) is now a prerequisite, not a nicety.
 
 ### 2026-09-28 — Phase 2 closed out. 3 test failures fixed + the AI Connections settings UI.
 

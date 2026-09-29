@@ -53,6 +53,10 @@ export const config = {
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
   customAiEndpoint: process.env.CUSTOM_AI_ENDPOINT,
   customAiApiKey: process.env.CUSTOM_AI_API_KEY,
+  // Master key for AI Connections credential storage. lib/encryption.ts
+  // reads process.env.ENCRYPTION_KEY directly; surfaced here so validateConfig
+  // can fail at boot instead of every AI Connections write returning a 500.
+  encryptionKey: process.env.ENCRYPTION_KEY,
 
   // S3-compatible storage
   s3Endpoint: process.env.S3_ENDPOINT,
@@ -90,6 +94,7 @@ export function validateConfig(): void {
 
   if (!config.databaseUrl) missing.push("DATABASE_URL");
   if (!config.jwtSecret) missing.push("JWT_SECRET");
+  if (!config.encryptionKey) missing.push("ENCRYPTION_KEY");
   if (config.aiEnabled && config.aiProvider === "openai" && !config.openAiApiKey) missing.push("OPENAI_API_KEY");
   if (config.s3Endpoint && (!config.s3AccessKeyId || !config.s3SecretAccessKey))
     missing.push("S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY");
