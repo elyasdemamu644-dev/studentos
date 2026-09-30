@@ -48,6 +48,8 @@ function sanitizeMessage(message: string): string {
     .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]");
 }
 
+export { sanitizeMessage };
+
 /**
  * Normalise a provider result into the public TestConnectionResult shape.
  * Provider adapters report the failure detail in `message`; callers read
@@ -323,6 +325,7 @@ export async function getActiveUserConnection(
   provider: AiProviderName;
   decryptedCredentials: ProviderCredentials;
   endpoint: string | null;
+  model: string | null;
 } | null> {
   const record = await prisma.aiConnection.findFirst({
     where: { userId, isActive: true, enabled: true },
@@ -342,6 +345,7 @@ export async function getActiveUserConnection(
       decryptForUser(userId, record.credentialsEncrypted)
     ),
     endpoint: record.endpoint,
+    model: record.model,
   };
 }
 

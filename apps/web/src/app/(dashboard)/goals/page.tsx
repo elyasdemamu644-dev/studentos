@@ -85,7 +85,14 @@ export default function GoalsPage() {
       ) : goals.data && goals.data.items.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {goals.data.items.map((goal) => (
-            <GoalCard key={goal.id} goal={goal} onEdit={setEditing} />
+            <GoalCard
+              key={goal.id}
+              goal={goal}
+              onEdit={(g) => {
+                setEditing(g);
+                setFormOpen(true);
+              }}
+            />
           ))}
         </div>
       ) : (

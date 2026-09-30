@@ -67,7 +67,7 @@ export default function ExamsPage() {
               countdown.tone === "danger"
                 ? "bg-danger/10 text-danger"
                 : countdown.tone === "warning"
-                  ? "bg-warning/15 text-warning-foreground"
+                  ? "bg-warning/15 text-warning"
                   : "bg-primary/10 text-primary",
             )}
             aria-hidden

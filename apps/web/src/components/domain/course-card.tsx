@@ -2,22 +2,17 @@ import type { ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import type { Course } from "@/types/api-types";
-import { courseColor, courseColorSoft } from "@/features/courses/courses-api";
+import { CourseSwatch } from "@/components/domain/course-swatch";
 import { cn } from "@/lib/utils";
 
 export function CourseCard({ course, children }: { course: Course; children?: ReactNode }) {
-  const soft = courseColorSoft(course.id);
   return (
     <Link
       href={`/courses/${course.id}`}
       className="group block rounded-xl border border-border bg-card p-5 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-pop"
     >
       <div className="flex items-start justify-between gap-3">
-        <span
-          className="inline-block h-2.5 w-10 rounded-full"
-          style={{ backgroundColor: soft, boxShadow: `inset 0 0 0 2px ${courseColor(course.id)}` }}
-          aria-hidden
-        />
+        <CourseSwatch id={course.id} className="inline-block h-2.5 w-10 rounded-full" />
         <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
       </div>
       <h3 className="mt-3 truncate font-semibold">{course.name}</h3>

@@ -326,6 +326,31 @@ export interface AiMessage {
   createdAt: string;
 }
 
+// What the assistant did while producing its reply. Mirrors `ToolActivityEntry`
+// in `apps/api/src/modules/ai/agent.ts`.
+export interface AiToolActivity {
+  tool: string;
+  label: string;
+  status: "success" | "error" | "proposed";
+  summary: string;
+}
+
+// A change the assistant wants to make. Mirrors `PendingAction` in
+// `apps/api/src/modules/ai/confirmations.ts`. Nothing here is applied until the
+// user confirms.
+export type PendingActionStatus = "PENDING" | "EXECUTED" | "CANCELLED" | "SUPERSEDED";
+
+export interface PendingAction {
+  id: string;
+  title: string;
+  status: PendingActionStatus;
+  actions: Array<{ tool: string; description: string }>;
+  createdAt: string;
+  /** When the proposal stops being confirmable. */
+  expiresAt: string;
+  result: unknown | null;
+}
+
 // ── AI connections ────────────────────────────────
 
 // Mirrors `AiProviderName` in `apps/api/src/modules/ai-connections/schema.ts`.

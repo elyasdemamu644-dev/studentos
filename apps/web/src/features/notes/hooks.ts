@@ -11,6 +11,14 @@ export function useNotes(params: api.NoteListParams = {}) {
   });
 }
 
+export function useNote(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ["notes", id],
+    queryFn: () => api.getNote(id!),
+    enabled: Boolean(id),
+  });
+}
+
 export function useCreateNote() {
   const qc = useQueryClient();
   return useMutation({

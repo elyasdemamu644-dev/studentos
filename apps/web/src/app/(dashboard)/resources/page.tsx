@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ExternalLink,
   FileText,
@@ -46,9 +47,20 @@ const TYPE_FILTERS: Array<ResourceType | ""> = [
 ];
 
 export default function ResourcesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [search, setSearch] = useState("");
   const [courseFilter, setCourseFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<ResourceType | "">("");
+
+  useEffect(() => {
+    const courseParam = searchParams.get("course");
+    if (courseParam) {
+      setCourseFilter(courseParam);
+      router.replace("/resources");
+    }
+  }, [searchParams, router]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ResourceRecord | undefined>(undefined);

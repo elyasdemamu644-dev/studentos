@@ -1,0 +1,306 @@
+import { confirmationStore } from "./confirmations";
+import type { AiProvider, ChatMessage, ChatToolCall, ToolChoice } from "./provider";
+import { buildAgentSystemPrompt } from "./system-prompt";
+import { executeTool, getProviderToolSchemas, getTool } from "./tools/registry";
+import type { AiToolContext, AiToolResult, ProposedAction } from "./tools/types";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The tool-calling agent loop
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A bounded, provider-agnostic loop:
+//
+//   1. ask the model what it needs,
+//   2. run whatever tools it asked for through the registry,
+//   3. hand the results back and repeat,
+//   4. stop as soon as it answers in prose.
+//
+// Three hard limits, all of them here rather than in the prompt so a
+// non-compliant model cannot blow past them:
+//
+//  * `MAX_TOOL_ROUNDS` provider round-trips (4). A model that keeps calling
+//    tools is cut off and forced to answer from what it already has.
+//  * A write attempt ends the round and forces a prose turn, so the model
+//    cannot "confirm" its own proposal by calling the write tool again.
+//  * Tool output is truncated before it goes back into the prompt, so a large
+//    result cannot blow the context window on the next call.
+
+export const MAX_TOOL_ROUNDS = 4;
+
+/** How much of a single tool result is fed back to the model. */
+const MAX_TOOL_RESULT_CHARS = 6000;
+
+/** Conversation turns replayed to the model (the user's own words only). */
+const MAX_HISTORY_MESSAGES = 12;
+
+const MAX_USER_MESSAGE_CHARS = 4000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One entry in the "what the assistant is doing" feed the UI renders. */
+export interface ToolActivityEntry {
+  tool: string;
+  /** Present-tense label, e.g. "Checking your exams". */
+  label: string;
+  status: "success" | "error" | "proposed";
+  /** One-line, user-safe outcome. */
+  summary: string;
+}
+
+export interface AgentRunInput {
+  provider: AiProvider;
+  /** Authenticated user id. Everything the agent touches is scoped to it. */
+  userId: string;
+  conversationId: string;
+  history: Array<{ role: string; content: string }>;
+  userMessage: string;
+  studentName?: string | null;
+  /** The JSON context snapshot, used only on the no-tools fallback path. */
+  context?: string;
+  /**
+   * Exact calls the student has already approved this turn. Non-null only for
+   * a turn that is explicitly approving a stored proposal.
+   */
+  approvedActions?: ProposedAction[] | null;
+  maxRounds?: number;
+}
+
+export interface AgentRunResult {
+  /** The assistant's answer. Never empty. */
+  content: string;
+  toolActivity: ToolActivityEntry[];
+  /** Actions the model asked for that still need the student's confirmation. */
+  proposedActions: ProposedAction[];
+  /** True when at least one tool ran. */
+  usedTools: boolean;
+  rounds: number;
+  /** How the loop ended, useful for tests and for the API response. */
+  finish: "answered" | "tool_limit" | "confirmation_pending" | "no_tool_support";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The loop
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
+  const { provider } = input;
+
+  // Providers without native tool support (Gemini, Anthropic) keep the legacy
+  // grounded behaviour: one grounded call with the data snapshot inlined.
+  if (!provider.supportsTools()) {
+    const legacy = await provider.chat({
+      messages: [...input.history, { role: "user", content: input.userMessage }],
+      ...(input.context ? { context: input.context } : {}),
+    });
+    return {
+      content: legacy.content,
+      toolActivity: [],
+      proposedActions: [],
+      usedTools: false,
+      rounds: 1,
+      finish: "no_tool_support",
+    };
+  }
+
+  const pending = confirmationStore.getPending(input.userId, input.conversationId);
+  const tools = getProviderToolSchemas();
+
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: buildAgentSystemPrompt({
+        studentName: input.studentName,
+        pendingProposal: pending
+          ? {
+              id: pending.id,
+              title: pending.title,
+              actionCount: pending.actions.length,
+              expiresAt: pending.expiresAt,
+            }
+          : null,
+      }),
+    },
+    ...buildHistory(input.history),
+    { role: "user", content: input.userMessage.slice(0, MAX_USER_MESSAGE_CHARS) },
+  ];
+
+  const toolActivity: ToolActivityEntry[] = [];
+  const proposals: ProposedAction[] = [];
+  const maxRounds = Math.max(1, Math.min(input.maxRounds ?? MAX_TOOL_ROUNDS, MAX_TOOL_ROUNDS));
+  let rounds = 0;
+  let forceProse = false;
+
+  for (let round = 0; round < maxRounds; round += 1) {
+    rounds += 1;
+
+    const turn = await provider.chatWithTools({
+      messages,
+      ...(forceProse ? { toolChoice: "none" as ToolChoice } : { tools }),
+    });
+
+    const toolCalls = turn.toolCalls ?? [];
+
+    // A prose turn with no tool calls is the answer.
+    if (toolCalls.length === 0) {
+      return {
+        content: nonEmpty(turn.content) ?? fallbackText(toolActivity, proposals),
+        toolActivity,
+        proposedActions: proposals,
+        usedTools: toolActivity.length > 0,
+        rounds,
+        finish: proposals.length > 0 ? "confirmation_pending" : "answered",
+      };
+    }
+
+    messages.push({ role: "assistant", content: turn.content ?? null, toolCalls });
+
+    const { results, roundProposals, activity } = await runToolCalls(toolCalls, input);
+    toolActivity.push(...activity);
+
+    for (const [index, result] of results.entries()) {
+      messages.push({
+        role: "tool",
+        toolCallId: toolCalls[index]?.id ?? `call_${index}`,
+        name: toolCalls[index]?.function.name,
+        content: serializeToolResult(result),
+      });
+    }
+
+    // Anything that still needs approval is parked for the student. Recording
+    // it here (rather than in the tool) keeps the write path read-only until
+    // `confirm_pending_actions` runs.
+    proposals.push(...roundProposals);
+
+    // A proposal was just created: the next turn is prose-only so the model
+    // explains and asks, and cannot chain more writes behind the first one.
+    if (roundProposals.length > 0) forceProse = true;
+  }
+
+  // Round budget exhausted. One last, tool-free turn so the student gets an
+  // answer instead of a truncated tool trace.
+  const finalTurn = await provider.chatWithTools({
+    messages,
+    toolChoice: "none",
+  });
+
+  return {
+    content: nonEmpty(finalTurn.content) ?? "I looked through several of your records but did not reach a conclusion. Try asking about one thing at a time.",
+    toolActivity,
+    proposedActions: proposals,
+    usedTools: toolActivity.length > 0,
+    rounds,
+    finish: proposals.length > 0 ? "confirmation_pending" : "tool_limit",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool execution
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function runToolCalls(
+  toolCalls: ChatToolCall[],
+  input: AgentRunInput,
+): Promise<{ results: AiToolResult[]; roundProposals: ProposedAction[]; activity: ToolActivityEntry[] }> {
+  // The allow-list is scoped to this turn. A write tool that is not on it is
+  // refused by the registry, whatever the model asks for.
+  const ctx: AiToolContext = {
+    userId: input.userId,
+    conversationId: input.conversationId,
+    approvedActions: input.approvedActions ?? null,
+  };
+
+  const results: AiToolResult[] = [];
+  const roundProposals: ProposedAction[] = [];
+  const activity: ToolActivityEntry[] = [];
+
+  for (const call of toolCalls) {
+    const tool = getTool(call.function.name);
+    const label = tool?.activityLabel ?? "Running a tool";
+
+    const result = await executeTool(
+      { name: call.function.name, arguments: call.function.arguments },
+      ctx,
+    );
+
+    results.push(result);
+
+    if (result.proposedActions && result.proposedActions.length > 0) {
+      roundProposals.push(...result.proposedActions);
+      activity.push({
+        tool: call.function.name,
+        label,
+        status: "proposed",
+        summary: `Waiting for your confirmation (${result.proposedActions.length} change${result.proposedActions.length === 1 ? "" : "s"})`,
+      });
+      continue;
+    }
+
+    activity.push(
+      result.ok
+        ? { tool: call.function.name, label, status: "success", summary: result.summary ?? "Done" }
+        : { tool: call.function.name, label, status: "error", summary: result.error?.message ?? "Tool failed" },
+    );
+  }
+
+  return { results, roundProposals, activity };
+}
+
+/**
+ * How a result looks to the model: a compact JSON envelope. Errors are returned
+ * as data, not thrown, so the model can read the reason and correct itself.
+ */
+function serializeToolResult(result: AiToolResult): string {
+  const payload = result.ok
+    ? { ok: true, data: result.data ?? null, summary: result.summary ?? null }
+    : { ok: false, error: result.error };
+
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(payload);
+  } catch {
+    serialized = JSON.stringify({ ok: result.ok, error: { code: "unserializable", message: "Result could not be encoded." } });
+  }
+
+  if (serialized.length <= MAX_TOOL_RESULT_CHARS) return serialized;
+  return `${serialized.slice(0, MAX_TOOL_RESULT_CHARS)}… [truncated]`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Replay the last N conversation turns as plain user/assistant messages. */
+function buildHistory(history: Array<{ role: string; content: string }>): ChatMessage[] {
+  return history
+    .filter((m) => m.role === "USER" || m.role === "ASSISTANT")
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map((m) => ({
+      role: m.role === "ASSISTANT" ? ("assistant" as const) : ("user" as const),
+      content: m.content.slice(0, MAX_USER_MESSAGE_CHARS),
+    }));
+}
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * If the provider answered with tool calls but no text (a model that thinks in
+ * tools), the student still needs a sentence. Derive one from what happened
+ * rather than inventing an answer.
+ */
+function fallbackText(activity: ToolActivityEntry[], proposals: ProposedAction[]): string {
+  if (proposals.length > 0) {
+    return `I've prepared ${proposals.length} change${proposals.length === 1 ? "" : "s"} for you. Review the details below and confirm if you'd like me to apply ${proposals.length === 1 ? "it" : "them"}.`;
+  }
+  if (activity.some((a) => a.status === "error")) {
+    return "I couldn't read everything I needed just now. Could you try asking that again, or narrow it down?";
+  }
+  if (activity.length > 0) {
+    return "I've pulled up the relevant records, but I'd like a moment to summarise them properly — could you ask me again?";
+  }
+  return "I don't have enough information to answer that yet. Could you add a bit more detail?";
+}

@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCourses } from "@/features/courses/hooks";
-import { useCreateNote, useDeleteNote, useNotes, useUpdateNote } from "@/features/notes/hooks";
+import { useCreateNote, useDeleteNote, useNote, useNotes, useUpdateNote } from "@/features/notes/hooks";
 import type { Note } from "@/types/api-types";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -45,7 +45,7 @@ export default function NotesPage() {
   const notes = useNotes({
     search: search || undefined,
     courseId: courseFilter || undefined,
-    limit: 200,
+    limit: 100,
   });
   const courses = useCourses();
   const createNote = useCreateNote();
@@ -56,11 +56,21 @@ export default function NotesPage() {
     selectedId !== null && selectedId !== "new"
       ? (notes.data?.items ?? []).find((n) => n.id === selectedId)
       : undefined;
+  const noteQuery = useNote(
+    selectedId && selectedId !== "new" && !selectedNote ? selectedId : null,
+  );
+  const openNote = selectedNote ?? noteQuery.data;
 
   useEffect(() => {
     const noteParam = searchParams.get("note");
+    const courseParam = searchParams.get("course");
     if (noteParam) {
       setSelectedId(noteParam);
+    }
+    if (courseParam) {
+      setCourseFilter(courseParam);
+    }
+    if (noteParam || courseParam) {
       router.replace("/notes");
     }
   }, [searchParams, router]);
@@ -69,20 +79,19 @@ export default function NotesPage() {
     if (selectedId === null) return;
     if (selectedId === "new") {
       setDraft({ title: "", content: "", courseId: courseFilter });
-    } else if (selectedNote) {
+    } else if (openNote) {
       setDraft({
-        title: selectedNote.title,
-        content: selectedNote.content,
-        courseId: selectedNote.courseId ?? "",
+        title: openNote.title,
+        content: openNote.content,
+        courseId: openNote.courseId ?? "",
       });
     }
     dirtyRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, selectedNote?.id]);
+  }, [selectedId, openNote?.id]);
 
   const persist = async () => {
     if (!dirtyRef.current || saving) return;
-    dirtyRef.current = false;
     setSaving(true);
     try {
       if (selectedId === "new") {
@@ -91,6 +100,7 @@ export default function NotesPage() {
           content: draft.content,
           courseId: draft.courseId || null,
         });
+        dirtyRef.current = false;
         setSelectedId(note.id);
       } else if (selectedId) {
         await updateNote.mutateAsync({
@@ -101,6 +111,7 @@ export default function NotesPage() {
             courseId: draft.courseId || null,
           },
         });
+        dirtyRef.current = false;
       }
     } finally {
       setSaving(false);
@@ -230,15 +241,20 @@ export default function NotesPage() {
             <div className="flex min-h-[65vh] flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {saving ? (
+                  {noteQuery.isPending ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" aria-hidden />
+                      Loading…
+                    </span>
+                  ) : saving ? (
                     <span className="inline-flex items-center gap-1.5">
                       <span className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" aria-hidden />
                       Saving…
                     </span>
                   ) : dirtyRef.current ? (
                     <span>Unsaved changes</span>
-                  ) : selectedNote ? (
-                    <span>Last edited {relativeTime(selectedNote.updatedAt)}</span>
+                  ) : openNote ? (
+                    <span>Last edited {relativeTime(openNote.updatedAt)}</span>
                   ) : (
                     <span>New note</span>
                   )}

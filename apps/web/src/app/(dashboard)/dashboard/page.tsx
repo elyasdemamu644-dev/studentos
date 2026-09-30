@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
+  Award,
   Bell,
   BookOpen,
   CalendarClock,
@@ -34,7 +35,7 @@ import { useDashboard } from "@/features/dashboard/hooks";
 import { useAuth } from "@/features/auth/auth-provider";
 import type { ActivityKind, DashboardActivity } from "@/types/api-types";
 import { dueLabel, formatMinutes, relativeTime } from "@/lib/format";
-import { courseColorSoft } from "@/features/courses/courses-api";
+import { CourseSwatch } from "@/components/domain/course-swatch";
 import { cn } from "@/lib/utils";
 
 function greeting(): string {
@@ -48,7 +49,7 @@ function greeting(): string {
 const ACTIVITY_META: Record<ActivityKind, { icon: typeof ListTodo; href: string; label: string }> = {
   task: { icon: ListTodo, href: "/tasks", label: "Task" },
   note: { icon: StickyNote, href: "/notes", label: "Note" },
-  grade: { icon: Sparkles, href: "/analytics", label: "Grade" },
+  grade: { icon: Award, href: "/analytics", label: "Grade" },
   event: { icon: CalendarClock, href: "/calendar", label: "Event" },
   goal: { icon: Target, href: "/goals", label: "Goal" },
   resource: { icon: Paperclip, href: "/resources", label: "Resource" },
@@ -193,7 +194,7 @@ export default function DashboardPage() {
               href="/notifications"
               className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 transition-colors hover:bg-warning/20"
             >
-              <Bell className="h-5 w-5 shrink-0 text-warning-foreground" aria-hidden />
+              <Bell className="h-5 w-5 shrink-0 text-warning" aria-hidden />
               <span className="min-w-0 flex-1 text-sm">
                 <span className="font-semibold">
                   {data.notifications.unreadCount} unread reminder
@@ -456,11 +457,7 @@ export default function DashboardPage() {
                 className="rounded-xl border border-border bg-card p-4 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-pop"
               >
                 <div className="flex items-center gap-3">
-                  <span
-                    className="h-9 w-9 shrink-0 rounded-lg"
-                    style={{ backgroundColor: courseColorSoft(course.id) }}
-                    aria-hidden
-                  />
+                  <CourseSwatch id={course.id} className="h-9 w-9 shrink-0 rounded-lg" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{course.name}</span>
                     <span className="block text-xs text-muted-foreground">
@@ -531,10 +528,10 @@ export default function DashboardPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="Recent grades" icon={Sparkles} href="/analytics" linkLabel="Analytics">
+        <SectionCard title="Recent grades" icon={Award} href="/analytics" linkLabel="Analytics">
           {data.recentGrades.length === 0 ? (
             <EmptyState
-              icon={Sparkles}
+              icon={Award}
               title="No grades recorded"
               description="Grades you record will appear here."
               className="py-6"
@@ -624,6 +621,28 @@ export default function DashboardPage() {
           )}
         </SectionCard>
       </div>
+
+      {/* AI Assistant — clearly separate from academic Analytics */}
+      <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+              <Sparkles className="h-6 w-6" aria-hidden />
+            </span>
+            <div>
+              <p className="font-semibold">AI Study Assistant</p>
+              <p className="text-sm text-muted-foreground">
+                Get explanations, draft study plans and quiz yourself on your notes.
+              </p>
+            </div>
+          </div>
+          <Button asChild size="sm">
+            <Link href="/ai">
+              Open AI Assistant <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </Button>
+        </div>
+      </section>
     </div>
   );
 }

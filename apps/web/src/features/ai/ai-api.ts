@@ -1,5 +1,12 @@
 import { api } from "@/lib/api/client";
-import type { AiMessage, Conversation, ConversationType, Page } from "@/types/api-types";
+import type {
+  AiMessage,
+  AiToolActivity,
+  Conversation,
+  ConversationType,
+  Page,
+  PendingAction,
+} from "@/types/api-types";
 
 export interface ConversationListParams {
   type?: ConversationType;
@@ -36,6 +43,10 @@ export function listMessages(conversationId: string): Promise<AiMessage[]> {
 export interface AddMessageResult {
   message: AiMessage;
   reply: AiMessage | null;
+  /** What the assistant read/analysed, in order. */
+  toolActivity: AiToolActivity[];
+  /** The change awaiting the user's confirmation, if any. */
+  pendingAction: PendingAction | null;
 }
 
 export interface SendMessageInput {
@@ -49,4 +60,47 @@ export function sendMessage(input: SendMessageInput): Promise<AddMessageResult> 
     content: input.content,
     generateReply: input.generateReply ?? true,
   });
+}
+
+// ── Pending-action confirmation ────────────────────
+
+export interface PendingActionResult {
+  pendingAction: PendingAction | null;
+}
+
+/**
+ * The proposal awaiting confirmation, or null.
+ *
+ * This endpoint wraps its answer in `{ pendingAction }` (unlike
+ * `addMessage`, which returns the action at the top level of `data`), so the
+ * envelope has to be unwrapped here. Without this the page receives
+ * `{ pendingAction: null }` — a truthy object — and `PendingActionCard` throws
+ * on `action.actions.map(...)`.
+ */
+export async function getPendingAction(conversationId: string): Promise<PendingAction | null> {
+  const result = await api.get<PendingActionResult>(
+    `/ai/conversations/${conversationId}/pending-action`,
+  );
+  return result?.pendingAction ?? null;
+}
+
+/** Applies the exact stored proposal the user is looking at. */
+export function confirmPendingAction(
+  conversationId: string,
+  actionId: string,
+): Promise<PendingActionResult> {
+  return api.post<PendingActionResult>(
+    `/ai/conversations/${conversationId}/pending-action/${actionId}/confirm`,
+    {},
+  );
+}
+
+export function cancelPendingAction(
+  conversationId: string,
+  actionId: string,
+): Promise<PendingActionResult> {
+  return api.post<PendingActionResult>(
+    `/ai/conversations/${conversationId}/pending-action/${actionId}/cancel`,
+    {},
+  );
 }

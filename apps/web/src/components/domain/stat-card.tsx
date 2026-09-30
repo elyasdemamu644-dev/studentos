@@ -27,7 +27,7 @@ export function StatCard({
     <div className="rounded-xl border border-border bg-card p-5 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${tones[tone]}`}>
-          <Icon className="h-4.5 w-4.5" aria-hidden />
+          <Icon className="h-4 w-4" aria-hidden />
         </div>
         {action}
       </div>

@@ -33,6 +33,16 @@ try {
 
 testEnv.NODE_ENV = 'test';
 testEnv.AI_ENABLED = 'false';
+
+// Zero any AI provider keys so they never reach test workers. The app's `.env`
+// (.gitignored) may carry a live OPENROUTER_API_KEY etc.; tests must not be able
+// to read them or leak them into snapshots/output.
+testEnv.OPENAI_API_KEY = '';
+testEnv.OPENROUTER_API_KEY = '';
+testEnv.GEMINI_API_KEY = '';
+testEnv.ANTHROPIC_API_KEY = '';
+testEnv.CUSTOM_AI_API_KEY = '';
+
 testEnv.DATABASE_URL = testEnv.TEST_DATABASE_URL ?? 'postgresql://postgres@localhost:5432/studentos_test';
 testEnv.ENCRYPTION_KEY = testEnv.ENCRYPTION_KEY ?? 'test-encryption-key-for-studentos-tests-only--32bytes!!';
 

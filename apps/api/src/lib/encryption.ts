@@ -42,7 +42,11 @@ export function decrypt(ciphertextBase64: string): string {
   const key = getEncryptionKey();
   const packed = Buffer.from(ciphertextBase64, "base64");
 
-  if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH + 1) {
+  // An empty plaintext is still a valid AES-256-GCM output: 12-byte IV plus
+  // 16-byte auth tag and zero payload (28 bytes total). Credential-free
+  // providers (ollama) store `encryptForUser(userId, "")`, so any shorter
+  // threshold than `IV + AUTH_TAG` would reject a legitimate ciphertext.
+  if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH) {
     throw new Error("Invalid ciphertext: too short");
   }
 
@@ -105,7 +109,9 @@ export function decryptForUser(userId: string, ciphertextBase64: string): string
   const key = getUserKey(userId);
   const packed = Buffer.from(ciphertextBase64, "base64");
 
-  if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH + 1) {
+  // See `decrypt` above: an encrypted empty string is 28 bytes (IV + auth tag)
+  // and must be accepted so credential-free providers can round-trip.
+  if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH) {
     throw new Error("Invalid ciphertext: too short");
   }
 

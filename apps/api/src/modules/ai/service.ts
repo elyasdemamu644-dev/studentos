@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { NotFoundError } from "@/config/errors";
+import { NotFoundError, ConflictError } from "@/config/errors";
 import { getAIProvider, AiProviderNotConfiguredError } from "./provider";
 import { studentContextBuilder } from "./context";
+import { runAgent, type ToolActivityEntry } from "./agent";
+import { confirmationStore, toPendingActionResponse } from "./confirmations";
+import { executeProposalActions } from "./tools/confirm-tool";
+import { executeTool } from "./tools/registry";
+import type { ProposedAction } from "./tools/types";
 import type {
   CreateConversationInput,
   CreateMessageInput,
@@ -86,12 +91,15 @@ export const aiService = {
   },
 
   /**
-   * Add a message to a conversation.
+   * Add a message to a conversation and, for user messages, run the AI agent.
    *
-   * When `generateReply` is true and the message role is USER, the message is
-   * stored, the Student context is assembled, and the AI provider is asked to
-   * reply. The assistant reply is stored too. If no provider is configured a
-   * controlled 503 error is returned and no message is persisted.
+   * The agent loop (`runAgent`) may call read/analysis tools and — only with the
+   * student's approval — write tools. Its outcome is reported alongside the
+   * reply: what it did (`toolActivity`), what it wants approved (`pendingAction`)
+   * and whether the run used tools at all.
+   *
+   * `generateReply: false` keeps the store-only behaviour for callers that only
+   * want to persist a message.
    */
   async addMessage(userId: string, conversationId: string, input: CreateMessageInput) {
     await assertConversationOwnership(userId, conversationId);
@@ -105,7 +113,9 @@ export const aiService = {
         throw new AiProviderNotConfiguredError();
       }
 
-      // Assemble ground-truth context from the user's StudentOS data.
+      // Assemble ground-truth context from the user's StudentOS data. It is
+      // stored on the user message (as before) and inlined into the prompt for
+      // providers that have no native tool support.
       const context = await studentContextBuilder.toPrompt(userId);
 
       const history = await prisma.aiMessage.findMany({
@@ -114,13 +124,27 @@ export const aiService = {
         take: 30,
         select: { role: true, content: true },
       });
-      const providerMessages: Array<{ role: "user" | "assistant"; content: string }> = history.map((m) => ({
-        role: m.role === "ASSISTANT" ? "assistant" : "user",
-        content: m.content,
-      }));
-      providerMessages.push({ role: "user", content: input.content });
 
-      const result = await provider.chat({ messages: providerMessages, context });
+      const student = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true },
+      });
+
+      const run = await runAgent({
+        provider,
+        userId,
+        conversationId,
+        history,
+        userMessage: input.content,
+        studentName: student?.firstName ?? null,
+        context,
+      });
+
+      // A write was requested but not approved: park the exact calls so the
+      // student can approve them with one click or one "create it".
+      const pending = run.proposedActions.length
+        ? storeProposal(userId, conversationId, run)
+        : confirmationStore.getPending(userId, conversationId);
 
       // Persist user message + assistant reply in a transaction.
       const [userMessage, assistantMessage] = await prisma.$transaction([
@@ -128,11 +152,24 @@ export const aiService = {
           data: { conversationId, userId, role: "USER", content: input.content, contextSnapshot: context },
         }),
         prisma.aiMessage.create({
-          data: { conversationId, userId, role: "ASSISTANT", content: result.content },
+          data: { conversationId, userId, role: "ASSISTANT", content: run.content },
         }),
       ]);
 
-      return { message: mapMessage(userMessage), reply: mapMessage(assistantMessage) };
+      return {
+        message: mapMessage(userMessage),
+        reply: mapMessage(assistantMessage),
+        toolActivity: run.toolActivity,
+        pendingAction: toPendingActionResponse(pending),
+        agent: {
+          provider: provider.providerName,
+          model: provider.model,
+          usedTools: run.usedTools,
+          toolSupport: run.finish !== "no_tool_support",
+          finish: run.finish,
+          rounds: run.rounds,
+        },
+      };
     }
 
     // Store-only path (no provider call).
@@ -140,7 +177,70 @@ export const aiService = {
       data: { conversationId, userId, role, content: input.content },
     });
 
-    return { message: mapMessage(message), reply: null };
+    return {
+      message: mapMessage(message),
+      reply: null,
+      toolActivity: [] as ToolActivityEntry[],
+      pendingAction: toPendingActionResponse(confirmationStore.getPending(userId, conversationId)),
+      agent: null,
+    };
+  },
+
+  // ── Pending action confirmations ───────────
+
+  /** The proposal the student is currently being asked to approve, if any. */
+  async getPendingAction(userId: string, conversationId: string) {
+    await assertConversationOwnership(userId, conversationId);
+    return toPendingActionResponse(confirmationStore.getPending(userId, conversationId));
+  },
+
+  /**
+   * Apply a pending proposal. This is the REST twin of the chat-side
+   * `confirm_pending_actions` tool and runs the same code path, so a button
+   * click and a typed "create it" cannot drift apart.
+   *
+   * `consume` is atomic, so a double-click executes once. Re-confirming an
+   * already-applied proposal is a controlled 409 rather than a duplicate write.
+   */
+  async confirmAction(userId: string, conversationId: string, actionId: string) {
+    await assertConversationOwnership(userId, conversationId);
+
+    const existing = confirmationStore.get(userId, conversationId, actionId);
+    if (!existing) throw new NotFoundError("Pending action not found");
+    if (existing.status !== "PENDING") {
+      throw new ConflictError("This action has already been applied");
+    }
+
+    const proposal = confirmationStore.consume(userId, conversationId, actionId);
+    if (!proposal) throw new ConflictError("This action has already been applied");
+
+    const executed = await executeProposalActions(
+      proposal.actions,
+      { userId, conversationId },
+      executeTool,
+    );
+
+    const succeeded = executed.filter((e) => e.ok).length;
+    const summary = buildOutcomeSummary(executed, succeeded);
+    confirmationStore.complete(proposal.id, { executed: succeeded, failed: executed.length - succeeded, summary });
+
+    return {
+      status: executed.every((e) => e.ok) ? ("EXECUTED" as const) : ("PARTIAL" as const),
+      summary,
+      executed,
+      pendingAction: toPendingActionResponse(confirmationStore.get(userId, conversationId, actionId)),
+    };
+  },
+
+  /** Drop a pending proposal. Idempotent: cancelling twice is not an error. */
+  async cancelAction(userId: string, conversationId: string, actionId: string) {
+    await assertConversationOwnership(userId, conversationId);
+
+    const existing = confirmationStore.get(userId, conversationId, actionId);
+    if (!existing) throw new NotFoundError("Pending action not found");
+
+    const cancelled = confirmationStore.cancel(userId, conversationId, actionId);
+    return { pendingAction: toPendingActionResponse(cancelled) };
   },
 
   // ── Study plans ────────────────────────────
@@ -284,6 +384,40 @@ export const aiService = {
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
+
+/**
+ * Park the actions a run wants to perform and give the confirmation card a
+ * title. The title comes from the tool's own summary when it has one (a study
+ * plan names its course), so the student sees a specific headline rather than
+ * "3 changes".
+ */
+function storeProposal(
+  userId: string,
+  conversationId: string,
+  run: { proposedActions: ProposedAction[]; toolActivity: ToolActivityEntry[] },
+) {
+  const firstProposal = run.proposedActions[0];
+  const summary = run.toolActivity.find((a) => a.status === "proposed")?.summary;
+  const title = firstProposal?.description?.slice(0, 120) ?? summary ?? "Proposed changes";
+
+  return confirmationStore.create({
+    userId,
+    conversationId,
+    title,
+    actions: run.proposedActions,
+  });
+}
+
+/** One sentence describing what applying a proposal actually did. */
+function buildOutcomeSummary(
+  executed: Array<{ ok: boolean; description: string }>,
+  succeeded: number,
+): string {
+  if (executed.length === 0) return "Nothing to apply";
+  if (executed.length === 1 && succeeded === 1) return executed[0]?.description ?? "Applied";
+  if (succeeded === executed.length) return `Applied ${succeeded} change${succeeded === 1 ? "" : "s"}`;
+  return `Applied ${succeeded} of ${executed.length} changes`;
+}
 
 async function assertConversationOwnership(userId: string, conversationId: string): Promise<void> {
   const conversation = await prisma.aiConversation.findFirst({

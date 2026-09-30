@@ -45,6 +45,9 @@ export const config = {
   aiEnabled: process.env.AI_ENABLED !== "false",
   aiProvider: process.env.AI_PROVIDER ?? "openai",
   aiModel: process.env.AI_MODEL ?? "gpt-4o-mini",
+  // Base URL for the environment-default provider (default/fallback used when a
+  // user has no active personal AI connection). Dev default: OpenRouter.
+  aiBaseUrl: process.env.AI_BASE_URL ?? undefined,
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiBaseUrl: process.env.OPENAI_BASE_URL ?? undefined, // for compatible endpoints
   geminiApiKey: process.env.GEMINI_API_KEY,
@@ -95,7 +98,35 @@ export function validateConfig(): void {
   if (!config.databaseUrl) missing.push("DATABASE_URL");
   if (!config.jwtSecret) missing.push("JWT_SECRET");
   if (!config.encryptionKey) missing.push("ENCRYPTION_KEY");
-  if (config.aiEnabled && config.aiProvider === "openai" && !config.openAiApiKey) missing.push("OPENAI_API_KEY");
+
+  // AI default provider: require the credential the configured provider needs.
+  // `aiEnabled` gates the whole default-provider path, so an explicitly named
+  // provider must have its key present at boot rather than 502ing at runtime.
+  if (config.aiEnabled) {
+    switch (config.aiProvider) {
+      case "openai":
+        if (!config.openAiApiKey) missing.push("OPENAI_API_KEY");
+        break;
+      case "openrouter":
+        if (!config.openRouterApiKey) missing.push("OPENROUTER_API_KEY");
+        break;
+      case "gemini":
+        if (!config.geminiApiKey) missing.push("GEMINI_API_KEY");
+        break;
+      case "anthropic":
+        if (!config.anthropicApiKey) missing.push("ANTHROPIC_API_KEY");
+        break;
+      case "custom":
+        if (!config.customAiApiKey) missing.push("CUSTOM_AI_API_KEY");
+        if (!config.customAiEndpoint) missing.push("CUSTOM_AI_ENDPOINT");
+        break;
+      case "ollama":
+        break; // endpoint-only; OLLAMA_BASE_URL has a sensible default
+      default:
+        missing.push(`AI_PROVIDER (unknown provider "${config.aiProvider}")`);
+    }
+  }
+
   if (config.s3Endpoint && (!config.s3AccessKeyId || !config.s3SecretAccessKey))
     missing.push("S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY");
 

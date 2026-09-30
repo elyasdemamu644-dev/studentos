@@ -79,6 +79,46 @@ router.post("/conversations/:id/messages", zValidator("params", messageParam), z
   } catch (error) { next(error); }
 });
 
+// ── Pending action confirmations ──────────────
+//
+// The three endpoints behind the confirmation card. They operate on the
+// in-memory proposal the agent parked, scoped to the authenticated user *and*
+// the conversation — a proposal id from another account resolves to 404.
+
+const actionParam = { id: z.string().min(1), actionId: z.string().min(1) };
+
+/** What the student can currently approve. Used to rehydrate a reloaded page. */
+router.get("/conversations/:id/pending-action", zValidator("params", idParam), async (req: AuthRequest, res, next) => {
+  try {
+    const pending = await aiService.getPendingAction(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: { pendingAction: pending } });
+  } catch (error) { next(error); }
+});
+
+/** Apply the proposal. Idempotent-guarded: a second confirm is a 409, not a re-run. */
+router.post("/conversations/:id/pending-action/:actionId/confirm", zValidator("params", actionParam), async (req: AuthRequest, res, next) => {
+  try {
+    const result = await aiService.confirmAction(
+      req.currentUser!.id,
+      String(req.params.id),
+      String(req.params.actionId),
+    );
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+/** Decline the proposal. Safe to call twice. */
+router.post("/conversations/:id/pending-action/:actionId/cancel", zValidator("params", actionParam), async (req: AuthRequest, res, next) => {
+  try {
+    const result = await aiService.cancelAction(
+      req.currentUser!.id,
+      String(req.params.id),
+      String(req.params.actionId),
+    );
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
 // ── Study plans ────────────────────────────────
 
 router.get("/study-plans", zValidator("query", queryStudyPlanSchema), async (req: AuthRequest, res, next) => {

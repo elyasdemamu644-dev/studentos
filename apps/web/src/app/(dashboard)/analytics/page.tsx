@@ -37,7 +37,16 @@ import { useSessions } from "@/features/study/hooks";
 import type { GradeRecord, GradeType } from "@/types/api-types";
 import { formatDate, formatMinutes } from "@/lib/format";
 
-const PALETTE = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
+const PALETTE = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+];
 
 const GRADE_TYPE_LABELS: Record<string, string> = {
   ASSIGNMENT: "Assignment",
@@ -68,7 +77,7 @@ export default function AnalyticsPage() {
   const grades = useGrades({
     courseId: courseFilter || undefined,
     type: (typeFilter as GradeType) || undefined,
-    limit: 500,
+    limit: 100,
   });
   const courses = useCourses();
   const weekSessions = useSessions({ range: "week", limit: 1 });
@@ -209,7 +218,7 @@ export default function AnalyticsPage() {
                     <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
                     <Tooltip formatter={(value) => [`${value}%`, "Score"]} contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)" }} />
-                    <Line type="monotone" dataKey="score" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="score" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

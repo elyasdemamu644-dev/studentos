@@ -297,7 +297,7 @@ export default function CourseDetailPage() {
               <StickyNote className="h-4 w-4 text-primary" aria-hidden /> Notes
             </h2>
             <Button asChild variant="ghost" size="sm">
-              <Link href="/notes?course=1">
+              <Link href={`/notes?course=${id}`}>
                 All notes <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
               </Link>
             </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Library,
   ListTodo,
+  MoreHorizontal,
   Settings,
   Sparkles,
   StickyNote,
@@ -193,39 +194,114 @@ function Sidebar() {
 
 function MobileNav() {
   const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
   const mainItems = NAV_ITEMS.filter((item) =>
     (MOBILE_NAV_HREFS as readonly string[]).includes(item.href),
   );
+  const moreItems = NAV_ITEMS.filter(
+    (item) => !(MOBILE_NAV_HREFS as readonly string[]).includes(item.href),
+  );
+  const moreHrefs = [...moreItems.map((i) => i.href), "/settings"];
+  const moreActive = moreHrefs.some((href) => isNavActive(pathname, href));
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoreOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [moreOpen]);
+
   return (
-    <nav
-      aria-label="Mobile primary"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 backdrop-blur lg:hidden"
-    >
-      <ul className="flex items-stretch justify-around">
-        {mainItems.map((item) => {
-          const active = isNavActive(pathname, item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className="flex w-20 flex-col items-center gap-1 px-2 py-2 text-[11px] font-medium"
-              >
-                <span
-                  className={cn(
-                    "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
-                    active ? "bg-primary text-primary-foreground" : "text-muted-foreground",
-                  )}
+    <>
+      {moreOpen && (
+        <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={() => setMoreOpen(false)} aria-hidden />
+      )}
+      <nav
+        aria-label="Mobile primary"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 backdrop-blur lg:hidden"
+      >
+        <ul className="flex items-stretch">
+          {mainItems.map((item) => {
+            const active = isNavActive(pathname, item.href);
+            return (
+              <li key={item.href} className="min-w-0 flex-1">
+                <Link
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className="flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium"
                 >
-                  <item.icon className="h-5 w-5" aria-hidden />
-                </span>
-                {item.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+                  <span
+                    className={cn(
+                      "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
+                      active ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    <item.icon className="h-5 w-5" aria-hidden />
+                  </span>
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+          <li className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((open) => !open)}
+              aria-expanded={moreOpen}
+              aria-haspopup="menu"
+              className="flex w-full flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium"
+            >
+              <span
+                className={cn(
+                  "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
+                  moreActive ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                )}
+              >
+                <MoreHorizontal className="h-5 w-5" aria-hidden />
+              </span>
+              More
+            </button>
+          </li>
+        </ul>
+      </nav>
+      {moreOpen && (
+        <div
+          role="menu"
+          aria-label="More pages"
+          className="fixed inset-x-3 bottom-20 z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-border bg-card p-2 shadow-lg lg:hidden"
+        >
+          <p className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            More
+          </p>
+          <ul className="space-y-0.5">
+            {[...moreItems, { href: "/settings", label: "Settings", icon: Settings }].map((item) => {
+              const active = isNavActive(pathname, item.href);
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    role="menuitem"
+                    onClick={() => setMoreOpen(false)}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      active
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground/85 hover:bg-muted",
+                    )}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </>
   );
 }
 

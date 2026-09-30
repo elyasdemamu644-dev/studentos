@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { AiMessage, Conversation } from "@/types/api-types";
+import { formatApiError } from "@/components/states";
 import * as api from "./ai-api";
 
 export function useConversations(params: api.ConversationListParams = {}) {
@@ -57,8 +58,51 @@ export function useSendMessage() {
         if (result.reply && !next.some((m) => m.id === result.reply!.id)) next.push(result.reply!);
         return next;
       });
+      // A fresh reply can leave a new proposal behind (or supersede an old one).
+      qc.setQueryData(["ai", "pending-action", input.conversationId], result.pendingAction);
       qc.invalidateQueries({ queryKey: ["ai", "conversations"] });
     },
+  });
+}
+
+// ── Pending-action confirmation ────────────────────
+
+export function usePendingAction(conversationId: string | undefined) {
+  return useQuery({
+    queryKey: ["ai", "pending-action", conversationId],
+    queryFn: () => api.getPendingAction(conversationId!),
+    enabled: Boolean(conversationId),
+  });
+}
+
+export function useConfirmPendingAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, actionId }: { conversationId: string; actionId: string }) =>
+      api.confirmPendingAction(conversationId, actionId),
+    onSuccess: (result, { conversationId }) => {
+      qc.setQueryData(["ai", "pending-action", conversationId], result.pendingAction);
+      toast.success("Change applied");
+      // Tasks, study sessions and goals may all have changed.
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["study-sessions"] });
+      qc.invalidateQueries({ queryKey: ["goals"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error) => toast.error(formatApiError(error)),
+  });
+}
+
+export function useCancelPendingAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, actionId }: { conversationId: string; actionId: string }) =>
+      api.cancelPendingAction(conversationId, actionId),
+    onSuccess: (result, { conversationId }) => {
+      qc.setQueryData(["ai", "pending-action", conversationId], result.pendingAction);
+      toast.success("Change discarded");
+    },
+    onError: (error) => toast.error(formatApiError(error)),
   });
 }
 

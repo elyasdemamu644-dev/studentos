@@ -21,7 +21,7 @@ export function ErrorAlert({ error, retry, className }: { error: unknown; retry?
         <button
           type="button"
           onClick={retry}
-          className="mt-3 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white hover:bg-danger/90"
+          className="mt-3 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-danger-foreground hover:bg-danger/90"
         >
           Try again
         </button>
