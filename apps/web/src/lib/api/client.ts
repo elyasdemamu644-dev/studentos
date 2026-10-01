@@ -30,6 +30,10 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
 }
 
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { name?: string }).name === "AbortError";
+}
+
 /** Generic success envelope without the `data` (for e.g. logout). */
 interface Envelope<T> {
   success: boolean;
@@ -94,7 +98,11 @@ async function requestInternal<T>(
         headers: makeHeaders(withAuth),
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
-    } catch {
+    } catch (error) {
+      // A caller-driven abort (the chat's stop button) is not a network
+      // failure. Propagate it so the UI can treat it as a cancellation
+      // instead of an error the student has to retry.
+      if (isAbortError(error)) throw error;
       throw new NetworkError();
     }
   };

@@ -63,29 +63,30 @@ Design intent, as evidenced by the code:
 
 | Field | Value |
 |---|---|
-| Phase | Post-Phase-2. **Phase 2 is closed out** (2026-09-28): all API tests and 77 web tests pass, and the AI Connections settings UI exists. **Phase 3 (Integration QA) began 2026-09-29** and immediately found 4 runtime defects the green suites had hidden — gaps #25–#28, all now fixed. |
-| Last committed checkpoint | `079a453` — *chore: Phase 2 checkpoint — AI Connections, feature UI, structure cleanup* |
-| Working tree | Clean at `079a453`; the Gap #25 runtime fixes are the next checkpoint (see [§3](#3-git--checkpoint-state)). |
-| Tests | API **269/269 pass**, Web **77/77 pass** — 0 failures. Gap #20 is closed; 8 envelope regression tests added 2026-09-29 (gap #27). |
-| Builds | `tsc` (API) **passes**; `pnpm build` (root, both apps) **passes**; `next build` (Web) 20 routes |
+| Phase | Post-Phase-2. **Phase 2 is closed out** (2026-09-28). **Phase 3 (Integration QA) began 2026-09-29** and immediately found 4 runtime defects the green suites had hidden — gaps #25–#28, all now fixed. **The AI Agent Core was closed out 2026-09-30**: 50 tools (21 READ / 7 ANALYZE / 22 WRITE), natural-reference resolution before approval, and post-write verification. |
+| Last committed checkpoint | `42a26d3` — *feat(ai): add tool-calling agent and fix pending-action response unwrapping* |
+| Working tree | **Dirty.** The AI Agent Core landed in `42a26d3`, but the later work is **not** committed: `tools/verify.ts` and `tools/resolver.ts` are still untracked, and the verifier fixes, the `AI_AGENT_MAX_*` config, the tool-set and test changes sit on top (see [§3](#3-git--checkpoint-state)). |
+| Tests | API **375/375 pass** (26 files), Web **136/136 pass** (15 files) — 0 failures, re-run 2026-09-30 after the last edit. `ai-tools.test.ts` is 86 tests. |
+| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Both re-verified 2026-09-30. |
 | Lint | `next lint` **clean** (web only, `src` + `tests`). No lint config exists for the API — `tsc` is its only gate. |
 | CI | **None.** There is no `.github/` directory. |
-| Overall | Structure is standardized, the API compiles, every package test suite is green, and the root build passes. Still nothing committed. |
+| Overall | Structure is standardized, the API compiles, every package test suite is green, and the root build passes. The agent is committed but its verifier, resolver and the AI chat UI are not. |
 
 ---
 
 ## 3. Git & checkpoint state
 
-Branch `main`. Three commits:
+Branch `main`. Five commits:
 
 ```
-<new>  fix: Gap #25 + AI Connections runtime envelope, encryption key, web API URL
+42a26d3  feat(ai): add tool-calling agent and fix pending-action response unwrapping
+196d8f2  fix: close Gap #25 and repair AI Connections runtime integration
 079a453  chore: Phase 2 checkpoint — AI Connections, feature UI, structure cleanup
 a07ae08  chore: stabilize current studentos baseline
 f7fb172  Initial commit: StudentOS monorepo (Express API + Next.js web + shared schemas)
 ```
 
-**The Phase 2 working tree is committed as of 079a453.** The previously "uncommitted" pages, features, API module and tests are now in history — that list is gone. A `git checkout`/clean is no longer destructive.
+**The 50-tool agent is committed as of `42a26d3`, not still uncommitted** — earlier revisions of this file said otherwise. The *later* work is not: `apps/api/src/modules/ai/tools/verify.ts` and `resolver.ts` are untracked, so the entire post-write verification layer and natural-reference resolver would be lost to a `git clean`, along with the web AI chat components (`ai-chat.tsx`, `ai-conversation-sidebar.tsx`, `chat-utils.ts`) and their tests. A `git checkout`/clean **is** still destructive.
 
 Note that two fixes from the 2026-09-29 session live **only in gitignored files** and are therefore NOT in the commit: the `ENCRYPTION_KEY` value in `apps/api/.env` (gap #26) and the `NEXT_PUBLIC_API_URL` correction in `apps/web/.env.local` (gap #28). A fresh clone reproduces both failures. Root cause is gap #22.
 
@@ -310,23 +311,93 @@ Seed: `apps/api/prisma/seed.ts` (`pnpm --filter @studentos/api db:seed`). It `de
 
 ## 9. AI architecture
 
-`apps/api/src/modules/ai/` — `provider.ts`, `context.ts`, `service.ts`, `routes.ts`, `schema.ts`.
+`apps/api/src/modules/ai/` — `agent.ts`, `system-prompt.ts`, `provider.ts`, `context.ts`, `service.ts`, `confirmations.ts`, `routes.ts`, `schema.ts`, `tools/`.
 
-**Provider abstraction.** `AIProvider` = `{ name, isConfigured(), chat(ChatRequest) }`. `OpenAIProvider` calls `${OPENAI_BASE_URL ?? "https://api.openai.com"}/v1/chat/completions` with **plain `fetch` — no SDK** — at `temperature: 0.7`, so any OpenAI-compatible endpoint works. `createAIProvider()` switches on `AI_PROVIDER` (only `openai` implemented, and it is the default); `getAIProvider()` caches a process-lifetime singleton. Adding a provider means implementing the interface and adding one `case`.
+### 9.1 The agent loop
 
-**Grounding.** `studentContextBuilder.build(userId)` runs 7 bounded parallel queries and `toPrompt()` serializes them as `{"studentos": {...}}`, injected as a `system` message. Hard caps:
+`runAgent()` (`agent.ts`) is a bounded, provider-agnostic loop: ask the model what it needs → run the tools it asked for through the registry → feed the results back → repeat until it answers in prose. The workflow it implements is `UNDERSTAND → READ → ANALYZE → PLAN → PROPOSE → CONFIRM → ACT → VERIFY`.
 
-| Slice | Cap | Filter / order |
+Limits live in code, not in the prompt, so a non-compliant model cannot exceed them. Each is a hard ceiling; `config.aiAgentMax*` may only lower it.
+
+| Limit | Ceiling | Env override | Effect |
+|---|---|---|---|
+| Provider round-trips | `MAX_TOOL_ROUNDS` = 4 | `AI_AGENT_MAX_TOOL_ROUNDS` | Cut off, then one final tool-free turn so the student still gets an answer |
+| Tool calls per run | `MAX_TOOL_CALLS` = 12 | `AI_AGENT_MAX_TOOL_CALLS` | Remaining calls in the round are dropped and the model is told so |
+| Proposed actions per turn | `MAX_PROPOSED_ACTIONS` = 8 | `AI_AGENT_MAX_PROPOSED_ACTIONS` | Further writes refused with `proposal_limit`; the loop stops proposing |
+| Single tool result fed back | 6000 chars | — | Truncated with a `[truncated]` marker before it re-enters the prompt |
+| History replayed | 12 turns | — | User's and assistant's own words only |
+| User message | 4000 chars | — | Trimmed before it reaches the provider |
+
+Two further rules are structural, not numeric: a turn that produces a proposal becomes **prose-only** for its next round (so a model cannot chain writes behind one another), and the model-supplied `userId` is stripped by the Zod parse before any handler sees it.
+
+`finish` on the result is one of `answered`, `tool_limit`, `confirmation_pending`, `no_tool_support`.
+
+### 9.2 Tool layer
+
+`tools/registry.ts` is the only path between the model and StudentOS. It refuses unknown names, validates arguments against each tool's Zod schema (which strips undeclared keys), enforces the confirmation gate, and converts every thrown error into a safe, model-readable result. No tool imports Prisma — a test asserts this by scanning `tools/*.ts`.
+
+**50 tools: 21 READ, 7 ANALYZE, 22 WRITE** (21 mutations + `confirm_pending_actions`).
+
+| Kind | Tools |
+|---|---|
+| READ (21) | `get_courses`, `get_active_courses`, `get_tasks`, `get_upcoming_tasks`, `get_overdue_tasks`, `get_calendar_events`, `get_upcoming_exams`, `get_study_sessions`, `get_study_history`, `get_goals_and_milestones`, `get_goal_milestones`, `get_grades`, `get_notes`, `get_note`, `search_notes`, `get_task_subtasks`, `get_task_tags`, `get_resources`, `get_academic_structure`, `get_notifications`, `get_academic_dashboard` |
+| ANALYZE (7) | `analyze_academic_progress`, `identify_weak_courses`, `identify_at_risk_work`, `analyze_study_consistency`, `calculate_workload`, `identify_upcoming_priorities`, `build_study_plan` |
+| WRITE (22) | `create_task`, `update_task`, `complete_task`, `create_subtask`, `update_subtask`, `create_task_tag`, `create_study_session`, `update_study_session`, `create_goal`, `update_goal_progress`, `create_milestone`, `update_milestone`, `create_note`, `update_note`, `create_resource`, `update_resource`, `create_event`, `update_event`, `create_grade`, `update_grade`, `update_course`, `confirm_pending_actions` |
+
+There is deliberately **no delete, no bulk and no free-form update tool**: every action names one record and one bounded change.
+
+### 9.3 Natural references, resolved before approval
+
+`tools/resolver.ts` turns what the student actually says — "the Database exam", "CS210", "my lab report" — into a real record id. It collects candidates through the same domain services, scores them (exact id → exact text → space-insensitive code → prefix → substring → token overlap), and returns one of three outcomes:
+
+| Outcome | Behaviour |
+|---|---|
+| `resolved` | A single best match, with the `match` kind recorded |
+| `ambiguous` | Refused. The model receives the candidate list and must ask the student which one it meant — it never picks |
+| `not_found` | Refused. The model is told the record is not in the student's data and must not substitute a similar one |
+
+Courses, tasks, subtasks, study sessions, goals, milestones, notes, resources, events and grades are all resolvable. A **subtask is only resolvable inside its own task** and a **milestone only inside its own goal**, so "the introduction" cannot bind to the wrong parent.
+
+Resolution happens at **proposal** time, not execution time, via the optional `prepare(args, ctx)` hook on a tool definition (`types.ts`). The registry calls `prepare` before parking a write, and stores the *resolved* arguments. Two consequences, both deliberate: the confirmation card names the actual record rather than the loose phrase, and an ambiguous or missing reference is answered during the conversation instead of after the student clicks Confirm. Explicit ids still win; `prepare` only acts on a reference the model supplied.
+
+### 9.4 Confirmation
+
+A WRITE tool never runs on the turn that requests it. `executeTool` returns the validated call as `proposedActions`, the agent parks them via `confirmations.ts`, and nothing is created until the student confirms — by the UI's Confirm button (REST) or by saying "create it" (the `confirm_pending_actions` tool). Both paths funnel through `confirmationStore.consume`, so they cannot diverge.
+
+- Proposals are keyed by **user *and* conversation**: one student's proposal id resolves to nothing for another.
+- `consume` is atomic, so two concurrent confirms cannot both apply the same mutations; a second confirm is a 409 or a `no_pending_action` tool failure.
+- Proposals expire after 30 minutes. A new proposal supersedes the previous pending one.
+- The store is **in-process and in-memory**: the handshake is short-lived and inside one conversation, and persisting it would need a migration on a baselined database (see Known gaps).
+- An approved call is compared **by value**, so a stored `create_task` cannot be widened to a different title mid-flight, and one approval cannot unlock a different tool.
+
+### 9.5 Verification after the write
+
+`tools/verify.ts` re-reads every changed record **through the same domain service that wrote it** and compares the fields the student approved. `ok && verified` is the only state the assistant may call a success; an action that returned `ok` but did not match on re-read is reported as unverified, with the mismatch named. Every WRITE tool has a verifier, a test asserts every argument a tool can change is re-read by it, and a tool whose whole purpose is an outcome (`complete_task`) asserts that outcome directly. Timestamps compare the **exact instant** when the approval carried a time, and the **day** when it was date-only (the tool normalises a bare date to 09:00 local).
+
+`executeProposalActions()` (`tools/confirm-tool.ts`) produces one `ConfirmationActionOutcome` per step with `ok`, `verified`, an optional `error`, and a one-sentence `verification`. Failures are per action and never abort the batch. `summarizeOutcomes()` in `confirmations.ts` is shared by the REST and chat paths so both describe the same outcome identically: a single action reports its own verification, a batch reports `N of M action(s) applied and verified` plus what failed.
+
+The REST confirm endpoint returns `EXECUTED` only when every step is both applied and verified; anything else is `PARTIAL`.
+
+### 9.6 Providers
+
+`AiProvider` = `{ name, supportsTools(), chat(), chatWithTools() }`. All six provider kinds are implemented in `provider.ts` with plain `fetch` — **no SDK** — so any OpenAI-compatible endpoint works.
+
+| Provider | Native tool calling | Notes |
 |---|---|---|
-| courses | 30 | newest first |
-| tasks | 30 | `status != COMPLETED`, soonest `dueDate` first |
-| upcoming events | 20 | `startAt >= now`, soonest first |
-| study sessions | 10 | most recent |
-| active goals | 20 | `status = ACTIVE`, newest first |
-| notes | 10 | recently updated |
-| grades | 20 | most recently recorded |
+| `openai` | yes | `AI_PROVIDER` default; `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
+| `openrouter` | yes | Shares the OpenAI adapter; `OPENROUTER_API_KEY` |
+| `custom` | yes | `CUSTOM_AI_ENDPOINT` / `CUSTOM_AI_API_KEY`, any OpenAI-compatible endpoint |
+| `ollama` | yes | Local, credential-free. `OLLAMA_BASE_URL`; normalises `tool_calls` that omit `id` |
+| `gemini` | **no** | `GEMINI_API_KEY`; `candidates[].content.parts[].text` |
+| `anthropic` | **no** | `ANTHROPIC_API_KEY` |
 
-**Service behaviour.** Conversations, messages and study plans are fully DB-backed and ownership-scoped (cross-user → 404). Posting a message with `generateReply: true` (default) stores it, builds context + recent history, calls the provider, and persists the assistant reply together with `contextSnapshot`. `generateReply: false` stores the message only and returns `reply: null`.
+A provider without native tools keeps the honest grounded path: **one** call with the `studentContextBuilder` snapshot inlined, no tools advertised, `finish: "no_tool_support"` and an empty activity feed. It cannot write anything, and the prompt does not pretend otherwise.
+
+Resolution order: the student's active personal AI connection (encrypted at rest) → the environment default → 503 `AI_PROVIDER_NOT_CONFIGURED`.
+
+**Grounding snapshot** (`context.ts`, used only on the no-tools path) runs bounded parallel queries: courses 30, tasks 30 (`status != COMPLETED`, soonest due first), upcoming events 20, study sessions 10, active goals 20, notes 10, grades 20. `toPrompt()` serializes them as `{"studentos": {...}}` as a `system` message.
+
+**Service behaviour.** Conversations, messages and study plans are fully DB-backed and ownership-scoped (cross-user → 404). Posting a message with `generateReply: true` (default) stores it, runs the agent, and persists the assistant reply with `reply.toolActivity` / `reply.agent` alongside `contextSnapshot`. `generateReply: false` stores the message only and returns `reply: null`.
 
 **Failure modes (deliberate, not bugs).**
 
@@ -335,18 +406,26 @@ Seed: `apps/api/prisma/seed.ts` (`pnpm --filter @studentos/api db:seed`). It `de
 | No provider configured | 503 `AI_PROVIDER_NOT_CONFIGURED`; **no message persisted** |
 | Provider returns non-2xx or empty | 502 `AI_PROVIDER_ERROR` |
 | `AI_ENABLED=true` + provider `openai` + no `OPENAI_API_KEY` | `validateConfig()` **throws at boot** |
+| Ambiguous / missing reference | Tool failure (`ambiguous` / `not_found`) with candidate details; the model asks |
+| Model exceeds a limit | Turn is truncated or the call is refused; the student is told in plain language |
 
-Both AI failure codes are produced by `ApiError` subclasses in `provider.ts` (`AiProviderNotConfiguredError` → 503, `AiProviderError` → 502), so `globalErrorHandler` maps them through the normal envelope. Do **not** reintroduce a plain-`Error` class here — that silently becomes a 500. `AI_PROVIDER_ERROR` is declared but currently only `AiProviderNotConfiguredError` is thrown; provider-level HTTP failures surface through the adapter's own result object instead.
+Both AI failure codes are produced by `ApiError` subclasses in `provider.ts`, so `globalErrorHandler` maps them through the normal envelope. Do **not** reintroduce a plain `Error` class there — that silently becomes a 500.
 
-**Credential-free providers.** `isCredentialFreeProvider()` in `ai-connections/schema.ts` marks `ollama` as needing no API key, because it runs locally. `credentials` is therefore *optional in the type* but required at runtime for every other provider — enforced in `superRefine` in both the Zod schema and the route validator. An ollama connection stores an encrypted empty string (the `credentialsEncrypted` column is non-nullable), and `parseProviderCredentials("")` returns `{}`.
+**Credential-free providers.** `isCredentialFreeProvider()` in `ai-connections/schema.ts` marks `ollama` as needing no API key. `credentials` is *optional in the type* but required at runtime for every other provider — enforced in `superRefine` in both the Zod schema and the route validator. An ollama connection stores an encrypted empty string (`credentialsEncrypted` is non-nullable), and `parseProviderCredentials("")` returns `{}`.
 
 | Env var | Default | Notes |
 |---|---|---|
 | `AI_ENABLED` | `true` (`!== "false"`) | test config forces `false` so no external call is ever made |
-| `AI_PROVIDER` | `openai` | only value implemented |
+| `AI_PROVIDER` | `openai` | all six values implemented; see 9.6 |
 | `AI_MODEL` | `gpt-4o-mini` | |
-| `OPENAI_API_KEY` | — | required at boot when AI is enabled |
-| `OPENAI_BASE_URL` | `https://api.openai.com` | for compatible endpoints |
+| `AI_BASE_URL` | — | base URL of the environment-default provider |
+| `AI_AGENT_MAX_TOOL_ROUNDS` | `4` | clamped to `MAX_TOOL_ROUNDS` |
+| `AI_AGENT_MAX_TOOL_CALLS` | `12` | clamped to `MAX_TOOL_CALLS` |
+| `AI_AGENT_MAX_PROPOSED_ACTIONS` | `8` | clamped to `MAX_PROPOSED_ACTIONS` |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | — | required at boot when AI is enabled with `openai` |
+| `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` | — | |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | |
+| `CUSTOM_AI_ENDPOINT` / `CUSTOM_AI_API_KEY` | — | |
 
 The whole rest of the API stays fully functional when no provider is configured.
 
@@ -423,24 +502,23 @@ pnpm dev
 
 ---
 
-## 12. Test & build status (verified 2026-09-28, after the Phase 2 close-out)
+## 12. Test & build status (verified 2026-09-30, after the AI Agent Core close-out)
 
 | Suite | Command | Result | Time |
 |---|---|---|---|
-| API | `pnpm --filter @studentos/api test` | **23 files, 269 tests — 0 fail** (261 + 8 envelope tests, 2026-09-29) | ~64 s |
-| Web | `pnpm --filter @studentos/web test` | **12 files, 77 tests, 0 failures** | ~40 s |
+| API | `pnpm --filter @studentos/api test` | **26 files, 375 tests — 0 fail** | ~64 s |
+| Web | `pnpm --filter @studentos/web test` | **15 files, 136 tests — 0 fail** | ~9 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
 | API build | `pnpm --filter @studentos/api build` | **pass** — `dist/` emitted | ~8 s |
 | Web typecheck | `pnpm --filter @studentos/web exec tsc --noEmit` | **pass** (exit 0) | ~20 s |
-| Web build | `pnpm --filter @studentos/web build` | **pass** — 20 routes (19 static ○, `/courses/[id]` dynamic ƒ) | ~55 s |
+| Web build | `pnpm --filter @studentos/web build` | **pass** — 19 routes (18 static ○, `/courses/[id]` dynamic ƒ) | ~55 s |
 | Lint | `pnpm --filter @studentos/web lint` | **pass** — "No ESLint warnings or errors" | ~5 s |
-| Both | `pnpm build` | **pass** — 2/2 turbo tasks (API `tsc` + Web `next build`) | ~70 s |
 
-**`pnpm test` at the root should now pass**, since the turbo `test` task dependsOn `build` and nothing is red any more. Per-package commands still give a faster, more specific signal.
+Per-package commands give a faster, more specific signal than the root `pnpm test`. `tsc` is **not** on the global PATH in this environment; always use `pnpm --filter <pkg> exec tsc …` or `npx tsc` from the package directory.
 
 **API tests need a live PostgreSQL.** They are integration tests against a real database, not mocks. `vitest.config.ts` resolves `DATABASE_URL = TEST_DATABASE_URL ?? postgresql://postgres@localhost:5432/studentos_test`, forces `NODE_ENV=test` and `AI_ENABLED=false`.
 
-**Destructive and non-parallel-safe.** `tests/setup.ts` calls `cleanupDb()` in `beforeAll` for every file, and `cleanupDb()` issues `TRUNCATE TABLE ... CASCADE` over all tables. `fileParallelism: false` keeps files sequential within one run. **Two concurrent API test runs will deadlock** (PostgreSQL `40P01`, observed live during this verification) because both hold `ACCESS EXCLUSIVE` locks. Never run the API suite in parallel with another one, and point `TEST_DATABASE_URL` at a throwaway database.
+**Destructive and non-parallel-safe.** `tests/setup.ts` calls `cleanupDb()` in `beforeAll` for every file, and `cleanupDb()` issues `TRUNCATE TABLE ... CASCADE` over all tables. `fileParallelism: false` keeps files sequential within one run. **Two concurrent API test runs will deadlock** (PostgreSQL `40P01`, observed live) because both hold `ACCESS EXCLUSIVE` locks. Never run the API suite in parallel with another one, and point `TEST_DATABASE_URL` at a throwaway database.
 
 Prisma `createMany` stamps all rows with a single `now()`, so tests that assert `createdAt` ordering must insert explicit timestamps.
 
@@ -448,11 +526,20 @@ Prisma `createMany` stamps all rows with a single `now()`, so tests that assert 
 
 Both suites are **flat**, next to the app they test, never colocated with source.
 
-**API** (`apps/api/tests/`, 23 files + `helpers.ts` + `setup.ts`): `academics`, `ai`, `ai-connections`, `auth`, `course-summary`, `courses`, `cross-user`, `dashboard`, `dashboard-command-center`, `events`, `goals`, `grades`, `health`, `integration`, `malformed-body`, `notes`, `notifications`, `resources`, `settings`, `study-sessions`, `subtasks`, `task-tags`, `tasks`.
+**API** (`apps/api/tests/`, 26 files + `helpers.ts` + `setup.ts`): `academics`, `ai`, `ai-connections`, `ai-provider-resolution`, `ai-tools`, `auth`, `course-summary`, `courses`, `cross-user`, `dashboard`, `dashboard-command-center`, `encryption-provider-ai-connections`, `events`, `goals`, `grades`, `health`, `integration`, `malformed-body`, `notes`, `notifications`, `resources`, `settings`, `study-sessions`, `subtasks`, `task-tags`, `tasks`.
 
-**Web** (`apps/web/tests/`, 12 files + `setup.ts`): `academic-forms`, `ai-connections`, `app-shell`, `calendar-page`, `errors`, `exam-utils`, `format`, `labels`, `notification-utils`, `task-form`, `themes`, `utils`.
+`ai-tools.test.ts` is the AI agent suite: registry registration and JSON-Schema conversion, argument handling and error safety, real-data scoping, the WRITE confirmation gate, the confirmation store, the agent loop (tool round-trip, round limit, **call and proposal budgets**, proposal-then-prose, provider fallback), provider tool-call support, the HTTP surface, natural references, post-write verification (including a check that **every field a write tool can change is re-read**), and verified batch outcomes.
+
+**Web** (`apps/web/tests/`, 15 files + `setup.ts`): `academic-forms`, `ai-chat-flow` (tsx), `ai-chat-utils`, `ai-connections`, `ai-pending-action` (ts), `app-shell`, `calendar-page`, `errors`, `exam-utils`, `format`, `labels`, `notification-utils`, `task-form`, `themes`, `utils`.
 
 Test style: API uses supertest against the real `app` with helpers from `tests/helpers.ts` (`registerAndLogin`, `authRequestJson`, `authRequest`, `logout`). `authRequestJson`/`authRequest` are **overloaded** and accept two different call shapes; read the overloads before using them. Web tests are jsdom + Testing Library, setup in `apps/web/tests/setup.ts`, matched by the `tests/**/*.test.{ts,tsx}` glob in `apps/web/vitest.config.ts`.
+
+### Not covered by the automated suites
+
+- **Real provider end-to-end, partly done 2026-09-30.** OpenRouter is now proven against a live key: 50 tool schemas accepted, `tool_calls` normalised, read tools answered from the real DB, and the write then confirm then verify path passed 18/18 against a real database. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only, so `candidates[].content.parts[].text` and the Ollama `tool_calls` shape have never been seen on the wire. See gaps #29 and #33.
+- **Browser interaction with the confirmation card.** The card's Confirm/Cancel flow is exercised over HTTP and by types, not by a rendered click.
+- **A caution for any live or manual script:** `apps/api/.env` sets `DATABASE_URL` to the **dev** database `studentos`, while the test suites run against `studentos_test` (set in `apps/api/vitest.config.ts`). A throwaway script that reads `DATABASE_URL` therefore writes to the database you actually use. Prefer a dedicated `studentos_e2e` database, and if you do write to `studentos`, create the throwaway user **inside** a `try` so the cleanup `finally` actually runs. A script that creates rows before its `try` leaks them silently, which is what happened during the 2026-09-30 live run: three leftover users, since removed, with no orphaned rows in any user-owned table.
+
 
 ---
 
@@ -490,6 +577,11 @@ Ordered by how likely they are to bite you.
 | 26 | **`ENCRYPTION_KEY` was absent from `apps/api/.env`**, so every AI Connections write returned 500 `INTERNAL_ERROR_DEV` ("ENCRYPTION_KEY environment variable is not set"). The API suite stayed green because `vitest.config.ts` sets it. A key was added locally and `validateConfig()` now checks it, so a missing key fails at **boot** with the standard "Missing required environment variables" message instead of 500ing per request. **The key itself is only in the gitignored `.env`** — a fresh clone still has no key and will not boot until one is generated. `apps/api/.env.example` is also gitignored (gap #22), so the documented key never reaches the repo either. | `apps/api/src/config/index.ts`, `apps/api/.env` |
 | 27 | **Every AI Connections endpoint omitted `success: true` from its success envelope.** The API returned `200 {"data":{...}}`, but `apps/web/src/lib/api/client.ts` only unwraps a 2xx body when `success === true` — so the Settings UI rendered "Request failed (200)" with a retry button on perfectly successful responses. All 8 responses now use the standard `{ success: true, data }` envelope, and the 404 on `GET /ai-connections/active` now throws `NotFoundError` instead of an ad-hoc `{ error }` body. **The 261 API tests missed this entirely** because they only asserted `res.body.data`, never `res.body.success`; 8 regression tests now pin the envelope. Every other module already conformed — AI Connections was the sole outlier. | `apps/api/src/modules/ai-connections/routes.ts`, `apps/web/src/lib/api/client.ts:110-113` |
 | 28 | **`apps/web/.env.local` pointed `NEXT_PUBLIC_API_URL` at `localhost:3000`** — the web server itself — so every API call 404'd and login was impossible. There is no Next.js rewrite proxy in `apps/web/next.config.mjs`, so the web app must target the API origin on `:3001`; `.env.local.example` already said `:3001`. The file is gitignored, so a fresh clone reproduces this. | `apps/web/.env.local` |
+| 29 | **PARTIALLY CLOSED 2026-09-30 — OpenRouter proven live; the other five providers are still fixture-only.** A live run against a real OpenRouter key (base `https://openrouter.ai/api/v1`, `/chat/completions`) proved the adapter's wire format end to end: all **50** tool schemas serialise and are accepted, the model emits `tool_calls`, the adapter normalises them, and `get_tasks` / `get_courses` execute against the real DB and come back in the model's answer (it correctly reported the outstanding task, its missing course link, and that the only course was PSYC300). The write half was then driven through the real code path: `create_task` with a natural reference (`course: "PSYC300"`) returned `confirmation_required` with **zero** rows written, `prepare()` resolved the code to the real `courseId`, confirmation executed it, the re-read verified `title`, `status`, `priority` and `dueDate`, and another student could neither read nor write the record. 18/18 checks passed. **Still unproven:** Gemini, Anthropic, Ollama and the custom endpoint have never seen a live response, so `candidates[].content.parts[].text` and the Ollama `tool_calls` shape remain assertions against fixtures written from the docs. The local OpenRouter key is also out of credit, so only `:free` models are reachable from this machine. | `apps/api/tests/ai-provider-resolution.test.ts`, `apps/api/src/modules/ai/provider.ts` |
+| 33 | **The configured model will not drive a write, which strands the student in a dead end.** With `AI_MODEL=inclusionai/ling-3.0-flash-sante:free`, a request to add a task produced **0 proposals in 3 of 3 attempts**. This is not a harness fault: a wire-level probe showed all 50 tools (including `create_task`) are advertised, `supportsNativeTools` is true, and the model *does* emit tool calls — it just calls read tools, then narrates ("Shall I go ahead and create it?") instead of calling the write tool. The student then has no confirmation card to approve and the conversation waits forever. The prompt already forbids claiming success without a tool result, so nothing is written or falsely reported, but the feature is unusable on this model. Needs either a model with reliable tool calling for writes, or a fallback that surfaces "I could not prepare that change" when a turn expresses write intent but produced no proposal. | `apps/api/src/modules/ai/system-prompt.ts`, `apps/api/src/modules/ai/agent.ts` |
+| 30 | **Confirmations are in-process and in-memory** (`confirmations.ts`). A pending proposal does not survive an API restart, and with more than one API instance a student could be shown a proposal on one instance and be unable to confirm it on another. Fixing this needs a table, and the migration history is baselined (gap #15). | `apps/api/src/modules/ai/confirmations.ts` |
+| 31 | **`get_notifications` exposes only the assistant-relevant types** (`ASSIGNMENT`, `EXAM`, `DEADLINE`, `REMINDER`). The `GENERAL` type the notifications module can also produce is not readable by the agent. | `apps/api/src/modules/ai/tools/read-tools.ts` |
+| 32 | **No bulk or delete tools exist**, by design. The agent can only create and update one record at a time, so "delete these three tasks" or "reschedule my whole week" is out of reach until a bounded bulk tool is designed. | `apps/api/src/modules/ai/tools/action-tools.ts` |
 
 ---
 
@@ -546,20 +638,52 @@ There is **no roadmap file in the repository**, so this is inferred from the unc
 
 **Phase 1 (Database Foundation) is complete as of 2026-09-26** — Prisma migration history established, both dev and test databases verified, development seed run, test isolation confirmed.
 
-**Phase 2 is complete as of 2026-09-28** — AI Connections is implemented end to end (API module, encrypted credential storage, per-user provider resolution, the Settings-page UI) and the whole suite is green. The repository structure was standardized 2026-09-27 (see [§17](#17-latest-ai-work--change-log)). Phase 3 (Integration QA) **started 2026-09-29**; the first browser sweep closed gap #25 and found three further runtime defects (#26–#28).
+**Phase 2 is complete as of 2026-09-28** — AI Connections is implemented end to end (API module, encrypted credential storage, per-user provider resolution, the Settings-page UI) and the whole suite is green. The repository structure was standardized 2026-09-27 (see [§17](#17-latest-ai-work--change-log)). Phase 3 (Integration QA) **started 2026-09-29**; the first browser sweep closed gap #25 and found three further runtime defects (#26–#28). **The AI Agent Core was closed out 2026-09-30** — 50 tools, natural-reference resolution, and post-write verification (see [§17](#17-latest-ai-work--change-log)).
 
 1. **Finish and commit the in-flight work** — DONE as of `079a453` (2026-09-28): the Academics, Exams, Notifications and Resources screens, the dashboard command center, `GET /courses/:id/summary`, AI Connections, and the new tests are all committed.
-2. **Continue Phase 3 (Integration QA)** — started 2026-09-29. The first browser pass found 4 defects (gaps #25–#28) that the green suites had hidden. The same two-app-in-a-browser sweep still needs to cover the other 12 dashboard routes; only `/login` and `/settings` have been driven end to end. There is still no CI (gap #11), so nothing prevents a regression like the envelope bug from landing again.
-3. **Regenerate the OpenAPI spec** (`docs/api/openapi.yaml`) so it covers the real surface, is actually YAML (or is renamed `.json`), and documents 404-not-403 ownership masking. It does not list `/ai-connections/*` at all.
-4. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
-5. **Implement or remove the parked features** — rate limiting, S3 uploads, notification delivery/notification scheduler, recurring tasks.
-6. **Add CI**, and fix the `.env.example` gitignore rule so a fresh clone can follow the README (gap #22).
-7. Decide the fate of the 3 unreferenced shared schemas (gap #21), and of `resolveUserConnection` — it is unreferenced and returns a **masked** credential string, so it cannot be used to actually call a provider. `getActiveUserConnection` is the real one.
-8. `AiProviderError` (502) is declared but never thrown — either wire provider HTTP failures to it or drop it.
+2. **Verify the AI agent against the remaining real providers** (gap #29) — OpenRouter is now proven live (2026-09-30): 50 schemas accepted, `tool_calls` normalised, read tools answered from the real DB, write → confirm → verify passed 18/18. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only. The local OpenRouter key is out of credit, so only `:free` models are reachable, and the free model on this machine will not call a write tool at all (gap #33) — a paid key and a tool-calling-capable model are needed to finish this properly. Then continue Phase 3 (Integration QA) across the other 12 dashboard routes; only `/login` and `/settings` have been driven end to end. There is still no CI (gap #11), so nothing prevents a regression like the envelope bug from landing again.
+3. **Persist confirmations** (gap #30) — a pending proposal does not survive an API restart, and a multi-instance deployment would strand a student on a card they cannot confirm. Needs a table, and the migration history is baselined (gap #15).
+4. **Regenerate the OpenAPI spec** (`docs/api/openapi.yaml`) so it covers the real surface, is actually YAML (or is renamed `.json`), and documents 404-not-403 ownership masking. It does not list `/ai-connections/*` at all.
+5. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
+6. **Implement or remove the parked features** — rate limiting, S3 uploads, notification delivery/notification scheduler, recurring tasks.
+7. **Add CI**, and fix the `.env.example` gitignore rule so a fresh clone can follow the README (gap #22).
+8. Decide the fate of the 3 unreferenced shared schemas (gap #21), and of `resolveUserConnection` — it is unreferenced and returns a **masked** credential string, so it cannot be used to actually call a provider. `getActiveUserConnection` is the real one.
+9. `AiProviderError` (502) is declared but never thrown — either wire provider HTTP failures to it or drop it.
 
 ---
 
 ## 17. Latest AI work / change log
+
+### 2026-09-30 — AI Agent Core closed out. 50 tools, reference resolution, and post-write verification.
+
+The agent already read and analysed data and could propose writes, but three things were missing for a trustworthy `PROPOSE → CONFIRM → ACT` loop: the tool surface had holes (no updates for events, grades, resources or courses; no way to reach subtasks, tags, milestones, notifications or the academic structure), a write could only be aimed at a record by raw id, and a service returning `ok` was reported to the student as a completed change without ever being read back.
+
+**Tool surface: 14 → 50.** READ 21, ANALYZE 7, WRITE 22.
+
+- New READ tools: `get_note` (bounded full content), `search_notes` (with excerpts), `get_task_subtasks`, `get_task_tags`, `get_goal_milestones`, `get_academic_structure`, `get_notifications`.
+- New WRITE tools: `create_subtask`, `update_subtask`, `create_task_tag`, `create_milestone`, `update_milestone`, `update_note`, `update_resource`, `create_event`, `update_event`, `create_grade`, `update_grade`, `update_course`.
+- Existing writes gained the same treatment: every one now takes a natural reference alongside its id.
+- Fixed `get_notifications`, which called `notificationsService.list` with `{ unread }` while the tool named the argument `unreadOnly` — the filter was silently dropped.
+- Fixed a latent bug this exposed: milestone status offered `CANCELLED`, which the goal service does not accept, so any milestone write failed schema validation at the service boundary.
+
+**Natural references (`tools/resolver.ts`, new).** Every tool that touches an existing record now accepts what the student said — a course code, a task title, "the Database exam" — and resolves it through the existing services. Ambiguity is refused with the candidate list attached so the model asks a question instead of guessing; a miss is refused rather than substituted. A subtask only resolves inside its own task and a milestone only inside its own goal. Course codes match with or without a space (`PSYC300` / `PSYC 300`).
+
+**Resolution happens before approval, not after.** The new optional `prepare(args, ctx)` hook on a tool definition is called by the registry before a write is parked as a proposal, and the *resolved* arguments are what get stored and shown. Without this, the confirmation card would have said "add a task to `PSYC300`" as an unexpanded reference, and a bad reference would only have surfaced after the student clicked Confirm. This was found by a test, not by inspection: the first run of the new natural-reference suite failed with `confirmation_required` on every case, because the registry intercepts writes before the handler ever runs.
+
+**Verification (`tools/verify.ts`, new).** After each confirmed step, the changed record is re-read **through the same domain service that wrote it** and the approved fields are compared; 96 field mappings cover the 21 mutation tools, and `complete_task` is checked with an `expect` predicate because its outcome is a status it never receives as an argument. `ok && verified` is the only state the assistant may call a success; a write that returned `ok` but did not match on re-read is reported as unverified with the mismatch named. Outcomes are per action and never abort the batch, and `summarizeOutcomes()` is shared by the REST and chat paths so both describe the same outcome identically. The REST confirm endpoint returns `PARTIAL` unless every step is applied **and** verified.
+
+**Three defects found in the verifier by reviewing it after writing it, and fixed:**
+- `complete_task` mapped `status` in its field table but the tool takes **no** `status` argument, so the comparison loop skipped it and the action verified on its title alone — a task that was never completed would have been reported as done. Verifiers now take an optional `expect` predicate for an outcome the tool exists to produce.
+- 17 approved tool/field pairs were never re-read: task `description`/`type` (create and update), `focusRating` and `endedAt` (create and update), tag `color`, and `description` on goal, resource (create and update), event (create and update) and course, plus grade `recordedAt` (create and update). Each write verified on the strength of its other fields. All are now mapped: the 21 mutation tools carry 96 approved field mappings between them, and a test compares every WRITE tool's declared arguments against its verifier's fields so this cannot recur.
+- Timestamps were compared **to the day**, so an exam approved for 14:00 and stored at 09:00 on the same day verified. Date-only approvals still compare the day (the tool normalises `"2026-01-15"` to 09:00 local, and only the day was asked for); anything carrying a time now compares the exact instant.
+
+**Bounded loop (`agent.ts`, `config/index.ts`).** Added `MAX_TOOL_CALLS` (12) and `MAX_PROPOSED_ACTIONS` (8) alongside the existing round limit, each with an `AI_AGENT_MAX_*` env override that can only *lower* it. Tool calls past the budget are dropped with the model told, and writes past the proposal budget are refused with `proposal_limit` rather than silently dropped.
+
+**UI.** The confirmation card now renders the API's real per-step results — applied and verified, applied but unverified, or not applied — from a new `AiActionOutcome[]` cache written only by a confirm response. The toast reports the server's own count instead of a blanket "Change applied", and a `PARTIAL` result is an error toast. Added `useActionOutcomes()` and the `notes`/`resources`/`events`/`grades`/`courses` cache invalidations the wider tool surface now needs.
+
+**Verification run (all re-run after the last edit):** API 26 files / 375 tests, 0 fail. Web 15 files / 136 tests, 0 fail. API and web typecheck pass, `next lint` clean, both builds pass. `ai-tools.test.ts` grew 60 → 86 tests: natural references, post-write verification (including a field-coverage test and both halves of the timestamp rule), the call and proposal budgets, and verified batch outcomes.
+
+**Still not verified:** anything against a real provider (gap #29). Confirmations remain in-memory (gap #30).
 
 ### 2026-09-29 — Phase 3 (Integration QA) begun. Gap #25 closed; 3 more runtime defects found by the browser.
 

@@ -17,3 +17,9 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
     }),
   });
 }
+
+// jsdom implements no layout, so the scroll-into-view calls the chat uses for
+// auto-scrolling are missing. Stub them rather than guarding production code.
+if (typeof window !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}

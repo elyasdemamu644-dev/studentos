@@ -1,5 +1,6 @@
 import type {
   AiProviderName,
+  ConversationType,
   MilestoneStatus,
   ResourceType,
   TaskPriority,
@@ -76,6 +77,30 @@ export const AI_PROVIDER_LABELS: Record<AiProviderName, string> = {
   ollama: "Ollama (local)",
   custom: "Custom endpoint",
 };
+
+/**
+ * AI conversation kinds. `STUDY_PLAN` and friends are the intent the assistant
+ * starts from; the conversation's own title is derived from the first message
+ * once one exists, so these labels describe intent rather than content.
+ */
+export const CONVERSATION_TYPE_LABELS: Record<ConversationType, string> = {
+  CHAT: "Chat",
+  TUTOR: "Tutor",
+  QUIZ: "Quiz",
+  STUDY_PLAN: "Study plan",
+  EXPLAIN: "Explain",
+};
+
+export const CONVERSATION_TYPE_DESCRIPTIONS: Record<ConversationType, string> = {
+  CHAT: "General study questions",
+  TUTOR: "Guided teaching & practice",
+  QUIZ: "Test your knowledge",
+  STUDY_PLAN: "Plan a study schedule",
+  EXPLAIN: "Break down a topic",
+};
+
+/** Placeholder titles for a conversation that has no messages yet. */
+export const UNTITLED_CONVERSATION = "New conversation";
 
 /**
  * Providers that authenticate by endpoint alone, so no API key is required.

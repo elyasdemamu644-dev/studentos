@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { confirmationStore, type ConfirmationActionOutcome } from "@/modules/ai/confirmations";
+import { confirmationStore, summarizeOutcomes, type ConfirmationActionOutcome } from "@/modules/ai/confirmations";
 
 // Type-only import: erased at compile time, so it does not close the runtime
 // cycle with registry.ts (which imports this module to build its table).
@@ -8,6 +8,7 @@ import type { executeTool } from "./registry";
 
 import type { AiToolDefinition, ProposedAction } from "./types";
 import { fail, ok } from "./types";
+import { verifyExecutedAction } from "./verify";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // confirm_pending_actions
@@ -51,13 +52,14 @@ export const confirmPendingActionsTool: AiToolDefinition = {
     }
 
     const executed = await executeProposalActions(proposal.actions, ctx, executeTool);
-    const succeeded = executed.filter((e) => e.ok).length;
-    const summary =
-      executed.length === 1 && succeeded === 1
-        ? (executed[0]?.description ?? "Action applied")
-        : `${succeeded} of ${executed.length} action(s) applied`;
+    const summary = summarizeOutcomes(executed);
 
-    confirmationStore.complete(proposal.id, { executed: succeeded, failed: executed.length - succeeded, summary });
+    confirmationStore.complete(proposal.id, {
+      executed: executed.filter((e) => e.ok).length,
+      verified: executed.filter((e) => e.ok && e.verified).length,
+      failed: executed.filter((e) => !e.ok).length,
+      summary,
+    });
 
     return {
       ...ok({ executed, confirmationId: proposal.id }, summary),
@@ -68,11 +70,17 @@ export const confirmPendingActionsTool: AiToolDefinition = {
 };
 
 /**
- * Run an approved set of actions.
+ * Run an approved set of actions, then prove each one landed.
  *
- * Each one goes back through `executeTool` with a single-entry allow-list, so a
- * write can never execute more than what the student was shown — and the same
- * validation and error shaping applies on this path as on a normal call.
+ * Each step goes back through `executeTool` with a single-entry allow-list, so a
+ * write can never execute more than what the student was shown — the same
+ * validation and error shaping applies here as on a normal call. Afterwards each
+ * changed record is re-read through its own service and the approved fields are
+ * compared, so a returned `ok` is never reported as success on its own.
+ *
+ * Failures are per action and never abort the batch: a proposal that saves four
+ * study sessions and loses one to a bad time still applies the other three, and
+ * says exactly that.
  */
 export async function executeProposalActions(
   actions: ProposedAction[],
@@ -82,17 +90,39 @@ export async function executeProposalActions(
   const outcomes: ConfirmationActionOutcome[] = [];
 
   for (const action of actions) {
-    const result = await runner({ name: action.tool, arguments: action.arguments }, {
-      userId: ctx.userId,
-      conversationId: ctx.conversationId,
-      approvedActions: [action],
-    });
+    const result = await runner(
+      { name: action.tool, arguments: action.arguments },
+      { userId: ctx.userId, conversationId: ctx.conversationId, approvedActions: [action] },
+    );
+
+    if (!result.ok) {
+      outcomes.push({
+        tool: action.tool,
+        description: action.description,
+        ok: false,
+        verified: false,
+        error: result.error?.message ?? "Action failed",
+      });
+      continue;
+    }
+
+    const recordId = extractRecordId(result.data);
+    const verification = await verifyExecutedAction(
+      ctx.userId,
+      action.tool,
+      action.arguments as Record<string, unknown>,
+      result.data,
+    );
 
     outcomes.push({
       tool: action.tool,
       description: action.description,
-      ok: result.ok,
-      ...(result.ok ? { recordId: extractRecordId(result.data) } : { error: result.error?.message ?? "Action failed" }),
+      ok: true,
+      verified: verification.verified,
+      recordId,
+      ...(verification.verified
+        ? { verification: verification.message }
+        : { error: verification.message, verification: verification.message }),
     });
   }
 

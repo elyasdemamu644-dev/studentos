@@ -56,10 +56,17 @@ export const config = {
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
   customAiEndpoint: process.env.CUSTOM_AI_ENDPOINT,
   customAiApiKey: process.env.CUSTOM_AI_API_KEY,
-  // Master key for AI Connections credential storage. lib/encryption.ts
-  // reads process.env.ENCRYPTION_KEY directly; surfaced here so validateConfig
-  // can fail at boot instead of every AI Connections write returning a 500.
-  encryptionKey: process.env.ENCRYPTION_KEY,
+    // Master key for AI Connections credential storage. lib/encryption.ts
+    // reads process.env.ENCRYPTION_KEY directly; surfaced here so validateConfig
+    // can fail at boot instead of every AI Connections write returning a 500.
+    encryptionKey: process.env.ENCRYPTION_KEY,
+
+    // AI agent loop budget. The hard ceilings in `ai/agent.ts` always win — these
+    // only let a deployment tighten them, never raise them past the ceiling.
+    aiAgentMaxToolRounds: Number(process.env.AI_AGENT_MAX_TOOL_ROUNDS ?? 4),
+    aiAgentMaxToolCalls: Number(process.env.AI_AGENT_MAX_TOOL_CALLS ?? 12),
+    aiAgentMaxProposedActions: Number(process.env.AI_AGENT_MAX_PROPOSED_ACTIONS ?? 8),
+
 
   // S3-compatible storage
   s3Endpoint: process.env.S3_ENDPOINT,

@@ -12,8 +12,11 @@ vi.mock("@/modules/ai-connections/service", async (importOriginal) => {
 import { prisma, registerAndLogin, authRequestJson } from "./helpers";
 import { getActiveUserConnection } from "@/modules/ai-connections/service";
 import { AiProvider, resolveAiProvider } from "@/modules/ai/provider";
-import { runAgent, MAX_TOOL_ROUNDS } from "@/modules/ai/agent";
-import { confirmationStore, toPendingActionResponse } from "@/modules/ai/confirmations";
+import { runAgent, MAX_PROPOSED_ACTIONS, MAX_TOOL_CALLS, MAX_TOOL_ROUNDS } from "@/modules/ai/agent";
+import { confirmationStore, summarizeOutcomes, toPendingActionResponse } from "@/modules/ai/confirmations";
+import { executeProposalActions } from "@/modules/ai/tools/confirm-tool";
+import { verificationFields, verificationTools, verifyExecutedAction } from "@/modules/ai/tools/verify";
+import { eventsService } from "@/modules/events/service";
 import { zodToJsonSchema } from "@/modules/ai/tools/json-schema";
 import {
   executeTool,
@@ -102,6 +105,11 @@ function textTurn(content: string) {
 }
 
 function toolCallTurn(name: string, args: Record<string, unknown>, id = "call_1") {
+  return multiToolCallTurn([{ name, args, id }]);
+}
+
+/** One assistant turn that requests several tools at once. */
+function multiToolCallTurn(calls: Array<{ name: string; args: Record<string, unknown>; id: string }>) {
   return {
     choices: [
       {
@@ -109,7 +117,11 @@ function toolCallTurn(name: string, args: Record<string, unknown>, id = "call_1"
         message: {
           role: "assistant",
           content: null,
-          tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }],
+          tool_calls: calls.map(({ name, args, id }) => ({
+            id,
+            type: "function",
+            function: { name, arguments: JSON.stringify(args) },
+          })),
         },
         finish_reason: "tool_calls",
       },
@@ -599,6 +611,79 @@ describe("Agent loop", () => {
     expect(harness.callCount).toBeLessThanOrEqual(MAX_TOOL_ROUNDS + 1);
   });
 
+  it("drops the excess when one turn asks for more tool calls than the budget allows", async () => {
+    // One round, 30 calls against a budget of 12. Running them all would let a
+    // single turn fan out into hundreds of reads, so the surplus is dropped and
+    // the model is told, rather than silently truncated to a set it believes
+    // is complete.
+    const many = Array.from({ length: 30 }, (_, i) =>
+      toolCallTurn("get_tasks", { status: "TODO" }, `call_${i}`),
+    );
+    const harness = openAiProvider([
+      multiToolCallTurn(
+        Array.from({ length: 30 }, (_, i) => ({
+          name: "get_tasks",
+          args: { status: "TODO" },
+          id: `call_${i}`,
+        })),
+      ),
+      ...many,
+    ]);
+
+    const run = await runAgent({
+      provider: harness.provider,
+      userId: userA.id,
+      conversationId: "conv-agent-calls",
+      history: [],
+      userMessage: "Read everything",
+      maxRounds: 1,
+    });
+
+    expect(run.toolActivity).toHaveLength(MAX_TOOL_CALLS);
+    expect(run.content).toMatch(new RegExp(`${MAX_TOOL_CALLS} tool calls`));
+
+    // Only the calls that fit were sent back to the provider as tool results;
+    // the 18 dropped ones were never executed.
+    const results = (harness.bodies[1].messages as Array<{ role: string }>).filter(
+      (m) => m.role === "tool",
+    );
+    expect(results).toHaveLength(MAX_TOOL_CALLS);
+  });
+
+  it("refuses further writes once the proposal budget is spent", async () => {
+    // A model that keeps writing must not be able to bury the student under an
+    // unbounded confirmation list. After the limit the run stops and says so.
+    const writes = Array.from({ length: 12 }, (_, i) =>
+      toolCallTurn("create_task", { title: `Runaway ${i}` }, `call_${i}`),
+    );
+    const harness = openAiProvider([
+      multiToolCallTurn(
+        Array.from({ length: 12 }, (_, i) => ({
+          name: "create_task",
+          args: { title: `Runaway ${i}` },
+          id: `call_${i}`,
+        })),
+      ),
+      ...writes,
+    ]);
+
+    const run = await runAgent({
+      provider: harness.provider,
+      userId: userA.id,
+      conversationId: "conv-agent-writes",
+      history: [],
+      userMessage: "Create twelve tasks",
+      maxRounds: 4,
+    });
+
+    expect(run.proposedActions.length).toBeLessThanOrEqual(MAX_PROPOSED_ACTIONS);
+    expect(run.finish).toBe("confirmation_pending");
+    expect(run.content).toMatch(/limit for one turn/i);
+
+    // Nothing was written: the writes are still proposals, not records.
+    expect(await prisma.task.count({ where: { userId: userA.id, title: { startsWith: "Runaway" } } })).toBe(0);
+  });
+
   it("proposes a write instead of performing it, then stops calling tools", async () => {
     const harness = openAiProvider([
       toolCallTurn("create_task", { title: "Start revision tonight" }),
@@ -1072,3 +1157,508 @@ describe("AI HTTP surface: tool activity, proposals and confirmations", () => {
     expect(res.body.error?.code).toBe("AI_PROVIDER_NOT_CONFIGURED");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Natural references", () => {
+  beforeEach(async () => {
+    const a = await seedStudent("resolve-a", "PSYC300", "Cognitive Psychology");
+    userA = { token: a.token, id: a.id };
+    courseA = a.courseId;
+    const b = await seedStudent("resolve-b", "CHEM110", "General Chemistry");
+    userB = { token: b.token, id: b.id };
+    courseB = b.courseId;
+  });
+
+  it("resolves a course from its code, ignoring case and spacing", async () => {
+    for (const ref of ["PSYC300", "psyc300", "PSYC 300"]) {
+      const result = await executeTool(
+        { name: "create_task", arguments: { title: `Task for ${ref}`, course: ref } },
+        ctxFor(userA),
+      );
+      expect(result.proposedActions?.[0].arguments.courseId, ref).toBe(courseA);
+    }
+  });
+
+  it("resolves a course from its name when the code is unknown", async () => {
+    const result = await executeTool(
+      { name: "create_task", arguments: { title: "Read the chapter", course: "cognitive psychology" } },
+      ctxFor(userA),
+    );
+    expect(result.proposedActions?.[0].arguments.courseId).toBe(courseA);
+  });
+
+  it("asks which course it means instead of guessing between two", async () => {
+    // A genuinely ambiguous reference: the same name on two of this student's
+    // courses, so neither candidate can be preferred.
+    await authRequestJson("post", `${BASE}/courses`, userA.token, {
+      code: "PSYC301",
+      name: "Cognitive Psychology",
+      credits: 3,
+    });
+
+    const result = await executeTool(
+      { name: "create_task", arguments: { title: "Ambiguous", course: "Cognitive Psychology" } },
+      ctxFor(userA),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("ambiguous");
+    expect(result.error?.message).toMatch(/PSYC300|PSYC301/);
+  });
+
+  it("reports a course that does not exist rather than substituting one", async () => {
+    const result = await executeTool(
+      { name: "create_task", arguments: { title: "Nowhere", course: "HIST999" } },
+      ctxFor(userA),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("not_found");
+    expect(result.error?.message).toMatch(/HIST999/);
+  });
+
+  it("will not resolve another student's course", async () => {
+    const result = await executeTool(
+      { name: "create_task", arguments: { title: "Borrowed", course: "CHEM110" } },
+      ctxFor(userA),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("not_found");
+  });
+
+  it("resolves the task to update from its title", async () => {
+    const task = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "Draft the lab report" });
+
+    const result = await executeTool(
+      { name: "update_task", arguments: { task: "draft the lab", title: "Draft the lab report v2" } },
+      ctxFor(userA),
+    );
+
+    expect(result.proposedActions?.[0].arguments.taskId).toBe(task.body.data.id);
+  });
+
+  it("scopes a subtask reference to its parent task", async () => {
+    const task = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "Group project" });
+    const subtask = await authRequestJson("post", `${BASE}/tasks/${task.body.data.id}/subtasks`, userA.token, {
+      title: "Write the introduction",
+    });
+
+    const result = await executeTool(
+      {
+        name: "update_subtask",
+        arguments: {
+          taskId: task.body.data.id,
+          subtask: "introduction",
+          status: "COMPLETED",
+        },
+      },
+      ctxFor(userA),
+    );
+
+    expect(result.proposedActions?.[0].arguments.subtaskId).toBe(subtask.body.data.id);
+  });
+
+  it("refuses a subtask reference that belongs to a different task", async () => {
+    const first = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "First parent" });
+    const second = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "Second parent" });
+    await authRequestJson("post", `${BASE}/tasks/${second.body.data.id}/subtasks`, userA.token, {
+      title: "Write the introduction",
+    });
+
+    const result = await executeTool(
+      {
+        name: "update_subtask",
+        arguments: { taskId: first.body.data.id, subtask: "introduction", status: "COMPLETED" },
+      },
+      ctxFor(userA),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("not_found");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Post-write verification", () => {
+  beforeEach(async () => {
+    const a = await seedStudent("verify-a", "EE220", "Digital Logic");
+    userA = { token: a.token, id: a.id };
+    courseA = a.courseId;
+  });
+
+  /** Run one action through the confirmed path, exactly as the API does. */
+  async function runConfirmed(tool: string, args: Record<string, unknown>) {
+    const action: ProposedAction = { tool, description: tool, arguments: args };
+    return executeTool({ name: tool, arguments: args }, ctxFor(userA, `conv-verify-${tool}`, [action]));
+  }
+
+  it("reports a created task as applied and verified", async () => {
+    const result = await runConfirmed("create_task", { title: "Verify me", priority: "HIGH" });
+    expect(result.ok).toBe(true);
+
+    const verification = await verifyExecutedAction(userA.id, "create_task", { title: "Verify me", priority: "HIGH" }, result.data);
+    expect(verification.verified).toBe(true);
+    expect(verification.message).toContain("Verify me");
+  });
+
+  it("verifies a completed task by its stored status", async () => {
+    const task = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "Close me" });
+    const result = await runConfirmed("complete_task", { taskId: task.body.data.id });
+    expect(result.ok).toBe(true);
+
+    const verification = await verifyExecutedAction(userA.id, "complete_task", { status: "COMPLETED" }, result.data);
+    expect(verification.verified).toBe(true);
+  });
+
+  it("verifies an updated calendar event against the approved time", async () => {
+    const event = await authRequestJson("post", `${BASE}/events`, userA.token, {
+      title: "Midterm",
+      type: "EXAM",
+      startAt: new Date().toISOString(),
+    });
+    const newStart = "2035-03-04T09:00:00.000Z";
+    const result = await runConfirmed("update_event", { eventId: event.body.data.id, startAt: newStart });
+    expect(result.ok).toBe(true);
+
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "update_event",
+      { startAt: newStart },
+      result.data,
+    );
+    expect(verification.verified).toBe(true);
+  });
+
+  it("does not verify an event moved to a different time on the approved day", async () => {
+    // The approved value carried a time, so a record on the same day but at a
+    // different hour is a different exam and must not read as verified.
+    const event = await authRequestJson("post", `${BASE}/events`, userA.token, {
+      title: "Final",
+      type: "EXAM",
+      startAt: new Date().toISOString(),
+    });
+    const result = await runConfirmed("update_event", { eventId: event.body.data.id, startAt: "2035-03-04T14:00:00.000Z" });
+    expect(result.ok).toBe(true);
+
+    const stored = (await eventsService.getById(userA.id, event.body.data.id)).startAt;
+    expect(String(stored).slice(0, 10)).toBe("2035-03-04");
+
+    // Approve a different time on that same day.
+    const sameDayOtherTime = await verifyExecutedAction(
+      userA.id,
+      "update_event",
+      { startAt: "2035-03-04T09:00:00.000Z" },
+      result.data,
+    );
+    expect(sameDayOtherTime.verified).toBe(false);
+    expect(sameDayOtherTime.message).toMatch(/startAt/i);
+  });
+
+  it("accepts a date-only approval against a normalised stored instant", async () => {
+    // "2035-03-04" only ever asked for the day: the tool normalises it to
+    // 09:00 local, so the stored instant must still verify.
+    const event = await authRequestJson("post", `${BASE}/events`, userA.token, {
+      title: "Study block",
+      type: "STUDY",
+      startAt: new Date().toISOString(),
+    });
+    const result = await runConfirmed("update_event", { eventId: event.body.data.id, startAt: "2035-03-04" });
+    expect(result.ok).toBe(true);
+
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "update_event",
+      { startAt: "2035-03-04" },
+      result.data,
+    );
+    expect(verification.verified).toBe(true);
+  });
+
+  it("verifies a subtask through its parent task", async () => {
+    const task = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "Thesis" });
+    const result = await runConfirmed("create_subtask", { taskId: task.body.data.id, title: "Chapter one" });
+    expect(result.ok).toBe(true);
+
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "create_subtask",
+      { taskId: task.body.data.id, title: "Chapter one" },
+      result.data,
+    );
+    expect(verification.verified).toBe(true);
+  });
+
+  it("fails verification when the record does not hold the approved value", async () => {
+    const result = await runConfirmed("create_task", { title: "Actual title" });
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "create_task",
+      { title: "A different title" },
+      result.data,
+    );
+
+    expect(verification.verified).toBe(false);
+    expect(verification.message).toMatch(/does not match/i);
+  });
+
+  it("fails verification when the record cannot be read back", async () => {
+    const result = await runConfirmed("create_task", { title: "Vanishing" });
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "create_task",
+      { title: "Vanishing" },
+      { id: "does-not-exist" },
+    );
+
+    expect(verification.verified).toBe(false);
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses to call a tool verified that has no verifier", async () => {
+    const verification = await verifyExecutedAction(userA.id, "create_task", {}, { id: "x" });
+    expect(verification.verified).toBe(false);
+  });
+
+  it("covers every write tool that can be confirmed", () => {
+    for (const tool of listTools("WRITE")) {
+      if (tool.name === "confirm_pending_actions") continue;
+      expect(verificationTools, `${tool.name} has no verifier`).toContain(tool.name);
+    }
+  });
+
+  it("re-reads every field a write tool can change", () => {
+    // A field the student approved but the verifier never re-reads is reported
+    // as verified on the strength of the other fields alone, which is exactly
+    // the false "the change went through" this module exists to prevent.
+    // Reference and id arguments are locators rather than approved changes, so
+    // they are excluded: the resolver consumes them before the write runs.
+    const locators = new Set([
+      "id", "taskId", "courseId", "sessionId", "goalId", "noteId", "resourceId",
+      "eventId", "gradeId", "subtaskId", "milestoneId", "task", "course", "session",
+      "goal", "note", "resource", "event", "grade", "milestone", "subtask",
+    ]);
+
+    for (const tool of listTools("WRITE")) {
+      if (tool.name === "confirm_pending_actions") continue;
+      const checked = verificationFields(tool.name);
+      const objectSchema = tool.parameters as unknown as { shape?: Record<string, unknown> };
+      for (const key of Object.keys(objectSchema.shape ?? {})) {
+        if (locators.has(key)) continue;
+        expect(checked, `${tool.name} approves "${key}" but never re-reads it`).toContain(key);
+      }
+    }
+  });
+
+  it("fails complete_task when the record is not actually completed", async () => {    const created = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "Verifier probe" });
+    const taskId = created.body.data.id as string;
+
+    // Not completed yet: the tool's whole purpose is COMPLETED, so a record in
+    // any other state must not verify even though no status was approved.
+    const stillOpen = await verifyExecutedAction(userA.id, "complete_task", { taskId }, { id: taskId });
+    expect(stillOpen.verified).toBe(false);
+    expect(stillOpen.message).toContain("COMPLETED");
+
+    await authRequestJson("post", `${BASE}/tasks/${taskId}/complete`, userA.token, {});
+
+    const completed = await verifyExecutedAction(userA.id, "complete_task", { taskId }, { id: taskId });
+    expect(completed.verified).toBe(true);
+  });
+
+  it("never verifies a record belonging to another student", async () => {
+    const other = await seedStudent("verify-b", "BIO220", "Cell Biology");
+    const otherTask = await authRequestJson("post", `${BASE}/tasks`, other.token, { title: "Theirs" });
+
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "create_task",
+      { title: "Theirs" },
+      { id: otherTask.body.data.id },
+    );
+    expect(verification.verified).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Verified batch outcomes", () => {
+  let conversationId: string;
+
+  beforeEach(async () => {
+    const a = await seedStudent("batch", "FIN400", "Corporate Finance");
+    userA = { token: a.token, id: a.id };
+    // A real conversation: the HTTP endpoints assert ownership, so a synthetic
+    // id would 404 before the proposal could ever be read or confirmed.
+    const created = await authRequestJson("post", `${BASE}/ai/conversations`, userA.token, { title: "Batch" });
+    conversationId = created.body.data.id as string;
+  });
+
+  it("reports one applied and verified action honestly", async () => {
+    const proposal = confirmationStore.create({
+      userId: userA.id,
+      conversationId,
+      title: "One change",
+      actions: [{ tool: "create_task", description: "Task", arguments: { title: "Solo" } }],
+    });
+
+    const outcomes = await executeProposalActions(
+      proposal.actions,
+      { userId: userA.id, conversationId },
+      executeTool,
+    );
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].ok).toBe(true);
+    expect(outcomes[0].verified).toBe(true);
+    expect(summarizeOutcomes(outcomes)).toContain("Verified");
+  });
+
+  it("keeps the good steps when one step fails, and says so", async () => {
+    const proposal = confirmationStore.create({
+      userId: userA.id,
+      conversationId,
+      title: "Mixed batch",
+      actions: [
+        { tool: "create_task", description: "Good", arguments: { title: "Applied" } },
+        { tool: "create_note", description: "Bad", arguments: { title: "n" } },
+        { tool: "create_task", description: "Also good", arguments: { title: "Applied too" } },
+      ],
+    });
+
+    const outcomes = await executeProposalActions(
+      proposal.actions,
+      { userId: userA.id, conversationId },
+      executeTool,
+    );
+
+    expect(outcomes.filter((o) => o.ok && o.verified)).toHaveLength(2);
+    expect(outcomes.filter((o) => !o.ok)).toHaveLength(1);
+
+    const summary = summarizeOutcomes(outcomes);
+    expect(summary).toContain("2 of 3");
+    expect(summary).toContain("1 failed");
+
+    expect(await prisma.task.count({ where: { userId: userA.id } })).toBe(2);
+    expect(await prisma.note.count({ where: { userId: userA.id } })).toBe(0);
+  });
+
+  it("exposes the applied, verified and failed counts on the stored proposal", async () => {
+    expect(summarizeOutcomes([])).toBe("Nothing to apply");
+
+    // One action that applies and verifies, and one whose write fails because
+    // its target was deleted before the batch ran. The counts must separate the
+    // two: the first is applied and verified, the second is a failure, and
+    // neither may be folded into the other's number.
+    const vanishing = await authRequestJson("post", `${BASE}/tasks`, userA.token, { title: "Counts: vanishing" });
+    const vanishingId = vanishing.body.data.id as string;
+    await prisma.task.delete({ where: { id: vanishingId } });
+
+    const proposal = confirmationStore.create({
+      userId: userA.id,
+      conversationId: "conv-counts",
+      title: "Counts probe",
+      actions: [
+        { tool: "create_task", description: "Good", arguments: { title: "Counts: applied" } },
+        { tool: "complete_task", description: "Doomed", arguments: { taskId: vanishingId } },
+      ],
+    });
+
+    const executed = await executeProposalActions(
+      proposal.actions,
+      { userId: userA.id, conversationId: "conv-counts" },
+      executeTool,
+    );
+    const summary = summarizeOutcomes(executed);
+
+    expect(executed).toHaveLength(2);
+    expect(executed[0].ok).toBe(true);
+    expect(executed[0].verified).toBe(true);
+
+    // complete_task cannot find its target, so the write itself fails.
+    expect(executed[1].ok).toBe(false);
+    expect(executed[1].verified).toBe(false);
+    expect(executed[1].error).toBeTruthy();
+
+    expect(summary).toMatch(/1 .*verified/i);
+    expect(summary).toMatch(/1 .*failed/i);
+
+    // Exactly one task was really written: the counts match the database.
+    expect(await prisma.task.count({ where: { userId: userA.id, title: "Counts: applied" } })).toBe(1);
+    expect(await prisma.task.count({ where: { id: vanishingId } })).toBe(0);
+  });
+
+  it("distinguishes an applied-but-unverified write from a failure", async () => {
+    // The state this suite otherwise never produces: the write succeeded, but
+    // the re-read could not confirm it. Reporting it as a failure would be a
+    // lie (the row is there) and reporting it as verified would be a worse one.
+    //
+    // Forced deterministically by deleting the row between the write and the
+    // verifier's re-read, using the runner hook rather than a timing race.
+    const proposal = confirmationStore.create({
+      userId: userA.id,
+      conversationId,
+      title: "Unverifiable",
+      actions: [{ tool: "create_task", description: "Vanishes", arguments: { title: "Unverifiable: written" } }],
+    });
+
+    const runner: typeof executeTool = async (call, ctx) => {
+      const result = await executeTool(call, ctx);
+      if (result.ok) {
+        const created = result.data as { id?: string };
+        if (created?.id) await prisma.task.delete({ where: { id: created.id } });
+      }
+      return result;
+    };
+
+    const outcomes = await executeProposalActions(
+      proposal.actions,
+      { userId: userA.id, conversationId },
+      runner,
+    );
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].ok).toBe(true);
+    expect(outcomes[0].verified).toBe(false);
+    expect(summarizeOutcomes(outcomes)).not.toMatch(/\bfailed\b/i);
+  });
+
+  it("reports a partly applied proposal as PARTIAL and stores the counts", async () => {
+    // The batch layer already covers good/bad mixes; this is the same truth over
+    // HTTP, because PARTIAL is the only thing standing between a student and a
+    // summary that claims a failed change was made. A real conversation is
+    // needed here: the endpoint checks ownership, so a made-up id would 404.
+    const created = await authRequestJson("post", `${BASE}/ai/conversations`, userA.token, { title: "Partial" });
+    const conversation = created.body.data.id as string;
+    confirmationStore.create({
+      userId: userA.id,
+      conversationId: conversation,
+      title: "Half of this works",
+      actions: [
+        { tool: "create_task", description: "Good", arguments: { title: "Partial: applied" } },
+        { tool: "complete_task", description: "Doomed", arguments: { taskId: "00000000-0000-0000-0000-000000000000" } },
+      ],
+    });
+
+    const pending = await authRequestJson("get", `${BASE}/ai/conversations/${conversation}/pending-action`, userA.token);
+    const actionId = pending.body.data.pendingAction.id as string;
+
+    const confirmed = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversation}/pending-action/${actionId}/confirm`,
+      userA.token,
+    );
+
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.data.status).toBe("PARTIAL");
+    expect(confirmed.body.data.summary).toMatch(/1 .*failed/i);
+
+    // The good half really landed.
+    expect(await prisma.task.count({ where: { userId: userA.id, title: "Partial: applied" } })).toBe(1);
+
+    // And the stored proposal carries the counts, not just the prose summary.
+    const result = confirmed.body.data.pendingAction.result;
+    expect(result).toMatchObject({ executed: 1, verified: 1, failed: 1 });
+  });
+});
+

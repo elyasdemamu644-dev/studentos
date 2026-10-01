@@ -62,6 +62,99 @@ describe("AI Module (no provider configured)", () => {
       expect(one.body.data.id).toBe(list.body.data.items[0].id);
     });
 
+    it("should carry the newest message as a preview on each listed conversation", async () => {
+      const created = await authRequestJson("post", `${BASE}/ai/conversations`, token, {
+        title: "Preview me",
+      });
+      const id = created.body.data.id;
+
+      // A brand new conversation has nothing to preview.
+      const before = await authRequestJson("get", `${BASE}/ai/conversations/${id}`, token);
+      expect(before.body.data.preview).toBeNull();
+
+      await authRequestJson("post", `${BASE}/ai/conversations/${id}/messages`, token, {
+        content: "First thing I asked",
+        generateReply: false,
+      });
+      await authRequestJson("post", `${BASE}/ai/conversations/${id}/messages`, token, {
+        content: "Second thing I asked",
+        generateReply: false,
+      });
+
+      const listed = await authRequestJson("get", `${BASE}/ai/conversations`, token);
+      const row = listed.body.data.items.find((item: { id: string }) => item.id === id);
+      expect(row.preview).toEqual(
+        expect.objectContaining({ content: "Second thing I asked", role: "USER" }),
+      );
+    });
+
+    it("should rename a conversation", async () => {
+      const created = await authRequestJson("post", `${BASE}/ai/conversations`, token, {
+        title: "Chat",
+      });
+
+      const res = await authRequestJson(
+        "patch",
+        `${BASE}/ai/conversations/${created.body.data.id}`,
+        token,
+        { title: "Database exam preparation" },
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.title).toBe("Database exam preparation");
+
+      // Persisted, not just echoed back.
+      const fetched = await authRequestJson(
+        "get",
+        `${BASE}/ai/conversations/${created.body.data.id}`,
+        token,
+      );
+      expect(fetched.body.data.title).toBe("Database exam preparation");
+    });
+
+    it("should reject an empty or blank rename", async () => {
+      const created = await authRequestJson("post", `${BASE}/ai/conversations`, token, {});
+
+      const blank = await authRequestJson(
+        "patch",
+        `${BASE}/ai/conversations/${created.body.data.id}`,
+        token,
+        { title: "   " },
+      );
+      expect(blank.status).toBe(400);
+      expect(blank.body.error.code).toBe("VALIDATION_ERROR");
+
+      const missing = await authRequestJson(
+        "patch",
+        `${BASE}/ai/conversations/${created.body.data.id}`,
+        token,
+        {},
+      );
+      // Nothing to change is a no-op, not a failure.
+      expect(missing.status).toBe(200);
+    });
+
+    it("should not let one user rename another's conversation", async () => {
+      const other = await registerAndLogin("ai-rename-other@test.com", "Pass123!");
+      const mine = await authRequestJson("post", `${BASE}/ai/conversations`, token, {});
+
+      const res = await authRequestJson(
+        "patch",
+        `${BASE}/ai/conversations/${mine.body.data.id}`,
+        other.token,
+        { title: "Hijacked" },
+      );
+      expect(res.status).toBe(404);
+
+      const unchanged = await authRequestJson(
+        "get",
+        `${BASE}/ai/conversations/${mine.body.data.id}`,
+        token,
+      );
+      expect(unchanged.body.data.title).toBe(mine.body.data.title);
+    });
+
     it("should delete a conversation and its messages", async () => {
       const created = await authRequestJson("post", `${BASE}/ai/conversations`, token, {
         title: "Doomed",

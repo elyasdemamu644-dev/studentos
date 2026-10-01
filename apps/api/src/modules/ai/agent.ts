@@ -1,4 +1,5 @@
 import { confirmationStore } from "./confirmations";
+import { config } from "@/config";
 import type { AiProvider, ChatMessage, ChatToolCall, ToolChoice } from "./provider";
 import { buildAgentSystemPrompt } from "./system-prompt";
 import { executeTool, getProviderToolSchemas, getTool } from "./tools/registry";
@@ -15,17 +16,27 @@ import type { AiToolContext, AiToolResult, ProposedAction } from "./tools/types"
 //   3. hand the results back and repeat,
 //   4. stop as soon as it answers in prose.
 //
-// Three hard limits, all of them here rather than in the prompt so a
+// Four hard limits, all of them here rather than in the prompt so a
 // non-compliant model cannot blow past them:
 //
 //  * `MAX_TOOL_ROUNDS` provider round-trips (4). A model that keeps calling
 //    tools is cut off and forced to answer from what it already has.
+//  * `MAX_TOOL_CALLS` tool calls per run (12), so one turn cannot fan out into
+//    hundreds of database reads regardless of how many rounds it takes.
+//  * `MAX_PROPOSED_ACTIONS` changes in a single proposal (8), so a runaway model
+//    cannot bury the student under a hundred confirmations.
 //  * A write attempt ends the round and forces a prose turn, so the model
 //    cannot "confirm" its own proposal by calling the write tool again.
-//  * Tool output is truncated before it goes back into the prompt, so a large
-//    result cannot blow the context window on the next call.
+//
+// Tool output is truncated before it goes back into the prompt, so a large
+// result cannot blow the context window on the next call.
+//
+// `config.aiAgentMax*` may lower these for a deployment; it can never raise them
+// past the ceilings above.
 
 export const MAX_TOOL_ROUNDS = 4;
+export const MAX_TOOL_CALLS = 12;
+export const MAX_PROPOSED_ACTIONS = 8;
 
 /** How much of a single tool result is fed back to the model. */
 const MAX_TOOL_RESULT_CHARS = 6000;
@@ -128,9 +139,13 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
 
   const toolActivity: ToolActivityEntry[] = [];
   const proposals: ProposedAction[] = [];
-  const maxRounds = Math.max(1, Math.min(input.maxRounds ?? MAX_TOOL_ROUNDS, MAX_TOOL_ROUNDS));
+  const maxRounds = clamp(input.maxRounds ?? config.aiAgentMaxToolRounds, MAX_TOOL_ROUNDS);
+  const maxToolCalls = clamp(config.aiAgentMaxToolCalls, MAX_TOOL_CALLS);
+  const maxProposals = clamp(config.aiAgentMaxProposedActions, MAX_PROPOSED_ACTIONS);
   let rounds = 0;
+  let toolCallsRun = 0;
   let forceProse = false;
+  let budgetNote: string | null = null;
 
   for (let round = 0; round < maxRounds; round += 1) {
     rounds += 1;
@@ -154,16 +169,30 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       };
     }
 
-    messages.push({ role: "assistant", content: turn.content ?? null, toolCalls });
+    // Call budget left: run what fits, and tell the model the rest was dropped
+    // rather than silently running a subset it believes is complete.
+    const runnable = toolCallsRun + toolCalls.length <= maxToolCalls
+      ? toolCalls
+      : toolCalls.slice(0, Math.max(0, maxToolCalls - toolCallsRun));
+    if (runnable.length < toolCalls.length) {
+      budgetNote = `I stopped after ${maxToolCalls} tool calls for this turn. Ask me about the rest separately and I'll pick it up.`;
+    }
+    toolCallsRun += runnable.length;
 
-    const { results, roundProposals, activity } = await runToolCalls(toolCalls, input);
+    messages.push({ role: "assistant", content: turn.content ?? null, toolCalls: runnable });
+
+    const { results, roundProposals, activity } = await runToolCalls(
+      runnable,
+      input,
+      Math.max(0, maxProposals - proposals.length),
+    );
     toolActivity.push(...activity);
 
     for (const [index, result] of results.entries()) {
       messages.push({
         role: "tool",
-        toolCallId: toolCalls[index]?.id ?? `call_${index}`,
-        name: toolCalls[index]?.function.name,
+        toolCallId: runnable[index]?.id ?? `call_${index}`,
+        name: runnable[index]?.function.name,
         content: serializeToolResult(result),
       });
     }
@@ -176,6 +205,12 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     // A proposal was just created: the next turn is prose-only so the model
     // explains and asks, and cannot chain more writes behind the first one.
     if (roundProposals.length > 0) forceProse = true;
+
+    // The proposal budget is spent, so stop asking for more approval.
+    if (proposals.length >= maxProposals) {
+      budgetNote = `I prepared ${proposals.length} changes, which is the limit for one turn. Review those, then ask for the rest.`;
+      break;
+    }
   }
 
   // Round budget exhausted. One last, tool-free turn so the student gets an
@@ -185,8 +220,12 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     toolChoice: "none",
   });
 
+  const finalContent =
+    nonEmpty(finalTurn.content) ??
+    "I looked through several of your records but did not reach a conclusion. Try asking about one thing at a time.";
+
   return {
-    content: nonEmpty(finalTurn.content) ?? "I looked through several of your records but did not reach a conclusion. Try asking about one thing at a time.",
+    content: budgetNote ? `${finalContent}\n\n${budgetNote}` : finalContent,
     toolActivity,
     proposedActions: proposals,
     usedTools: toolActivity.length > 0,
@@ -202,6 +241,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
 async function runToolCalls(
   toolCalls: ChatToolCall[],
   input: AgentRunInput,
+  remainingProposals: number,
 ): Promise<{ results: AiToolResult[]; roundProposals: ProposedAction[]; activity: ToolActivityEntry[] }> {
   // The allow-list is scoped to this turn. A write tool that is not on it is
   // refused by the registry, whatever the model asks for.
@@ -218,6 +258,16 @@ async function runToolCalls(
   for (const call of toolCalls) {
     const tool = getTool(call.function.name);
     const label = tool?.activityLabel ?? "Running a tool";
+    const isWrite = tool?.kind === "WRITE";
+
+    // The proposal budget is spent: refuse further writes with an explanation
+    // the model can act on, rather than silently dropping them.
+    if (isWrite && remainingProposals - roundProposals.length <= 0) {
+      const message = "This turn already has as many pending changes as it is allowed. Ask again for the rest.";
+      results.push({ ok: false, error: { code: "proposal_limit", message } });
+      activity.push({ tool: call.function.name, label, status: "error", summary: message });
+      continue;
+    }
 
     const result = await executeTool(
       { name: call.function.name, arguments: call.function.arguments },
@@ -245,6 +295,12 @@ async function runToolCalls(
   }
 
   return { results, roundProposals, activity };
+}
+
+/** A configured value, forced into 1..ceiling so config can only tighten. */
+function clamp(value: number, ceiling: number): number {
+  if (!Number.isFinite(value)) return ceiling;
+  return Math.max(1, Math.min(Math.floor(value), ceiling));
 }
 
 /**

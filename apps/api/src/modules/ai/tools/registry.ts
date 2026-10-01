@@ -4,6 +4,7 @@ import { readTools } from "./read-tools";
 import { analyzeTools } from "./analyze-tools";
 import { actionTools } from "./action-tools";
 import { confirmPendingActionsTool } from "./confirm-tool";
+import { EntityResolutionError } from "./resolver";
 import { zodToJsonSchema } from "./json-schema";
 import type {
   AiToolContext,
@@ -165,15 +166,29 @@ export async function executeTool(
   // ── Confirmation gate ──────────────────────────────────────────────────────
   if (tool.kind === "WRITE" && (tool.confirmation ?? "required") === "required") {
     if (!isApproved(ctx.approvedActions, tool.name, args)) {
+      // Resolve natural references ("the Database exam", "CS210") *before* the
+      // proposal is parked, so the card shows the real record and an ambiguous
+      // or missing reference is answered now rather than after Confirm.
+      let resolved = args;
+      if (tool.prepare) {
+        try {
+          resolved = await tool.prepare(args, ctx);
+        } catch (error) {
+          return toSafeFailure(tool.name, error);
+        }
+      }
+
       return {
         ok: false,
         error: {
           code: "confirmation_required",
           message: `${tool.name} changes StudentOS data and cannot run yet. Present the change to the student and ask them to confirm; do not claim it succeeded.`,
         },
-        // Returning the validated call lets the agent turn it into a proposal
-        // the student can approve with one click.
-        proposedActions: [{ tool: tool.name, description: describeAction(tool, args), arguments: args }],
+        // Returning the validated, resolved call lets the agent turn it into a
+        // proposal the student can approve with one click.
+        proposedActions: [
+          { tool: tool.name, description: describeAction(tool, resolved), arguments: resolved },
+        ],
       };
     }
   }
@@ -239,6 +254,21 @@ function formatZodIssues(error: ZodError): string {
  * a stack trace or a raw Prisma message must never reach the prompt.
  */
 function toSafeFailure(toolName: string, error: unknown): AiToolResult {
+  // A failed entity lookup is the one failure the model is expected to *act*
+  // on: it carries the ambiguity candidates it needs to ask the student a
+  // question, so it keeps its own code, message and (already sanitised)
+  // candidate list rather than being flattened.
+  if (error instanceof EntityResolutionError) {
+    return {
+      ok: false,
+      error: {
+        code: error.result.status,
+        message: error.message,
+        ...(error.result.status === "ambiguous" ? { details: { candidates: error.result.candidates } } : {}),
+      },
+    };
+  }
+
   if (error && typeof error === "object" && "code" in error && "statusCode" in error) {
     const apiError = error as unknown as { code: string; message: string };
     return { ok: false, error: { code: apiError.code.toLowerCase(), message: apiError.message } };

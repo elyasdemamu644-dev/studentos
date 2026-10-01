@@ -4,7 +4,7 @@ import { NotFoundError, ConflictError } from "@/config/errors";
 import { getAIProvider, AiProviderNotConfiguredError } from "./provider";
 import { studentContextBuilder } from "./context";
 import { runAgent, type ToolActivityEntry } from "./agent";
-import { confirmationStore, toPendingActionResponse } from "./confirmations";
+import { confirmationStore, summarizeOutcomes, toPendingActionResponse } from "./confirmations";
 import { executeProposalActions } from "./tools/confirm-tool";
 import { executeTool } from "./tools/registry";
 import type { ProposedAction } from "./tools/types";
@@ -12,6 +12,7 @@ import type {
   CreateConversationInput,
   CreateMessageInput,
   CreateStudyPlanInput,
+  UpdateConversationInput,
   UpdateStudyPlanInput,
   UpdateStudyPlanEntryInput,
 } from "./schema";
@@ -40,6 +41,9 @@ export const aiService = {
       where,
       orderBy: { updatedAt: "desc" },
       take: limit + 1,
+      // One extra field per row: the newest message, so a chat list can show a
+      // real preview without an N+1 fetch of every conversation's history.
+      include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } },
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
 
@@ -66,6 +70,26 @@ export const aiService = {
         title: input.title ?? "New conversation",
         type: input.type ?? "CHAT",
       },
+    });
+    return mapConversation(conversation);
+  },
+
+  /**
+   * Rename a conversation.
+   *
+   * The client sends the title it derived from the first user message, which
+   * means the row can already have changed underneath a stale read, so an
+   * untouched field is left alone rather than written back.
+   */
+  async updateConversation(userId: string, id: string, input: UpdateConversationInput) {
+    await assertConversationOwnership(userId, id);
+
+    const conversation = await prisma.aiConversation.update({
+      where: { id },
+      data: {
+        ...(input.title !== undefined && { title: input.title }),
+      },
+      include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
     return mapConversation(conversation);
   },
@@ -220,12 +244,20 @@ export const aiService = {
       executeTool,
     );
 
-    const succeeded = executed.filter((e) => e.ok).length;
-    const summary = buildOutcomeSummary(executed, succeeded);
-    confirmationStore.complete(proposal.id, { executed: succeeded, failed: executed.length - succeeded, summary });
+    const summary = summarizeOutcomes(executed);
+    confirmationStore.complete(proposal.id, {
+      executed: executed.filter((e) => e.ok).length,
+      verified: executed.filter((e) => e.ok && e.verified).length,
+      failed: executed.filter((e) => !e.ok).length,
+      summary,
+    });
+
+    // PARTIAL, not EXECUTED, whenever any step failed *or* wrote something we
+    // could not read back and match.
+    const clean = executed.length > 0 && executed.every((e) => e.ok && e.verified);
 
     return {
-      status: executed.every((e) => e.ok) ? ("EXECUTED" as const) : ("PARTIAL" as const),
+      status: clean ? ("EXECUTED" as const) : ("PARTIAL" as const),
       summary,
       executed,
       pendingAction: toPendingActionResponse(confirmationStore.get(userId, conversationId, actionId)),
@@ -409,16 +441,6 @@ function storeProposal(
 }
 
 /** One sentence describing what applying a proposal actually did. */
-function buildOutcomeSummary(
-  executed: Array<{ ok: boolean; description: string }>,
-  succeeded: number,
-): string {
-  if (executed.length === 0) return "Nothing to apply";
-  if (executed.length === 1 && succeeded === 1) return executed[0]?.description ?? "Applied";
-  if (succeeded === executed.length) return `Applied ${succeeded} change${succeeded === 1 ? "" : "s"}`;
-  return `Applied ${succeeded} of ${executed.length} changes`;
-}
-
 async function assertConversationOwnership(userId: string, conversationId: string): Promise<void> {
   const conversation = await prisma.aiConversation.findFirst({
     where: { id: conversationId, userId },
@@ -443,13 +465,18 @@ function mapConversation(record: {
   type: string;
   createdAt: Date;
   updatedAt: Date;
+  messages?: Array<{ content: string; role: string; createdAt: Date }>;
 }) {
+  const latest = record.messages?.[0] ?? null;
   return {
     id: record.id,
     title: record.title,
     type: record.type,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+    // Newest message, trimmed by the client for display. Null for a
+    // conversation that has never been written to.
+    preview: latest ? { content: latest.content, role: latest.role, createdAt: latest.createdAt.toISOString() } : null,
   };
 }
 

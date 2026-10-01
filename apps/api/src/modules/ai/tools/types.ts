@@ -92,6 +92,20 @@ export interface AiToolDefinition {
   /** Present-tense label for the UI activity feed, e.g. "Checking your exams". */
   activityLabel: string;
   confirmation?: AiToolConfirmation;
+  /**
+   * Turns natural references into real ids *before* the student is asked to
+   * approve anything.
+   *
+   * The registry calls this when a WRITE tool would be parked as a proposal, and
+   * stores the returned arguments instead of the raw ones. Two things follow, and
+   * both matter: the confirmation card shows the exact record ("DB301", not
+   * "that course"), and an ambiguous or missing reference is reported now rather
+   * than after the student has already clicked Confirm.
+   *
+   * Throw `EntityResolutionError` to abort the proposal with an honest
+   * not-found or ambiguous result. READ tools normally do not need this.
+   */
+  prepare?(args: Record<string, unknown>, ctx: AiToolContext): Promise<Record<string, unknown>>;
   execute(args: Record<string, unknown>, ctx: AiToolContext): Promise<AiToolResult>;
 }
 

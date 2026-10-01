@@ -31,16 +31,25 @@ export interface PendingAction {
   createdAt: string;
   expiresAt: string;
   /** Present once the actions have run. */
-  result?: { executed: number; failed: number; summary: string } | null;
+  result?: { executed: number; verified: number; failed: number; summary: string } | null;
 }
 
 export interface ConfirmationActionOutcome {
   tool: string;
   description: string;
+  /** True when the write itself ran. A write can succeed and still fail verification. */
   ok: boolean;
   error?: string;
   /** The created record's id, when the tool produced one. */
   recordId?: string | null;
+  /**
+   * Whether the record was re-read through its own domain service afterwards and
+   * held the values the student approved. `ok && verified` is the only state the
+   * assistant may call a success.
+   */
+  verified: boolean;
+  /** One truthful sentence about the record's state after the write. */
+  verification?: string;
 }
 
 /** Proposals expire after this long; a stale "Create it." should not fire. */
@@ -157,6 +166,37 @@ export const confirmationStore = {
     store.clear();
   },
 };
+
+/**
+ * One honest sentence about a batch.
+ *
+ * Shared by the REST confirm route and the `confirm_pending_actions` tool so the
+ * two paths cannot describe the same outcome differently. A single action
+ * reports its own verification ("Verified: title=…, status=…") rather than a
+ * generic "done", and a partial batch names what failed instead of rounding up.
+ */
+export function summarizeOutcomes(outcomes: ConfirmationActionOutcome[]): string {
+  if (outcomes.length === 0) return "Nothing to apply";
+
+  const applied = outcomes.filter((o) => o.ok).length;
+  const verified = outcomes.filter((o) => o.ok && o.verified).length;
+  const unverified = applied - verified;
+  const failed = outcomes.length - applied;
+
+  if (outcomes.length === 1) {
+    const only = outcomes[0];
+    if (only && only.ok) return only.verification ?? only.description;
+    return only?.error ?? "Action failed";
+  }
+
+  return [
+    `${verified} of ${outcomes.length} action(s) applied and verified`,
+    failed > 0 ? `${failed} failed` : null,
+    unverified > 0 ? `${unverified} applied but unverified` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("; ");
+}
 
 /** The wire shape handed to the web app. Never includes userId. */
 export function toPendingActionResponse(action: PendingAction | null) {

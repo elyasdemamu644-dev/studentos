@@ -314,6 +314,12 @@ export interface Conversation {
   type: ConversationType;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Newest message in the conversation, so a history list can show a real
+   * preview without loading every conversation's history. Null until the
+   * first message is sent.
+   */
+  preview: { content: string; role: AiMessageRole; createdAt: string } | null;
 }
 
 export type AiMessageRole = "USER" | "ASSISTANT" | "SYSTEM";
@@ -324,6 +330,13 @@ export interface AiMessage {
   role: AiMessageRole;
   content: string;
   createdAt: string;
+  /**
+   * Client-only: this copy is not persisted yet. Set on the message shown the
+   * instant a send starts, and cleared once the stored row replaces it.
+   */
+  optimistic?: boolean;
+  /** Client-only: the send failed. The message stays on screen with a retry. */
+  failed?: boolean;
 }
 
 // What the assistant did while producing its reply. Mirrors `ToolActivityEntry`
@@ -340,6 +353,53 @@ export interface AiToolActivity {
 // user confirms.
 export type PendingActionStatus = "PENDING" | "EXECUTED" | "CANCELLED" | "SUPERSEDED";
 
+/**
+ * What actually happened to one step of a confirmed proposal.
+ *
+ * `ok` means the write ran; `verified` means the record was re-read afterwards
+ * and held the approved values. The card renders both, so a change that was
+ * written but not confirmed on re-read is never shown as a clean success.
+ */
+export interface AiActionOutcome {
+  tool: string;
+  description: string;
+  ok: boolean;
+  error?: string;
+  recordId?: string | null;
+  verified: boolean;
+  /** One truthful sentence about the record's state, from the API. */
+  verification?: string;
+}
+
+/** Batch counters stored on an executed proposal. */
+export interface AiPendingActionResult {
+  executed: number;
+  verified: number;
+  failed: number;
+  summary: string;
+}
+
+/**
+ * How the reply was produced, as reported by the agent loop. Mirrors the
+ * `agent` field the AI message endpoint returns.
+ *
+ * `toolSupport: false` means the configured provider cannot call tools at all,
+ * so the assistant can answer but can never propose a change - worth telling
+ * the student rather than letting them ask for an edit that quietly never
+ * becomes a confirmation card. `null` on the store-only path, where the message
+ * was saved without calling a provider.
+ */
+export interface AiAgentRun {
+  provider: AiProviderName;
+  model: string;
+  /** The loop called at least one tool. */
+  usedTools: boolean;
+  /** The provider supports native tool calling. */
+  toolSupport: boolean;
+  finish: "answered" | "tool_limit" | "confirmation_pending" | "no_tool_support";
+  rounds: number;
+}
+
 export interface PendingAction {
   id: string;
   title: string;
@@ -348,7 +408,7 @@ export interface PendingAction {
   createdAt: string;
   /** When the proposal stops being confirmable. */
   expiresAt: string;
-  result: unknown | null;
+  result: AiPendingActionResult | null;
 }
 
 // ── AI connections ────────────────────────────────

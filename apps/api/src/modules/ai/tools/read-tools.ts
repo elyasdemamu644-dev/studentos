@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { tasksService } from "@/modules/tasks/service";
+import { subtasksService } from "@/modules/subtasks/service";
+import { taskTagsService } from "@/modules/task-tags/service";
 import { coursesService } from "@/modules/courses/service";
 import { eventsService } from "@/modules/events/service";
 import { studySessionsService } from "@/modules/study-sessions/service";
@@ -8,8 +10,12 @@ import { goalsService } from "@/modules/goals/service";
 import { gradesService } from "@/modules/grades/service";
 import { notesService } from "@/modules/notes/service";
 import { resourcesService } from "@/modules/resources/service";
+import { notificationsService } from "@/modules/notifications/service";
+import { academicYearsService } from "@/modules/academics/academic-years/service";
+import { semestersService } from "@/modules/academics/semesters/service";
 import { dashboardService } from "@/modules/dashboard/service";
 
+import { requireEntityIdFromArgs } from "./resolver";
 import type { AiToolDefinition } from "./types";
 import { daysUntil, isoDaysFromNow, ok } from "./types";
 
@@ -369,7 +375,7 @@ export const getStudyHistoryTool: AiToolDefinition = {
 export const getGoalsTool: AiToolDefinition = {
   name: "get_goals_and_milestones",
   description:
-    "List the student's goals with progress, deadline and every milestone (title, status). Use for goal and milestone questions.",
+    "List the student's goals with progress, deadline and every milestone (title, status). Use for goal questions. For one goal's milestones in detail, call get_goal_milestones.",
   kind: "READ",
   activityLabel: "Checking your goals",
   parameters: z.object({
@@ -436,7 +442,8 @@ export const getGradesTool: AiToolDefinition = {
 
 export const getNotesTool: AiToolDefinition = {
   name: "get_notes",
-  description: "List the student's notes (title, course, last updated) and optionally search inside their content.",
+  description:
+    "List the student's notes (title, course, last updated) and optionally search inside their content. Bodies are excerpted here — use get_note for one note in full or search_notes to find passages.",
   kind: "READ",
   activityLabel: "Checking your notes",
   parameters: z.object({
@@ -502,6 +509,339 @@ export const getResourcesTool: AiToolDefinition = {
   },
 };
 
+// ── Notes: one note in full, and search across note bodies ──────────────────
+
+/** A single note body can be long; the read tool still has to fit in a prompt. */
+const MAX_NOTE_CONTENT_CHARS = 12000;
+
+const getNoteArgs = z.object({
+  noteId: z.string().min(1).optional().describe("Id of the note, from get_notes or search_notes."),
+  noteRef: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("Note title, if the id is unknown. An ambiguous title returns candidates instead of guessing."),
+});
+
+export const getNoteTool: AiToolDefinition = {
+  name: "get_note",
+  description:
+    "Read one note in full, including its body, when the student wants the actual content summarised, explained or quizzed on. Use after get_notes or search_notes have identified the note. Long bodies are truncated and say so.",
+  kind: "READ",
+  activityLabel: "Reading the note",
+  parameters: getNoteArgs,
+  async execute(args, ctx) {
+    const input = getNoteArgs.parse(args);
+    const target = await requireEntityIdFromArgs(ctx.userId, "note", {
+      id: input.noteId,
+      ref: input.noteRef,
+      entityName: "note",
+    });
+
+    const note = await notesService.getById(ctx.userId, target.id);
+    const truncated = note.content.length > MAX_NOTE_CONTENT_CHARS;
+
+    return ok(
+      {
+        id: note.id,
+        title: note.title,
+        courseId: note.courseId,
+        course: note.course,
+        content: truncated ? note.content.slice(0, MAX_NOTE_CONTENT_CHARS) : note.content,
+        contentLength: note.content.length,
+        truncated,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+      },
+      `Read "${note.title}" (${note.content.length} characters)`,
+    );
+  },
+};
+
+const searchNotesArgs = z.object({
+  query: z.string().min(1).max(200).describe("Words to look for in note titles and bodies."),
+  courseId: courseIdArg,
+  limit: limitArg(10),
+});
+
+export const searchNotesTool: AiToolDefinition = {
+  name: "search_notes",
+  description:
+    "Search inside the content of the student's notes (not just titles) and return the matching passages with surrounding context. Use when the student mentions a topic, definition or lecture rather than a note title.",
+  kind: "READ",
+  activityLabel: "Searching your notes",
+  parameters: searchNotesArgs,
+  async execute(args, ctx) {
+    const input = searchNotesArgs.parse(args);
+    const result = await notesService.list(ctx.userId, {
+      search: input.query,
+      limit: input.limit,
+      ...(input.courseId ? { courseId: input.courseId } : {}),
+    });
+
+    const terms = input.query
+      .toLowerCase()
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 1);
+
+    const items = result.items.slice(0, input.limit).map((note) => {
+      const matches = countMatches(note.content, terms);
+      return {
+        id: note.id,
+        title: note.title,
+        courseId: note.courseId,
+        course: note.course,
+        matchCount: matches,
+        excerpt: bestExcerpt(note.content, terms),
+        updatedAt: note.updatedAt,
+      };
+    });
+
+    return ok(
+      {
+        query: input.query,
+        ...page(result, input.limit),
+        items: items.sort((a, b) => b.matchCount - a.matchCount),
+      },
+      `${result.items.length} note(s) mention "${input.query}"`,
+    );
+  },
+};
+
+/** How many times any term appears, case-insensitively. */
+function countMatches(content: string, terms: string[]): number {
+  const haystack = content.toLowerCase();
+  return terms.reduce((sum, term) => {
+    let count = 0;
+    let index = haystack.indexOf(term);
+    while (index !== -1 && count < 50) {
+      count += 1;
+      index = haystack.indexOf(term, index + term.length);
+    }
+    return sum + count;
+  }, 0);
+}
+
+/** A ~240 character window around the densest run of search terms. */
+function bestExcerpt(content: string, terms: string[], window = 240): string {
+  if (terms.length === 0) return content.slice(0, window);
+  const haystack = content.toLowerCase();
+  const first = terms.map((term) => haystack.indexOf(term)).filter((i) => i >= 0);
+  if (first.length === 0) return content.slice(0, window);
+
+  const start = Math.max(0, Math.min(...first) - Math.floor(window / 3));
+  return `${start > 0 ? "…" : ""}${content.slice(start, start + window).trim()}${start + window < content.length ? "…" : ""}`;
+}
+
+// ── Task breakdown: subtasks and tags ───────────────────────────────────────
+
+const getTaskSubtasksArgs = z.object({
+  taskId: z.string().min(1).optional().describe("Id of the parent task, from get_tasks."),
+  taskRef: z.string().min(1).max(200).optional().describe("Task title, if the id is unknown."),
+  status: z.enum(["TODO", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
+});
+
+export const getTaskSubtasksTool: AiToolDefinition = {
+  name: "get_task_subtasks",
+  description:
+    "List the subtasks of one task with their status and completion. Use when the student asks what a specific task is broken down into, or before adding or completing a subtask.",
+  kind: "READ",
+  activityLabel: "Checking the task's subtasks",
+  parameters: getTaskSubtasksArgs,
+  async execute(args, ctx) {
+    const input = getTaskSubtasksArgs.parse(args);
+    const target = await requireEntityIdFromArgs(ctx.userId, "task", {
+      id: input.taskId,
+      ref: input.taskRef,
+      entityName: "task",
+    });
+
+    const task = await tasksService.getById(ctx.userId, target.id);
+    const subtasks = await subtasksService.list(ctx.userId, task.id, {
+      ...(input.status ? { status: input.status } : {}),
+    });
+
+    const done = subtasks.filter((s) => s.status === "COMPLETED").length;
+
+    return ok(
+      {
+        task: { id: task.id, title: task.title, status: task.status, course: task.course },
+        items: subtasks,
+        total: subtasks.length,
+        completed: done,
+        progressPercent: subtasks.length > 0 ? Math.round((done / subtasks.length) * 100) : 0,
+      },
+      `${subtasks.length} subtask(s) on "${task.title}", ${done} done`,
+    );
+  },
+};
+
+export const getTaskTagsTool: AiToolDefinition = {
+  name: "get_task_tags",
+  description: "List the tags on one task. Use before adding a tag, or to find tasks by label.",
+  kind: "READ",
+  activityLabel: "Checking the task's tags",
+  parameters: z.object({
+    taskId: z.string().min(1).optional().describe("Id of the task, from get_tasks."),
+    taskRef: z.string().min(1).max(200).optional().describe("Task title, if the id is unknown."),
+  }),
+  async execute(args, ctx) {
+    const input = z
+      .object({
+        taskId: z.string().min(1).optional().describe("Id of the task, from get_tasks."),
+        taskRef: z.string().min(1).max(200).optional().describe("Task title, if the id is unknown."),
+      })
+      .parse(args);
+
+    const target = await requireEntityIdFromArgs(ctx.userId, "task", {
+      id: input.taskId,
+      ref: input.taskRef,
+      entityName: "task",
+    });
+
+    const task = await tasksService.getById(ctx.userId, target.id);
+    const tags = await taskTagsService.list(ctx.userId, task.id);
+
+    return ok(
+      { task: { id: task.id, title: task.title }, items: tags, total: tags.length },
+      `${tags.length} tag(s) on "${task.title}"`,
+    );
+  },
+};
+
+// ── Goals: milestones of one goal ───────────────────────────────────────────
+
+export const getGoalMilestonesTool: AiToolDefinition = {
+  name: "get_goal_milestones",
+  description:
+    "List the milestones of one goal with their status, in order. Use before adding, completing or reordering milestones.",
+  kind: "READ",
+  activityLabel: "Checking the goal's milestones",
+  parameters: z.object({
+    goalId: z.string().min(1).optional().describe("Id of the goal, from get_goals_and_milestones."),
+    goalRef: z.string().min(1).max(200).optional().describe("Goal title, if the id is unknown."),
+  }),
+  async execute(args, ctx) {
+    const input = z
+      .object({
+        goalId: z.string().min(1).optional().describe("Id of the goal, from get_goals_and_milestones."),
+        goalRef: z.string().min(1).max(200).optional().describe("Goal title, if the id is unknown."),
+      })
+      .parse(args);
+
+    const target = await requireEntityIdFromArgs(ctx.userId, "goal", {
+      id: input.goalId,
+      ref: input.goalRef,
+      entityName: "goal",
+    });
+
+    const goal = await goalsService.getById(ctx.userId, target.id);
+    const milestones = await goalsService.listMilestones(ctx.userId, goal.id);
+    const done = milestones.filter((m) => m.status === "COMPLETED").length;
+
+    return ok(
+      {
+        goal: { id: goal.id, title: goal.title, progress: goal.progress, status: goal.status },
+        items: milestones,
+        total: milestones.length,
+        completed: done,
+      },
+      `${milestones.length} milestone(s) on "${goal.title}", ${done} done`,
+    );
+  },
+};
+
+// ── Academic structure ──────────────────────────────────────────────────────
+
+export const getAcademicStructureTool: AiToolDefinition = {
+  name: "get_academic_structure",
+  description:
+    "Return the student's academic years and semesters with their date ranges and statuses, and mark which one is current. Use for 'when is this semester', 'what year am I in' and to check a course's term before planning.",
+  kind: "READ",
+  activityLabel: "Checking your academic years and semesters",
+  parameters: z.object({}),
+  async execute(_args, ctx) {
+    const [years, semesters] = await Promise.all([
+      academicYearsService.listAcademicYears(ctx.userId),
+      semestersService.listSemesters(ctx.userId),
+    ]);
+
+    const now = new Date();
+    const isCurrent = (start: string, end: string) => {
+      const from = new Date(`${start}T00:00:00`).getTime();
+      const to = new Date(`${end}T23:59:59`).getTime();
+      return now.getTime() >= from && now.getTime() <= to;
+    };
+
+    return ok(
+      {
+        academicYears: years.map((year) => ({
+          ...year,
+          isCurrent: isCurrent(year.startDate, year.endDate),
+        })),
+        semesters: semesters.map((semester) => ({
+          ...semester,
+          isCurrent: isCurrent(semester.startDate, semester.endDate),
+          academicYearName: years.find((y) => y.id === semester.academicYearId)?.name ?? null,
+        })),
+        currentYearId: years.find((y) => isCurrent(y.startDate, y.endDate))?.id ?? null,
+        currentSemesterId: semesters.find((s) => isCurrent(s.startDate, s.endDate))?.id ?? null,
+      },
+      `${years.length} academic year(s), ${semesters.length} semester(s)`,
+    );
+  },
+};
+
+// ── Notifications ───────────────────────────────────────────────────────────
+
+export const getNotificationsTool: AiToolDefinition = {
+  name: "get_notifications",
+  description:
+    "List the student's in-app reminders (assignment due, overdue, exam coming up, goal deadline) with the unread count. Use for 'what's nagging me' or to explain why StudentOS raised something.",
+  kind: "READ",
+  activityLabel: "Checking your notifications",
+  parameters: z.object({
+    unreadOnly: z.boolean().optional().default(false).describe("Only unread reminders."),
+    type: z.enum(["ASSIGNMENT_DUE", "OVERDUE_TASK", "EXAM_REMINDER", "GOAL_REMINDER"]).optional(),
+    limit: limitArg(20),
+  }),
+  async execute(args, ctx) {
+    const input = z
+      .object({
+        unreadOnly: z.boolean().optional().default(false),
+        type: z.enum(["ASSIGNMENT_DUE", "OVERDUE_TASK", "EXAM_REMINDER", "GOAL_REMINDER"]).optional(),
+        limit: limitArg(20),
+      })
+      .parse(args);
+
+    const result = await notificationsService.list(ctx.userId, {
+      limit: input.limit,
+      unread: input.unreadOnly,
+      ...(input.type ? { type: input.type } : {}),
+    });
+
+    return ok(
+      {
+        ...page(result, input.limit),
+        unreadCount: result.unreadCount,
+        items: result.items.slice(0, input.limit).map((n) => ({
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          type: n.type,
+          status: n.status,
+          relatedType: n.relatedType,
+          relatedId: n.relatedId,
+          createdAt: n.createdAt,
+        })),
+      },
+      `${result.unreadCount} unread of ${result.items.length} reminder(s)`,
+    );
+  },
+};
+
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
 export const getAcademicDashboardTool: AiToolDefinition = {
@@ -528,8 +868,15 @@ export const readTools: AiToolDefinition[] = [
   getStudySessionsTool,
   getStudyHistoryTool,
   getGoalsTool,
+  getGoalMilestonesTool,
   getGradesTool,
   getNotesTool,
+  getNoteTool,
+  searchNotesTool,
+  getTaskSubtasksTool,
+  getTaskTagsTool,
   getResourcesTool,
+  getAcademicStructureTool,
+  getNotificationsTool,
   getAcademicDashboardTool,
 ];

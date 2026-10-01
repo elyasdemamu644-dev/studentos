@@ -9,6 +9,15 @@ export const createConversationSchema = z.object({
   type: conversationTypeSchema.optional(),
 });
 
+/**
+ * Rename surface for a conversation. Only `title` is editable — the type is
+ * chosen when the conversation is created, and everything else on the record
+ * is derived.
+ */
+export const updateConversationSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(200).optional(),
+});
+
 export const messageRoleSchema = z.enum(["USER", "ASSISTANT", "SYSTEM"]);
 
 export const createMessageSchema = z.object({
@@ -62,6 +71,7 @@ export const queryStudyPlanSchema = z.object({
 
 export type ConversationType = z.infer<typeof conversationTypeSchema>;
 export type CreateConversationInput = z.infer<typeof createConversationSchema>;
+export type UpdateConversationInput = z.infer<typeof updateConversationSchema>;
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
 export type StudyPlanEntryStatus = z.infer<typeof studyPlanEntryStatusSchema>;
 export type CreateStudyPlanInput = z.infer<typeof createStudyPlanSchema>;

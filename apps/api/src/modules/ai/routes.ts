@@ -7,6 +7,7 @@ import {
   createConversationSchema,
   createMessageSchema,
   createStudyPlanSchema,
+  updateConversationSchema,
   updateStudyPlanSchema,
   updateStudyPlanEntrySchema,
   queryConversationSchema,
@@ -14,6 +15,7 @@ import {
   type CreateConversationInput,
   type CreateMessageInput,
   type CreateStudyPlanInput,
+  type UpdateConversationInput,
   type UpdateStudyPlanInput,
   type UpdateStudyPlanEntryInput,
 } from "./schema";
@@ -59,6 +61,19 @@ router.delete("/conversations/:id", zValidator("params", idParam), async (req: A
   try {
     const result = await aiService.deleteConversation(req.currentUser!.id, String(req.params.id));
     return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+/**
+ * Rename a conversation. The web client titles a new conversation from its
+ * first user message and lets the student override it afterwards, so this is
+ * the only mutable field on the record.
+ */
+router.patch("/conversations/:id", zValidator("params", idParam), zValidator("body", updateConversationSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const input = req.body as unknown as UpdateConversationInput;
+    const conversation = await aiService.updateConversation(req.currentUser!.id, String(req.params.id), input);
+    return res.status(200).json({ success: true, data: conversation });
   } catch (error) { next(error); }
 });
 
