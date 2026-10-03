@@ -10,27 +10,35 @@ import {
   type ReactNode,
 } from "react";
 
+import { getTheme, THEMES } from "./definitions";
+import type { ThemeDefinition } from "./token-contract";
 import {
   applyThemeToDom,
   DEFAULT_THEME,
   loadThemePreferences,
   persistTheme,
   resolveThemeMode,
+  THEME_SUMMARIES,
+  type ThemeId,
   type ThemeMode,
-  type ThemePreset,
   type ThemePreferences,
+  type ThemeSummary,
 } from "./themes";
 
 interface ThemeContextValue {
   preferences: ThemePreferences;
+  /** Appearance preference, including "system". */
   mode: ThemeMode;
-  preset: ThemePreset;
-  accent: string;
+  /** Visual identity, independent of appearance. */
+  themeId: ThemeId;
   /** "light" | "dark" after resolving "system". */
   resolvedMode: "light" | "dark";
+  /** All available themes, in picker order. */
+  themes: readonly ThemeSummary[];
+  /** The currently selected theme definition, including full tokens. */
+  theme: ThemeDefinition;
   setMode: (mode: ThemeMode) => void;
-  setPreset: (preset: ThemePreset) => void;
-  setAccent: (accent: string) => void;
+  setThemeId: (themeId: ThemeId) => void;
   reset: () => void;
 }
 
@@ -43,74 +51,61 @@ function systemPrefersDark(): boolean {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<ThemePreferences>(DEFAULT_THEME);
+  const [systemDark, setSystemDark] = useState(false);
 
-  // Load persisted preferences once hydrated.
+  // Load persisted preferences once hydrated. Until this runs the server
+  // bootstrap script has already applied the right attributes, so there is
+  // nothing to correct visually.
   useEffect(() => {
-    const prefs = loadThemePreferences();
-    setPreferences(prefs);
-    applyThemeToDom(prefs, systemPrefersDark());
+    setPreferences(loadThemePreferences());
+    setSystemDark(systemPrefersDark());
   }, []);
 
-  // Keep the <html> in sync whenever preferences change.
+  // Keep <html> in sync whenever preferences change.
   useEffect(() => {
-    applyThemeToDom(preferences, systemPrefersDark());
-  }, [preferences]);
+    applyThemeToDom(preferences, systemDark);
+  }, [preferences, systemDark]);
 
-  // Follow OS scheme changes when in "system" mode.
+  // Follow OS scheme changes: only affects the DOM while in "system" mode.
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => {
-      if (preferences.mode === "system") {
-        applyThemeToDom(preferences, media.matches);
-      }
+    const onChange = (event: MediaQueryListEvent) => {
+      if (preferences.mode === "system") setSystemDark(event.matches);
     };
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
-  }, [preferences]);
+  }, [preferences.mode]);
 
-  const setMode = useCallback((mode: ThemeMode) => {
+  const update = useCallback((patch: Partial<ThemePreferences>) => {
     setPreferences((prev) => {
-      const next = { ...prev, mode };
+      const next = { ...prev, ...patch };
       persistTheme(next);
       return next;
     });
   }, []);
 
-  const setPreset = useCallback((preset: ThemePreset) => {
-    setPreferences((prev) => {
-      const next = { ...prev, preset };
-      persistTheme(next);
-      return next;
-    });
-  }, []);
-
-  const setAccent = useCallback((accent: string) => {
-    setPreferences((prev) => {
-      const next = { ...prev, accent };
-      persistTheme(next);
-      return next;
-    });
-  }, []);
+  const setMode = useCallback((mode: ThemeMode) => update({ mode }), [update]);
+  const setThemeId = useCallback((themeId: ThemeId) => update({ themeId }), [update]);
 
   const reset = useCallback(() => {
     persistTheme(DEFAULT_THEME);
     setPreferences(DEFAULT_THEME);
   }, []);
 
-  const value = useMemo<ThemeContextValue>(
-    () => ({
+  const value = useMemo<ThemeContextValue>(() => {
+    const theme: ThemeDefinition = getTheme(preferences.themeId) ?? THEMES[0];
+    return {
       preferences,
       mode: preferences.mode,
-      preset: preferences.preset,
-      accent: preferences.accent,
-      resolvedMode: resolveThemeMode(preferences.mode, systemPrefersDark()),
+      themeId: theme.id,
+      resolvedMode: resolveThemeMode(preferences.mode, systemDark),
+      themes: THEME_SUMMARIES,
+      theme,
       setMode,
-      setPreset,
-      setAccent,
+      setThemeId,
       reset,
-    }),
-    [preferences, setAccent, setMode, setPreset, reset],
-  );
+    };
+  }, [preferences, reset, setMode, setThemeId, systemDark]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

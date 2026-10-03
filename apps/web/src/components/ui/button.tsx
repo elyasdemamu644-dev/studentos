@@ -5,24 +5,32 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 active:scale-[0.98]",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 active:scale-[var(--press-scale)]",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
-        outline: "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
+        default: "bg-primary text-primary-foreground shadow-card hover:bg-primary/90",
+        destructive: "bg-destructive text-destructive-foreground shadow-card hover:bg-destructive/90",
+        outline: "border border-input bg-background shadow-inset hover:bg-accent hover:text-accent-foreground",
+        secondary: "bg-secondary text-secondary-foreground shadow-inset hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        success: "bg-success text-success-foreground shadow-sm hover:bg-success/90",
+        success: "bg-success text-success-foreground shadow-card hover:bg-success/90",
+        // `danger` and `warning` are the semantic names; `destructive` is the
+        // Radix/shadcn slot name for the same colour. Both exist so pages stop
+        // hand-rolling raw colour classes for destructive actions.
+        danger: "bg-danger text-danger-foreground shadow-card hover:bg-danger/90",
+        warning: "bg-warning text-warning-foreground shadow-card hover:bg-warning/90",
       },
+      // Heights and padding come from the theme's density tokens so a dense
+      // theme (Neon) tightens every control in the product at once, and an airy
+      // one (Aurora, Paper) loosens it.
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-6",
-        icon: "h-9 w-9",
-        "icon-sm": "h-8 w-8",
+        default: "h-control px-control",
+        sm: "h-control-sm rounded-md px-control-sm text-xs",
+        lg: "h-control-lg rounded-md px-control-lg",
+        icon: "h-control w-control",
+        "icon-sm": "h-control-sm w-control-sm",
       },
     },
     defaultVariants: {

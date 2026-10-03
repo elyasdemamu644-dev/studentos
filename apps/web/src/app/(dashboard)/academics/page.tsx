@@ -4,10 +4,11 @@ import { useState } from "react";
 import { CalendarRange, GraduationCap, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
-import { ListSkeleton } from "@/components/feedback";
+import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { Badge } from "@/components/ui/badge";
-import { Button, LoadingButton } from "@/components/ui/button";
-import { DialogShell } from "@/features/tasks/task-form";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Surface } from "@/components/ui/surface";
 import {
   AcademicYearFormDialog,
   SemesterFormDialog,
@@ -90,25 +91,22 @@ export default function AcademicsPage() {
       {isPending ? (
         <ListSkeleton rows={3} />
       ) : orderedYears.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border p-10 text-center">
-          <GraduationCap className="mx-auto h-8 w-8 text-muted-foreground" aria-hidden />
-          <p className="mt-3 font-medium">No academic years yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-            Create an academic year such as 2025/2026, then add your semesters inside it.
-          </p>
-          <Button className="mt-4" size="sm" onClick={() => openYearForm()}>
-            <Plus className="mr-1.5 h-4 w-4" aria-hidden /> New academic year
-          </Button>
-        </div>
+        <EmptyState
+          icon={GraduationCap}
+          title="No academic years yet"
+          description="Create an academic year such as 2025/2026, then add your semesters inside it."
+          action={
+            <Button size="sm" onClick={() => openYearForm()}>
+              <Plus className="mr-1.5 h-4 w-4" aria-hidden /> New academic year
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-4">
           {orderedYears.map((year) => {
             const children = semestersFor(year.id);
             return (
-              <section
-                key={year.id}
-                className="rounded-xl border border-border bg-card p-4 shadow-card"
-              >
+              <Surface key={year.id} className="p-4">
                 <header className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <CalendarRange className="h-4 w-4 text-primary" aria-hidden />
@@ -148,7 +146,7 @@ export default function AcademicsPage() {
                     {children.map((semester) => (
                       <li
                         key={semester.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/40 px-3 py-2 transition-colors hover:border-primary/30 hover:bg-background"
                       >
                         <div>
                           <p className="flex items-center gap-2 text-sm font-medium">
@@ -184,7 +182,7 @@ export default function AcademicsPage() {
                     ))}
                   </ul>
                 )}
-              </section>
+              </Surface>
             );
           })}
         </div>
@@ -201,38 +199,27 @@ export default function AcademicsPage() {
         semester={editingSemester}
       />
 
-      <DialogShell
+      <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => !open && setPendingDelete(null)}
         title={pendingDelete?.kind === "year" ? "Delete academic year" : "Delete semester"}
         description={
           pendingDelete?.kind === "year"
-            ? `"${pendingDelete.item.name}" will be removed along with its ${pendingDelete.childCount} semester(s). Courses keep their data but lose the term link. This cannot be undone.`
+            ? `"${pendingDelete.item.name}" and its ${pendingDelete.childCount} semester(s) will be removed. Courses keep their data but lose the term link. This cannot be undone.`
             : pendingDelete
               ? `"${pendingDelete.item.name}" will be removed. Courses keep their data but lose the term link. This cannot be undone.`
               : undefined
         }
-      >
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setPendingDelete(null)}>
-            Cancel
-          </Button>
-          <LoadingButton
-            variant="destructive"
-            loading={deletePending}
-            onClick={() => {
-              if (!pendingDelete) return;
-              const request =
-                pendingDelete.kind === "year"
-                  ? deleteYear.mutateAsync(pendingDelete.item.id)
-                  : deleteSemester.mutateAsync(pendingDelete.item.id);
-              void request.then(() => setPendingDelete(null));
-            }}
-          >
-            <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Delete
-          </LoadingButton>
-        </div>
-      </DialogShell>
+        busy={deletePending}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          const request =
+            pendingDelete.kind === "year"
+              ? deleteYear.mutateAsync(pendingDelete.item.id)
+              : deleteSemester.mutateAsync(pendingDelete.item.id);
+          void request.then(() => setPendingDelete(null));
+        }}
+      />
     </div>
   );
 }

@@ -23,3 +23,21 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
 if (typeof window !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
   Element.prototype.scrollIntoView = function scrollIntoView() {};
 }
+
+// jsdom's localStorage can be undefined in some environments; ensure it exists.
+if (typeof window !== "undefined" && typeof window.localStorage === "undefined") {
+  Object.defineProperty(window, "localStorage", {
+    writable: true,
+    value: (() => {
+      const store = new Map<string, string>();
+      return {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, String(value)),
+        removeItem: (key: string) => void store.delete(key),
+        clear: () => store.clear(),
+        key: (index: number) => Array.from(store.keys())[index] ?? null,
+        get length() { return store.size; },
+      };
+    })(),
+  });
+}

@@ -7,20 +7,15 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
-import { Button, LoadingButton } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FilterBar, SelectFilter } from "@/components/ui/filter-bar";
+import { Surface } from "@/components/ui/surface";
 import { useEvents, useDeleteEvent } from "@/features/events/hooks";
 import { EventFormDialog } from "@/features/events/event-form";
 import { countCoursesWithExams, countdownLabel, partitionExams } from "@/features/events/exam-utils";
 import { useCourses } from "@/features/courses/hooks";
-import { DialogShell } from "@/features/tasks/task-form";
 import type { CalEvent } from "@/types/api-types";
 import { formatDate, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -56,11 +51,9 @@ export default function ExamsPage() {
   const renderExam = (exam: CalEvent) => {
     const countdown = countdownLabel(exam.startAt);
     return (
-      <li
-        key={exam.id}
-        className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-card"
-      >
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+      <li key={exam.id} className="flex">
+        <Surface className="flex w-full flex-wrap items-start justify-between gap-3 p-4">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
           <span
             className={cn(
               "flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg",
@@ -135,6 +128,7 @@ export default function ExamsPage() {
             <Trash2 className="h-4 w-4" aria-hidden />
           </Button>
         </div>
+        </Surface>
       </li>
     );
   };
@@ -152,21 +146,17 @@ export default function ExamsPage() {
         }
       />
 
-      <div className="mb-4 max-w-xs">
-        <Select value={courseFilter} onValueChange={setCourseFilter}>
-          <SelectTrigger aria-label="Filter exams by course">
-            <SelectValue placeholder="All courses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All courses</SelectItem>
-            {(courses.data ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <FilterBar onClear={courseFilter ? () => setCourseFilter("") : undefined}>
+        <SelectFilter
+          value={courseFilter}
+          onChange={setCourseFilter}
+          label="Filter exams by course"
+          placeholder="All courses"
+          allLabel="All courses"
+          options={(courses.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+          className="sm:w-64"
+        />
+      </FilterBar>
 
       {exams.isPending ? (
         <ListSkeleton rows={3} />
@@ -240,32 +230,21 @@ export default function ExamsPage() {
         lockType="EXAM"
       />
 
-      <DialogShell
+      <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Delete exam"
         description={
           deleting
-            ? `This removes "${deleting.title}" from your schedule. This cannot be undone.`
+            ? `"${deleting.title}" will be removed from your schedule. This cannot be undone.`
             : undefined
         }
-      >
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setDeleting(null)}>
-            Cancel
-          </Button>
-          <LoadingButton
-            variant="destructive"
-            loading={deleteEvent.isPending}
-            onClick={() => {
-              if (!deleting) return;
-              void deleteEvent.mutateAsync(deleting.id).then(() => setDeleting(null));
-            }}
-          >
-            <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Delete
-          </LoadingButton>
-        </div>
-      </DialogShell>
+        busy={deleteEvent.isPending}
+        onConfirm={() => {
+          if (!deleting) return;
+          void deleteEvent.mutateAsync(deleting.id).then(() => setDeleting(null));
+        }}
+      />
     </div>
   );
 }

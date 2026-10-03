@@ -8,11 +8,11 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState, GridSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { GoalCard } from "@/features/goals/goal-card";
 import { GoalFormDialog } from "@/features/goals/goal-form";
 import { useGoals } from "@/features/goals/hooks";
 import type { Goal, GoalStatus } from "@/types/api-types";
-import { cn } from "@/lib/utils";
 
 type Filter = "ALL" | GoalStatus;
 
@@ -59,23 +59,14 @@ export default function GoalsPage() {
         }
       />
 
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.value}
-            type="button"
-            onClick={() => setFilter(f.value)}
-            aria-pressed={filter === f.value}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-              filter === f.value
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="mb-5">
+        <SegmentedControl<Filter>
+          label="Goal status"
+          value={filter}
+          onChange={setFilter}
+          options={FILTERS}
+          className="max-w-full overflow-x-auto"
+        />
       </div>
 
       {goals.isPending ? (

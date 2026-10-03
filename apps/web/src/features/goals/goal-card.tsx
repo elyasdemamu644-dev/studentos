@@ -60,7 +60,7 @@ export function GoalCard({ goal, onEdit }: { goal: Goal; onEdit: (goal: Goal) =>
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-card p-5 shadow-card",
+        "surface-panel p-5",
         goal.status === "COMPLETED" && "opacity-80",
         goal.status === "CANCELLED" && "opacity-60",
       )}
@@ -73,7 +73,12 @@ export function GoalCard({ goal, onEdit }: { goal: Goal; onEdit: (goal: Goal) =>
         <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{goal.progress}%</span>
       </div>
 
-      <Progress className="mt-4" value={goal.progress} />
+      <Progress
+        className="mt-4"
+        label={`${goal.title} progress`}
+        value={goal.progress}
+        valueText={`${goal.progress}% · ${completedMilestones} of ${items.length} milestones done`}
+      />
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1">

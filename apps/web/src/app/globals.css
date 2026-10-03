@@ -2,488 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    /* ── Academic (default preset) · Light ─────────────────────── */
-    --background: 220 25% 98%;
-    --foreground: 230 25% 12%;
-    --card: 0 0% 100%;
-    --card-foreground: 230 25% 12%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 230 25% 12%;
-
-    --primary: 243 75% 59%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 228 30% 95%;
-    --secondary-foreground: 230 20% 25%;
-
-    --muted: 228 30% 95%;
-    --muted-foreground: 228 10% 46%;
-
-    --accent: 243 80% 96%;
-    --accent-foreground: 243 60% 40%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-
-    --success: 152 60% 42%;
-    --success-foreground: 0 0% 100%;
-    --warning: 32 95% 45%;
-    --warning-foreground: 0 0% 100%;
-    --danger: 0 72% 51%;
-    --danger-foreground: 0 0% 98%;
-
-    --border: 228 22% 90%;
-    --input: 228 22% 88%;
-    --ring: 243 75% 59%;
-
-    --sidebar: 228 30% 96%;
-    --sidebar-foreground: 230 20% 25%;
-    --sidebar-accent: 243 70% 94%;
-    --sidebar-accent-foreground: 243 60% 35%;
-    --sidebar-border: 228 22% 90%;
-
-    --chart-1: 243 75% 59%;
-    --chart-2: 199 89% 48%;
-    --chart-3: 32 95% 45%;
-    --chart-4: 152 60% 42%;
-    --chart-5: 271 70% 58%;
-
-    --radius: 0.8rem;
-
-    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --font-display: var(--font-sans);
-  }
-
-  .dark {
-    /* ── Academic (default preset) · Dark ──────────────────────── */
-    --background: 230 24% 9%;
-    --foreground: 226 25% 92%;
-    --card: 230 22% 12%;
-    --card-foreground: 226 25% 92%;
-    --popover: 230 22% 11%;
-    --popover-foreground: 226 25% 92%;
-
-    --primary: 243 75% 66%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 230 20% 18%;
-    --secondary-foreground: 226 25% 88%;
-
-    --muted: 230 20% 18%;
-    --muted-foreground: 228 12% 62%;
-
-    --accent: 243 40% 22%;
-    --accent-foreground: 243 90% 82%;
-
-    --destructive: 0 65% 55%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 152 55% 48%;
-    --success-foreground: 0 0% 100%;
-    --warning: 32 90% 52%;
-    --warning-foreground: 0 0% 100%;
-    --danger: 0 65% 55%;
-    --danger-foreground: 0 0% 100%;
-
-    --border: 230 20% 20%;
-    --input: 230 20% 22%;
-    --ring: 243 75% 66%;
-
-    --sidebar: 232 24% 11%;
-    --sidebar-foreground: 226 25% 84%;
-    --sidebar-accent: 243 35% 20%;
-    --sidebar-accent-foreground: 243 90% 82%;
-    --sidebar-border: 230 20% 18%;
-
-    --chart-1: 243 75% 66%;
-    --chart-2: 199 89% 55%;
-    --chart-3: 32 90% 52%;
-    --chart-4: 152 55% 45%;
-    --chart-5: 271 65% 65%;
-  }
-
-  /* ══════════════════════════════════════════════════════════════
-     THEME PRESETS
-     Each preset re-colours the semantic tokens. Only the personality
-     tokens are overridden; the structural tokens (radius, fonts,
-     neutral surfaces) stay from the academic base.
-     Accent color (JS-driven) further overrides --primary/--ring.
-     ══════════════════════════════════════════════════════════════ */
-
-  /* ── Ocean · blue/cyan calm ──────────────────────────────── */
-  [data-theme="ocean"] {
-    --background: 200 40% 97%;
-    --card: 0 0% 100%;
-    --popover: 0 0% 100%;
-    --secondary: 199 35% 93%;
-    --secondary-foreground: 201 25% 20%;
-    --muted: 200 35% 93%;
-    --muted-foreground: 203 12% 45%;
-    --sidebar: 199 40% 95%;
-    --sidebar-foreground: 201 20% 20%;
-    --sidebar-border: 201 25% 88%;
-    --border: 201 25% 87%;
-    --input: 201 25% 85%;
-    --primary: 199 89% 48%;
-    --ring: 199 89% 48%;
-    --accent: 200 95% 95%;
-    --accent-foreground: 199 89% 34%;
-    --sidebar-accent: 200 90% 93%;
-    --sidebar-accent-foreground: 199 89% 32%;
-    --chart-1: 199 89% 48%;
-    --chart-2: 173 80% 40%;
-    --chart-3: 217 91% 60%;
-    --chart-4: 160 84% 39%;
-    --chart-5: 262 83% 58%;
-  }
-  .dark[data-theme="ocean"] {
-    --background: 201 35% 8%;
-    --card: 200 30% 11%;
-    --popover: 201 30% 10%;
-    --secondary: 200 22% 16%;
-    --secondary-foreground: 199 20% 86%;
-    --muted: 200 22% 16%;
-    --muted-foreground: 201 12% 62%;
-    --sidebar: 202 32% 7%;
-    --sidebar-foreground: 200 20% 82%;
-    --sidebar-border: 200 20% 16%;
-    --border: 200 22% 18%;
-    --input: 200 22% 20%;
-    --primary: 199 90% 58%;
-    --ring: 199 90% 58%;
-    --accent: 200 40% 24%;
-    --accent-foreground: 199 90% 82%;
-    --sidebar-accent: 200 35% 20%;
-    --sidebar-accent-foreground: 199 90% 82%;
-    --chart-1: 199 90% 58%;
-    --chart-2: 173 75% 50%;
-    --chart-3: 217 85% 62%;
-    --chart-4: 160 70% 45%;
-    --chart-5: 262 75% 65%;
-  }
-
-  /* ── Aurora · teal/green with a touch of indigo ──────────── */
-  [data-theme="aurora"] {
-    --background: 174 45% 97%;
-    --card: 0 0% 100%;
-    --popover: 0 0% 100%;
-    --secondary: 172 40% 93%;
-    --secondary-foreground: 172 30% 18%;
-    --muted: 172 40% 93%;
-    --muted-foreground: 174 12% 45%;
-    --sidebar: 168 45% 94%;
-    --sidebar-foreground: 170 25% 18%;
-    --sidebar-border: 171 25% 88%;
-    --border: 171 25% 87%;
-    --input: 171 25% 85%;
-    --primary: 165 80% 38%;
-    --ring: 165 80% 38%;
-    --accent: 165 75% 95%;
-    --accent-foreground: 165 85% 30%;
-    --sidebar-accent: 165 70% 93%;
-    --sidebar-accent-foreground: 165 85% 28%;
-    --chart-1: 165 80% 40%;
-    --chart-2: 142 71% 45%;
-    --chart-3: 24 95% 50%;
-    --chart-4: 270 70% 58%;
-    --chart-5: 199 89% 48%;
-  }
-  .dark[data-theme="aurora"] {
-    --background: 172 35% 7%;
-    --card: 173 30% 11%;
-    --popover: 173 30% 10%;
-    --secondary: 171 22% 16%;
-    --secondary-foreground: 172 20% 85%;
-    --muted: 171 22% 16%;
-    --muted-foreground: 173 12% 62%;
-    --sidebar: 170 32% 6%;
-    --sidebar-foreground: 172 20% 82%;
-    --sidebar-border: 171 22% 16%;
-    --border: 172 22% 18%;
-    --input: 172 22% 20%;
-    --primary: 165 75% 50%;
-    --ring: 165 75% 50%;
-    --accent: 165 40% 24%;
-    --accent-foreground: 165 90% 80%;
-    --sidebar-accent: 165 35% 20%;
-    --sidebar-accent-foreground: 165 90% 80%;
-    --chart-1: 165 75% 50%;
-    --chart-2: 142 65% 52%;
-    --chart-3: 24 92% 56%;
-    --chart-4: 270 65% 65%;
-    --chart-5: 199 89% 58%;
-  }
-
-  /* ── Forest · grounded green ─────────────────────────────── */
-  [data-theme="forest"] {
-    --background: 130 35% 97%;
-    --card: 0 0% 100%;
-    --popover: 0 0% 100%;
-    --secondary: 132 30% 93%;
-    --secondary-foreground: 132 25% 18%;
-    --muted: 132 30% 93%;
-    --muted-foreground: 132 12% 44%;
-    --sidebar: 128 35% 94%;
-    --sidebar-foreground: 130 25% 18%;
-    --sidebar-border: 130 22% 88%;
-    --border: 130 22% 87%;
-    --input: 130 22% 85%;
-    --primary: 142 71% 40%;
-    --ring: 142 71% 40%;
-    --accent: 142 60% 95%;
-    --accent-foreground: 142 75% 30%;
-    --sidebar-accent: 142 55% 93%;
-    --sidebar-accent-foreground: 142 75% 28%;
-    --chart-1: 142 71% 42%;
-    --chart-2: 24 95% 48%;
-    --chart-3: 160 84% 39%;
-    --chart-4: 340 82% 52%;
-    --chart-5: 217 91% 60%;
-  }
-  .dark[data-theme="forest"] {
-    --background: 130 30% 7%;
-    --card: 132 26% 11%;
-    --popover: 132 26% 10%;
-    --secondary: 130 20% 16%;
-    --secondary-foreground: 130 20% 85%;
-    --muted: 130 20% 16%;
-    --muted-foreground: 133 10% 61%;
-    --sidebar: 128 28% 6%;
-    --sidebar-foreground: 130 20% 82%;
-    --sidebar-border: 130 18% 16%;
-    --border: 130 18% 18%;
-    --input: 130 18% 20%;
-    --primary: 142 60% 50%;
-    --ring: 142 60% 50%;
-    --accent: 142 35% 22%;
-    --accent-foreground: 142 85% 78%;
-    --sidebar-accent: 142 30% 19%;
-    --sidebar-accent-foreground: 142 85% 78%;
-    --chart-1: 142 60% 52%;
-    --chart-2: 24 92% 55%;
-    --chart-3: 160 70% 45%;
-    --chart-4: 340 70% 60%;
-    --chart-5: 217 85% 62%;
-  }
-
-  /* ── Sunset · warm orange/rose ───────────────────────────── */
-  [data-theme="sunset"] {
-    --background: 30 60% 98%;
-    --card: 0 0% 100%;
-    --popover: 0 0% 100%;
-    --secondary: 28 55% 94%;
-    --secondary-foreground: 28 30% 18%;
-    --muted: 28 55% 94%;
-    --muted-foreground: 30 15% 44%;
-    --sidebar: 24 55% 95%;
-    --sidebar-foreground: 28 25% 18%;
-    --sidebar-border: 28 30% 90%;
-    --border: 28 30% 89%;
-    --input: 28 30% 86%;
-    --primary: 24 95% 48%;
-    --ring: 24 95% 48%;
-    --accent: 24 95% 95%;
-    --accent-foreground: 24 90% 36%;
-    --sidebar-accent: 24 90% 93%;
-    --sidebar-accent-foreground: 24 90% 34%;
-    --chart-1: 24 95% 50%;
-    --chart-2: 340 82% 54%;
-    --chart-3: 32 100% 50%;
-    --chart-4: 270 70% 58%;
-    --chart-5: 173 80% 40%;
-  }
-  .dark[data-theme="sunset"] {
-    --background: 26 40% 8%;
-    --card: 24 32% 11%;
-    --popover: 24 32% 10%;
-    --secondary: 28 22% 16%;
-    --secondary-foreground: 28 20% 86%;
-    --muted: 28 22% 16%;
-    --muted-foreground: 30 12% 62%;
-    --sidebar: 26 38% 7%;
-    --sidebar-foreground: 28 20% 84%;
-    --sidebar-border: 28 18% 16%;
-    --border: 28 22% 18%;
-    --input: 28 22% 21%;
-    --primary: 24 92% 55%;
-    --ring: 24 92% 55%;
-    --accent: 24 40% 24%;
-    --accent-foreground: 24 90% 82%;
-    --sidebar-accent: 24 35% 20%;
-    --sidebar-accent-foreground: 24 90% 82%;
-    --chart-1: 24 92% 56%;
-    --chart-2: 340 75% 62%;
-    --chart-3: 32 95% 56%;
-    --chart-4: 270 65% 65%;
-    --chart-5: 173 75% 50%;
-  }
-
-  /* ── Sakura · soft pink/rose ─────────────────────────────── */
-  [data-theme="sakura"] {
-    --background: 340 45% 98%;
-    --card: 0 0% 100%;
-    --popover: 0 0% 100%;
-    --secondary: 337 40% 94%;
-    --secondary-foreground: 335 25% 18%;
-    --muted: 337 40% 94%;
-    --muted-foreground: 336 15% 45%;
-    --sidebar: 338 50% 96%;
-    --sidebar-foreground: 335 20% 20%;
-    --sidebar-border: 335 25% 90%;
-    --border: 335 25% 89%;
-    --input: 335 25% 86%;
-    --primary: 330 81% 55%;
-    --ring: 330 81% 55%;
-    --accent: 330 90% 95%;
-    --accent-foreground: 330 75% 40%;
-    --sidebar-accent: 330 85% 93%;
-    --sidebar-accent-foreground: 330 75% 38%;
-    --chart-1: 330 81% 56%;
-    --chart-2: 271 70% 58%;
-    --chart-3: 24 95% 48%;
-    --chart-4: 162 70% 42%;
-    --chart-5: 199 89% 48%;
-  }
-  .dark[data-theme="sakura"] {
-    --background: 336 30% 8%;
-    --card: 334 26% 11%;
-    --card-foreground: 336 20% 90%;
-    --popover: 334 26% 10%;
-    --popover-foreground: 336 20% 90%;
-    --secondary: 335 20% 16%;
-    --secondary-foreground: 336 18% 86%;
-    --muted: 335 20% 16%;
-    --muted-foreground: 335 12% 62%;
-    --sidebar: 337 28% 7%;
-    --sidebar-foreground: 336 18% 82%;
-    --sidebar-border: 335 20% 16%;
-    --border: 335 20% 18%;
-    --input: 335 20% 21%;
-    --primary: 330 80% 64%;
-    --ring: 330 80% 64%;
-    --accent: 330 35% 24%;
-    --accent-foreground: 330 95% 84%;
-    --sidebar-accent: 330 30% 21%;
-    --sidebar-accent-foreground: 330 95% 84%;
-    --chart-1: 330 80% 64%;
-    --chart-2: 271 65% 65%;
-    --chart-3: 24 92% 56%;
-    --chart-4: 162 65% 48%;
-    --chart-5: 199 89% 58%;
-  }
-
-  /* ── Midnight · deep indigo/violet, low-light surfaces ───── */
-  [data-theme="midnight"] {
-    --background: 231 45% 97%;
-    --card: 0 0% 100%;
-    --popover: 0 0% 100%;
-    --secondary: 232 40% 93%;
-    --secondary-foreground: 231 25% 20%;
-    --muted: 232 40% 93%;
-    --muted-foreground: 232 12% 45%;
-    --sidebar: 231 40% 96%;
-    --sidebar-foreground: 231 25% 20%;
-    --sidebar-border: 232 25% 89%;
-    --border: 232 25% 88%;
-    --input: 232 25% 86%;
-    --primary: 250 84% 62%;
-    --ring: 250 84% 62%;
-    --accent: 250 75% 95%;
-    --accent-foreground: 250 70% 42%;
-    --sidebar-accent: 250 70% 93%;
-    --sidebar-accent-foreground: 250 70% 40%;
-    --chart-1: 250 84% 62%;
-    --chart-2: 217 91% 60%;
-    --chart-3: 327 87% 60%;
-    --chart-4: 189 94% 50%;
-    --chart-5: 271 70% 58%;
-  }
-  .dark[data-theme="midnight"] {
-    --background: 230 32% 6%;
-    --foreground: 226 30% 94%;
-    --card: 232 28% 10%;
-    --card-foreground: 226 30% 94%;
-    --popover: 233 28% 9%;
-    --popover-foreground: 226 30% 94%;
-    --primary: 250 85% 68%;
-    --ring: 250 85% 68%;
-    --secondary: 232 24% 16%;
-    --secondary-foreground: 228 25% 88%;
-    --muted: 232 24% 16%;
-    --muted-foreground: 231 12% 62%;
-    --accent: 250 40% 22%;
-    --accent-foreground: 250 95% 84%;
-    --sidebar: 232 30% 8%;
-    --sidebar-foreground: 226 30% 88%;
-    --sidebar-accent: 250 35% 19%;
-    --sidebar-accent-foreground: 250 95% 84%;
-    --sidebar-border: 232 24% 16%;
-    --border: 232 24% 17%;
-    --input: 232 24% 19%;
-    --chart-1: 250 85% 68%;
-    --chart-2: 217 85% 62%;
-    --chart-3: 327 80% 65%;
-    --chart-4: 189 90% 55%;
-    --chart-5: 271 70% 65%;
-  }
-
-  /* ── Cyber · neon violet/cyan, near-black dark ───────────── */
-  [data-theme="cyber"] {
-    --background: 262 40% 97%;
-    --card: 0 0% 100%;
-    --popover: 0 0% 100%;
-    --secondary: 262 35% 93%;
-    --secondary-foreground: 262 25% 18%;
-    --muted: 262 35% 93%;
-    --muted-foreground: 262 12% 45%;
-    --sidebar: 262 45% 96%;
-    --sidebar-foreground: 262 25% 18%;
-    --sidebar-border: 262 22% 89%;
-    --border: 262 22% 88%;
-    --input: 262 22% 85%;
-    --primary: 262 85% 62%;
-    --ring: 262 85% 62%;
-    --accent: 262 80% 95%;
-    --accent-foreground: 262 75% 45%;
-    --sidebar-accent: 262 75% 93%;
-    --sidebar-accent-foreground: 262 75% 42%;
-    --chart-1: 262 85% 62%;
-    --chart-2: 189 92% 50%;
-    --chart-3: 327 85% 60%;
-    --chart-4: 152 75% 42%;
-    --chart-5: 32 95% 48%;
-  }
-  .dark[data-theme="cyber"] {
-    --background: 262 42% 4%;
-    --foreground: 256 30% 94%;
-    --card: 263 36% 9%;
-    --card-foreground: 256 30% 94%;
-    --popover: 264 36% 8%;
-    --popover-foreground: 256 30% 94%;
-    --primary: 262 90% 68%;
-    --ring: 262 90% 68%;
-    --secondary: 262 26% 16%;
-    --secondary-foreground: 260 25% 90%;
-    --muted: 262 26% 15%;
-    --muted-foreground: 262 14% 60%;
-    --accent: 189 90% 30%;
-    --accent-foreground: 256 30% 96%;
-    --sidebar: 264 38% 7%;
-    --sidebar-foreground: 256 30% 88%;
-    --sidebar-accent: 262 30% 18%;
-    --sidebar-accent-foreground: 262 90% 80%;
-    --sidebar-border: 262 26% 15%;
-    --border: 262 26% 16%;
-    --input: 262 26% 18%;
-    --chart-1: 262 90% 68%;
-    --chart-2: 189 92% 56%;
-    --chart-3: 327 80% 65%;
-    --chart-4: 152 70% 48%;
-    --chart-5: 32 92% 55%;
-  }
-}
+/*
+ * Design tokens themselves are not in this file.
+ *
+ * Every colour, radius, density, depth, motion, layout and AI-workspace token
+ * is generated from `src/lib/theme/definitions/*` by `src/lib/theme/css.ts` and
+ * rendered inline in `app/layout.tsx`. Keeping them here would mean two sources
+ * of truth that silently disagree, so this file only holds what is genuinely
+ * theme-independent: reset glue, base element styling and a small number of
+ * utilities that read tokens.
+ */
 
 @layer base {
   * {
@@ -496,17 +24,60 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    line-height: var(--body-leading);
+  }
+
+  /* Themes may paint a texture or mesh behind the app. It is fixed to the
+     viewport so it reads as atmosphere rather than as a scrolling pattern. */
+  body {
+    background-image: var(--app-background-image);
+    background-attachment: fixed;
+    background-size: cover;
+  }
+
+  /* Headings take the theme's display face, weight and tracking, so a serif
+     theme actually reads as a serif product rather than as the same layout
+     with a different button colour. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: var(--heading-weight);
+    letter-spacing: var(--tracking-heading);
   }
 
   ::selection {
     @apply bg-primary/20 text-foreground;
   }
 
-  /* Visible, consistent focus ring without relying on colour alone. */
+  /* Visible, consistent focus ring that does not rely on colour alone. */
   :focus-visible {
-    outline: 2px solid hsl(var(--ring));
+    outline: var(--ring-width) solid hsl(var(--ring));
     outline-offset: 2px;
+  }
+
+  /*
+   * Make the theme's motion token the *default* transition duration.
+   *
+   * Tailwind bakes a literal 150ms into every `transition-*` utility, so a theme
+   * whose motion is deliberately slow (Paper) or absent (Focus) would still
+   * animate identically to Default — motion personality would stop at the few
+   * components that name a `duration-*` explicitly. `:where()` keeps specificity
+   * at zero so any explicit `duration-*` still wins, and the `:not()` keeps
+   * `transition-none` genuinely untransitioned.
+   */
+  :where([class*="transition-"]):not([class*="duration-"]) {
+    transition-duration: var(--motion-fast);
+  }
+
+  /* Glass themes ask for real blur on raised chrome; flat themes set
+     `--surface-blur: 0px` and this costs them nothing. */
+  .surface-blur {
+    backdrop-filter: blur(var(--surface-blur));
+    -webkit-backdrop-filter: blur(var(--surface-blur));
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -521,8 +92,60 @@
   }
 }
 
+/* Owned here rather than in the Tailwind config because the duration is a
+   multiple of a theme token, which the config cannot express. */
+@keyframes theme-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@layer components {
+  /* Skeleton shimmer. Tailwind's `animate-pulse` hardcodes a 2s loop, which
+     ignores the theme's motion tokens — a theme that deliberately removes
+     motion (Focus) would still get moving loaders. Driving the loop off
+     `--motion-base` means a fast theme shimmers briskly and a still theme
+     renders a static skeleton, matching the rest of its personality. */
+  .skeleton {
+    @apply rounded bg-muted;
+    animation: theme-pulse calc(var(--motion-base) * 8) var(--motion-ease) infinite;
+  }
+
+  /* A live "something is happening" pulse, as used by the AI generating
+     indicator. Same keyframes and same token-derived timing as the skeleton,
+     just a shorter loop, so live state and loading state agree on tempo. */
+  .pulse-live {
+    animation: theme-pulse calc(var(--motion-base) * 2) var(--motion-ease) infinite;
+  }
+
+  /*
+   * Surfaces.
+   *
+   * `Card` and `Surface` used to be separate components with near-identical
+   * class lists, and pages hand-rolled a third. One surface token path now
+   * covers all three: `Surface` is the primitive, `Card` is its elevated
+   * variant, and pages use either instead of writing their own panel.
+   */
+  .surface-panel {
+    @apply rounded-xl border border-border bg-card text-card-foreground;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Charts are SVG, so they cannot use Tailwind colour utilities — they read
+     resolved colours from the chart tokens instead. */
+  .chart-surface {
+    background-color: hsl(var(--chart-surface));
+    border: 1px solid hsl(var(--chart-surface-border));
+    border-radius: var(--radius-md);
+  }
+}
+
 @layer utilities {
-  /* A soft tinted card used for the "today focus" hero area. */
+  /* A soft tinted card for "today focus" style hero areas. */
   .bg-gradient-surface {
     background-image: linear-gradient(
       135deg,
@@ -530,5 +153,30 @@
       hsl(var(--accent)),
       hsl(var(--secondary))
     );
+  }
+
+  /* ── Theme-driven structure helpers ──────────────────────────
+     Small, explicit escape hatches for places where a component needs the
+     theme's own geometry rather than a Tailwind default. Deliberately few: if
+     one starts appearing all over the code, the token belongs in a primitive. */
+  .tracking-display {
+    letter-spacing: var(--tracking-display);
+  }
+
+  .font-display-strong {
+    font-family: var(--font-display);
+    font-weight: var(--display-weight);
+    letter-spacing: var(--tracking-display);
+  }
+
+  /* The AI workspace reads the theme's own AI tokens for its radius, font and
+     glow. Its *colours* come from the `ai` palette in the Tailwind config
+     (`bg-ai`, `bg-ai-muted`, `border-ai`), so opacity modifiers keep working. */
+  .rounded-ai {
+    border-radius: var(--ai-radius);
+  }
+
+  .font-ai {
+    font-family: var(--ai-font);
   }
 }

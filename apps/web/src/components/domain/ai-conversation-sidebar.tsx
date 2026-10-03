@@ -6,6 +6,7 @@ import { Check, MessageSquare, Pencil, Plus, Trash2, X } from "lucide-react";
 import { ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Button } from "@/components/ui/button";
+import { Drawer } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import { conversationPreview, groupConversations } from "@/features/ai/chat-utils";
 import { CONVERSATION_TYPE_LABELS, UNTITLED_CONVERSATION } from "@/lib/labels";
@@ -243,7 +244,12 @@ export function AiConversationSidebar({
         <Plus className="mr-1.5 h-4 w-4" aria-hidden />
         {creating ? "Starting…" : "New chat"}
       </Button>
-      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+      <div
+        className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+        tabIndex={0}
+        role="region"
+        aria-label="Conversation history list"
+      >
         <ConversationList
           conversations={conversations}
           isPending={isPending}
@@ -262,8 +268,15 @@ export function AiConversationSidebar({
 }
 
 /**
- * Mobile entry point. Below `lg` the sidebar collapses into a drawer so the
- * chat keeps the full width instead of stacking a list above every message.
+ * The top bar's History entry point.
+ *
+ * It is not gated on viewport width. It used to carry `lg:hidden`, which is the
+ * opposite of what a top-bar control should do: the control vanished on a wide
+ * or maximized window, where the history column exists *as well as* the button,
+ * and only reappeared once the window was dragged narrow. A control that is
+ * present at some widths and absent at others is a control the student cannot
+ * rely on, so the trigger is now unconditional and the drawer is simply one
+ * more way in at every width.
  */
 export function AiConversationDrawer(props: ConversationListProps & {
   derivedTitles?: Record<string, string>;
@@ -282,7 +295,6 @@ export function AiConversationDrawer(props: ConversationListProps & {
       <Button
         variant="outline"
         size="sm"
-        className="lg:hidden"
         onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -296,27 +308,18 @@ export function AiConversationDrawer(props: ConversationListProps & {
         )}
       </Button>
 
-      {open && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Conversation history">
-          <button
-            type="button"
-            aria-label="Close conversation history"
-            onClick={() => setOpen(false)}
-            className="absolute inset-0 h-full w-full animate-fade-in bg-black/40"
-          />
-          <div className="absolute inset-y-0 left-0 flex w-[85vw] max-w-xs animate-fade-in flex-col border-r border-border bg-background p-4 shadow-pop">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-semibold">Conversations</span>
-              <Button variant="ghost" size="icon-sm" onClick={() => setOpen(false)} aria-label="Close">
-                <X className="h-4 w-4" aria-hidden />
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1">
-              <AiConversationSidebar {...props} onSelect={select} />
-            </div>
-          </div>
+      <Drawer
+        open={open}
+        onOpenChange={setOpen}
+        side="left"
+        title="Conversations"
+        description={`${conversations.length} saved`}
+        className="p-4"
+      >
+        <div className="h-full min-h-0">
+          <AiConversationSidebar {...props} onSelect={select} />
         </div>
-      )}
+      </Drawer>
     </>
   );
 }

@@ -28,6 +28,7 @@ import { TaskCard } from "@/components/domain/task-card";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useCourse, useCourseSummary, useDeleteCourse } from "@/features/courses/hooks";
 import { CourseFormDialog } from "@/features/courses/course-form";
 import { useNotes } from "@/features/notes/hooks";
@@ -59,8 +60,8 @@ export default function CourseDetailPage() {
   if (course.isPending || summary.isPending) {
     return (
       <div className="space-y-6">
-        <div className="h-8 w-1/3 animate-pulse rounded bg-muted" />
-        <div className="h-4 w-1/4 animate-pulse rounded bg-muted/70" />
+        <Skeleton className="h-8 w-1/3" />
+        <Skeleton className="h-4 w-1/4 opacity-70" />
         <ListSkeleton rows={3} />
       </div>
     );
@@ -185,19 +186,23 @@ export default function CourseDetailPage() {
       </div>
 
       {roll.tasks.total > 0 && roll.tasks.progress !== null && (
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-medium">Task progress</span>
             <span className="text-muted-foreground">
               {roll.tasks.completed} of {roll.tasks.total} complete · {roll.tasks.progress}%
             </span>
           </div>
-          <Progress value={roll.tasks.progress} />
+          <Progress
+            label="Course task progress"
+            value={roll.tasks.progress}
+            valueText={`${roll.tasks.completed} of ${roll.tasks.total} tasks complete`}
+          />
         </section>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold">
               <CalendarClock className="h-4 w-4 text-primary" aria-hidden /> Upcoming
@@ -250,7 +255,7 @@ export default function CourseDetailPage() {
           )}
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold">
               <ListTodo className="h-4 w-4 text-primary" aria-hidden /> Open tasks
@@ -291,7 +296,7 @@ export default function CourseDetailPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold">
               <StickyNote className="h-4 w-4 text-primary" aria-hidden /> Notes
@@ -325,7 +330,7 @@ export default function CourseDetailPage() {
           )}
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold">
               <FileText className="h-4 w-4 text-primary" aria-hidden /> Recent grades
@@ -368,7 +373,7 @@ export default function CourseDetailPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <h2 className="mb-4 flex items-center gap-2 font-semibold">
             <Paperclip className="h-4 w-4 text-primary" aria-hidden /> Resources
           </h2>
@@ -391,7 +396,7 @@ export default function CourseDetailPage() {
           </Button>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <h2 className="mb-4 flex items-center gap-2 font-semibold">
             <Target className="h-4 w-4 text-primary" aria-hidden /> Related goals
           </h2>

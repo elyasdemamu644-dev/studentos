@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps, type ReactElement } from "react";
 
+import { AgentRunReport } from "@/components/domain/agent-run-report";
 import { AiConversationSidebar, AiConversationDrawer } from "@/components/domain/ai-conversation-sidebar";
 import {
   ChatComposer,
@@ -12,9 +13,9 @@ import {
   MessageError,
   MessageList,
 } from "@/components/domain/ai-chat";
-import { messagesKey, useSendMessage } from "@/features/ai/hooks";
+import { messagesKey, useLastAgentRun, useSendMessage } from "@/features/ai/hooks";
 import { setTokens } from "@/lib/api/auth-session";
-import type { AiMessage, Conversation } from "@/types/api-types";
+import type { AiAgentRun, AiMessage, Conversation } from "@/types/api-types";
 
 /**
  * The regression this file exists for: the student's message used to vanish
@@ -72,6 +73,67 @@ function stubResponse(data: unknown, status = 201) {
   return { ok: status >= 200 && status < 300, status, json: async () => data } as unknown as Response;
 }
 
+// ── The run report ─────────────
+
+describe("agent run report", () => {
+  const base: AiAgentRun = {
+    provider: "openai",
+    model: "gpt-4o-mini",
+    usedTools: true,
+    toolSupport: true,
+    finish: "answered",
+    rounds: 2,
+  };
+
+  it("says which provider and model answered, once expanded", async () => {
+    render(<AgentRunReport run={base} />);
+
+    // The collapsed row is the outcome, not a wall of telemetry.
+    expect(screen.getByRole("button", { expanded: false })).toHaveTextContent("Answered");
+
+    await userEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(screen.getByText("OpenAI")).toBeInTheDocument();
+    // Also shown in the collapsed row, hence `getAllByText`.
+    expect(screen.getAllByText("gpt-4o-mini").length).toBeGreaterThan(0);
+    expect(screen.getByText("Yes")).toBeInTheDocument();
+    expect(screen.queryByText("None")).not.toBeInTheDocument();
+  });
+
+  it("states plainly when the provider has no tool calling", async () => {
+    render(
+      <AgentRunReport
+        run={{ ...base, toolSupport: false, usedTools: false, finish: "no_tool_support" }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { expanded: false })).toHaveTextContent(
+      "No tool calling on this provider",
+    );
+
+    await userEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(
+      screen.getByText(/could not read or change your data/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/does not support tool calling/i)).toBeInTheDocument();
+  });
+
+  it("flags a turn that ran out of tool calls", async () => {
+    render(<AgentRunReport run={{ ...base, finish: "tool_limit", rounds: 5 }} />);
+
+    expect(screen.getByRole("button", { expanded: false })).toHaveTextContent(
+      "Hit the tool limit",
+    );
+    await userEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(screen.getByText(/may have stopped before finishing/i)).toBeInTheDocument();
+  });
+
+  it("tells the user a prepared change is still waiting on them", async () => {
+    render(<AgentRunReport run={{ ...base, finish: "confirmation_pending" }} />);
+
+    expect(screen.getByRole("button", { expanded: false })).toHaveTextContent("Waiting for you");
+  });
+});
+
 // ── The optimistic message flow ─────────────
 
 const QUESTION = "Prepare me for my Database exam.";
@@ -95,6 +157,33 @@ function SendProbe({ onSettled }: { onSettled: (error: unknown) => void }) {
       <span data-testid="status">{send.isPending ? "pending" : "idle"}</span>
     </div>
   );
+}
+
+/** Seeds a transcript so a retry has a failed message to reuse. */
+function RetryProbe({ retryOf }: { retryOf: string }) {
+  const send = useSendMessage();
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          void send
+            .mutateAsync({ conversationId: CONVERSATION.id, content: QUESTION, retryOf })
+            .catch(() => {});
+        }}
+      >
+        retry
+      </button>
+      <span data-testid="status">{send.isPending ? "pending" : "idle"}</span>
+    </div>
+  );
+}
+
+/** Reads the run telemetry the mutation recorded for a conversation. */
+function RunProbe({ conversationId }: { conversationId: string }) {
+  const run = useLastAgentRun(conversationId);
+  return <span data-testid="run">{run.data ? JSON.stringify(run.data) : "none"}</span>;
 }
 
 describe("sending a message", () => {
@@ -132,6 +221,108 @@ describe("sending a message", () => {
       toolActivity: [],
       pendingAction: null,
     },
+  });
+
+  /**
+   * `AiAgentRun` is the only honest source for "what did the assistant
+   * actually do", so the mutation has to keep it. These cover that the run
+   * survives into the cache, and that its `finish` reason — the thing that
+   * tells the user the assistant could not do something — is not lost.
+   */
+  const runBody = (agent: AiAgentRun | null) =>
+    stubResponse({
+      success: true,
+      data: {
+        message: {
+          id: "stored-user",
+          conversationId: CONVERSATION.id,
+          role: "USER",
+          content: QUESTION,
+          createdAt: "2026-09-30T08:00:01.000Z",
+        },
+        reply: {
+          id: "stored-reply",
+          conversationId: CONVERSATION.id,
+          role: "ASSISTANT",
+          content: "Three revision sessions.",
+          createdAt: "2026-09-30T08:00:02.000Z",
+        },
+        toolActivity: [],
+        pendingAction: null,
+        agent,
+      },
+    });
+
+  const answeredRun: AiAgentRun = {
+    provider: "openai",
+    model: "gpt-4o-mini",
+    usedTools: true,
+    toolSupport: true,
+    finish: "answered",
+    rounds: 2,
+  };
+
+  it("records the agent run the API reported", async () => {
+    fetchMock.mockReturnValue(runBody(answeredRun));
+
+    const { client } = renderWithQuery(
+      <>
+        <SendProbe onSettled={() => {}} />
+        <RunProbe conversationId={CONVERSATION.id} />
+      </>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(client.getQueryData<AiAgentRun>(["ai", "agent-runs", CONVERSATION.id])).toEqual(
+        answeredRun,
+      );
+    });
+    expect(screen.getByTestId("run")).toHaveTextContent('"finish":"answered"');
+  });
+
+  it.each([["no_tool_support"], ["tool_limit"]] as const)(
+    "keeps a %s turn distinguishable from a normal one",
+    async (finish) => {
+    fetchMock.mockReturnValue(
+      runBody({
+        ...answeredRun,
+        finish,
+        toolSupport: finish !== "no_tool_support",
+        usedTools: finish !== "no_tool_support",
+      }),
+    );
+
+    renderWithQuery(
+      <>
+        <SendProbe onSettled={() => {}} />
+        <RunProbe conversationId={CONVERSATION.id} />
+      </>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("run")).toHaveTextContent(`"finish":"${finish}"`);
+    });
+  },
+  );
+
+  it("reports no run when the API returned none", async () => {
+    fetchMock.mockReturnValue(runBody(null));
+
+    renderWithQuery(
+      <>
+        <SendProbe onSettled={() => {}} />
+        <RunProbe conversationId={CONVERSATION.id} />
+      </>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("idle");
+    });
+    // Nothing is invented for a turn the server did not describe.
+    expect(screen.getByTestId("run")).toHaveTextContent("none");
   });
 
   it("puts the user's message in the transcript before the request resolves", async () => {
@@ -195,6 +386,80 @@ describe("sending a message", () => {
     // Never silently removed: the student can see what failed and retry it.
     expect(cached).toHaveLength(1);
     expect(cached?.[0]).toMatchObject({ content: QUESTION, failed: true });
+  });
+
+  it("reuses the failed message's slot on retry instead of duplicating it", async () => {
+    fetchMock.mockResolvedValue(replyBody);
+
+    const client = makeClient();
+    // The state a failed send leaves behind.
+    client.setQueryData<AiMessage[]>(messagesKey(CONVERSATION.id), [
+      message({
+        id: "failed-1",
+        role: "USER",
+        content: QUESTION,
+        createdAt: "2026-09-30T08:00:00.000Z",
+        failed: true,
+      }),
+    ]);
+
+    renderWithQuery(<RetryProbe retryOf="failed-1" />, client);
+    await userEvent.click(screen.getByRole("button", { name: "retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("idle");
+    });
+
+    // The bug this pins: a retry used to POST the text as a new message while the
+    // failed bubble stayed on screen, so the student saw their question twice.
+    const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+    expect(cached?.filter((item) => item.role === "USER")).toHaveLength(1);
+    expect(cached?.map((item) => item.id)).toEqual(["stored-user", "stored-reply"]);
+  });
+
+  it("marks the retried message failed again if the retry also fails", async () => {
+    fetchMock.mockResolvedValue(
+      stubResponse(
+        { success: false, error: { code: "AI_PROVIDER_ERROR", message: "The provider is unavailable" } },
+        502,
+      ),
+    );
+
+    const client = makeClient();
+    client.setQueryData<AiMessage[]>(messagesKey(CONVERSATION.id), [
+      message({
+        id: "failed-1",
+        role: "USER",
+        content: QUESTION,
+        createdAt: "2026-09-30T08:00:00.000Z",
+        failed: true,
+      }),
+    ]);
+
+    renderWithQuery(<RetryProbe retryOf="failed-1" />, client);
+    await userEvent.click(screen.getByRole("button", { name: "retry" }));
+
+    await waitFor(() => {
+      const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+      expect(cached).toHaveLength(1);
+      expect(cached?.[0]).toMatchObject({ id: "failed-1", failed: true, optimistic: false });
+    });
+  });
+
+  it("appends when the retried message is no longer in the transcript", async () => {
+    fetchMock.mockResolvedValue(replyBody);
+
+    const client = makeClient();
+    // Nothing cached under that id — the refetch dropped it.
+    renderWithQuery(<RetryProbe retryOf="vanished" />, client);
+    await userEvent.click(screen.getByRole("button", { name: "retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("idle");
+    });
+
+    const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+    expect(cached?.map((item) => item.id)).toEqual(["stored-user", "stored-reply"]);
   });
 });
 

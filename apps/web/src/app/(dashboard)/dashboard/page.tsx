@@ -27,6 +27,7 @@ import { format } from "date-fns";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/domain/stat-card";
 import { EmptyState, GridSkeleton } from "@/components/feedback";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +70,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+    <section className="surface-panel p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-semibold">
           <Icon className="h-4 w-4 text-primary" aria-hidden />
@@ -127,9 +128,9 @@ export default function DashboardPage() {
   if (dashboard.isPending) {
     return (
       <div className="space-y-6">
-        <div className="h-10 w-1/2 animate-pulse rounded bg-muted" />
+        <Skeleton className="h-10 w-1/2" />
         <GridSkeleton />
-        <div className="h-40 animate-pulse rounded-xl bg-muted/50" />
+        <Skeleton className="h-40 rounded-xl opacity-50" />
       </div>
     );
   }
@@ -256,6 +257,73 @@ export default function DashboardPage() {
           tone="primary"
         />
       </div>
+
+      {/* What should I do now — prioritized actions */}
+      <section className="surface-panel p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <Flame className="h-4 w-4 text-primary" aria-hidden />
+          <h2 className="font-semibold">What should I do now?</h2>
+        </div>
+        {data.overdueTasks.length === 0 && data.upcomingTasks.length === 0 ? (
+          <EmptyState
+            icon={CheckCircle2}
+            title="All caught up"
+            description="No tasks need your attention right now. Enjoy the calm."
+            className="py-6"
+          />
+        ) : (
+          <ul className="space-y-2">
+            {data.overdueTasks.slice(0, 2).map((task) => (
+              <li key={`now-overdue-${task.id}`}>
+                <Link
+                  href="/tasks"
+                  className="flex items-center gap-3 rounded-lg bg-danger/5 px-3 py-2.5 transition-colors hover:bg-danger/10"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-danger" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{task.title}</span>
+                    <span className="block text-xs text-danger">
+                      Overdue · {task.course?.code ?? task.course?.name ?? "No course"}
+                    </span>
+                  </span>
+                  <Badge variant="danger" className="shrink-0">Overdue</Badge>
+                </Link>
+              </li>
+            ))}
+            {data.upcomingTasks
+              .filter((t) => t.status !== "COMPLETED")
+              .slice(0, data.overdueTasks.length > 0 ? 3 : 4)
+              .map((task) => {
+                const l = dueLabel(task.dueDate, task.status);
+                return (
+                  <li key={`now-${task.id}`}>
+                    <Link
+                      href="/tasks"
+                      className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2.5 transition-colors hover:bg-muted"
+                    >
+                      <span
+                        className={cn(
+                          "h-2 w-2 shrink-0 rounded-full",
+                          l.tone === "overdue" ? "bg-danger" : l.tone === "soon" ? "bg-warning" : "bg-primary",
+                        )}
+                        aria-hidden
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{task.title}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {task.course?.code ?? task.course?.name ?? "No course"} · {l.label}
+                        </span>
+                      </span>
+                      {task.priority === "HIGH" && (
+                        <Badge variant="warning" className="shrink-0">High</Badge>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
+          </ul>
+        )}
+      </section>
 
       {/* Today's focus + study progress */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -454,7 +522,7 @@ export default function DashboardPage() {
               <Link
                 key={course.id}
                 href={`/courses/${course.id}`}
-                className="rounded-xl border border-border bg-card p-4 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-pop"
+                className="surface-panel p-4 transition-all hover:-translate-y-0.5 hover:shadow-pop"
               >
                 <div className="flex items-center gap-3">
                   <CourseSwatch id={course.id} className="h-9 w-9 shrink-0 rounded-lg" />
@@ -476,7 +544,12 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 {course.taskProgress !== null && (
-                  <Progress value={course.taskProgress} className="mt-2" />
+                  <Progress
+                    className="mt-2"
+                    label={`${course.name} task progress`}
+                    value={course.taskProgress}
+                    valueText={`${course.taskCompleted} of ${course.taskTotal} tasks complete`}
+                  />
                 )}
               </Link>
             ))}
@@ -499,7 +572,11 @@ export default function DashboardPage() {
                       {goal.milestoneCompleted}/{goal.milestoneTotal} · {goal.progress}%
                     </span>
                   </div>
-                  <Progress value={goal.progress} />
+                  <Progress
+                    label={`${goal.title} progress`}
+                    value={goal.progress}
+                    valueText={`${goal.progress}% · ${goal.milestoneCompleted} of ${goal.milestoneTotal} milestones`}
+                  />
                 </li>
               ))}
             </ul>
@@ -623,7 +700,7 @@ export default function DashboardPage() {
       </div>
 
       {/* AI Assistant — clearly separate from academic Analytics */}
-      <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+      <section className="surface-panel p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">

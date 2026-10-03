@@ -13,18 +13,12 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/features/auth/auth-provider";
 import { useTheme } from "@/lib/theme/theme-provider";
-import { ACCENTS, THEME_PRESETS } from "@/lib/theme/themes";
 import { useMarkAllNotificationsRead, useNotifications, useSettings, useUpdateSettings } from "@/features/settings/hooks";
 import { AiConnectionsPanel } from "@/features/ai-connections/connection-list";
+import { ThemeSelector } from "@/components/theme/selector";
+import { ThemeModeToggle } from "@/components/theme-toggle";
 import { relativeTime } from "@/lib/format";
 import type { Settings } from "@/types/api-types";
-import { cn } from "@/lib/utils";
-
-const MODES: Array<{ value: "light" | "dark" | "system"; label: string }> = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "System" },
-];
 
 const PREFERENCE_KEYS: Array<{ key: string; label: string; description: string }> = [
   { key: "notifications.assignmentReminders", label: "Assignment reminders", description: "Get daily reminders about due assignments." },
@@ -69,7 +63,7 @@ export default function SettingsPage() {
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <h2 className="mb-4 flex items-center gap-2 font-semibold">
             <UserRound className="h-4 w-4 text-primary" aria-hidden /> Profile
           </h2>
@@ -86,7 +80,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <section className="surface-panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold">
               <BellRing className="h-4 w-4 text-primary" aria-hidden /> Notifications
@@ -132,7 +126,7 @@ export default function SettingsPage() {
         </section>
       </div>
 
-      <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+      <section className="surface-panel p-5">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="flex items-center gap-2 font-semibold">
             <Palette className="h-4 w-4 text-primary" aria-hidden /> Appearance
@@ -144,88 +138,27 @@ export default function SettingsPage() {
 
         <div className="space-y-6">
           <div>
-            <p className="mb-2 text-sm font-medium">Mode</p>
-            <div className="flex w-fit rounded-lg border border-border bg-muted/40 p-0.5">
-              {MODES.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => theme.setMode(m.value)}
-                  aria-pressed={theme.mode === m.value}
-                  className={cn(
-                    "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
-                    theme.mode === m.value
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <p className="mb-1 text-sm font-medium">Appearance</p>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Light, dark or follow your system. This is independent of the theme below.
+            </p>
+            <ThemeModeToggle />
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-medium">Preset</p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {THEME_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => theme.setPreset(preset.id)}
-                  aria-pressed={theme.preset === preset.id}
-                  className={cn(
-                    "rounded-xl border p-3 text-left transition-colors",
-                    theme.preset === preset.id
-                      ? "border-primary ring-2 ring-ring"
-                      : "border-border hover:border-primary/40",
-                  )}
-                >
-                  <span className="flex gap-1">
-                    {preset.swatch.map((color) => (
-                      <span key={color} className="h-4 w-4 rounded-full" style={{ backgroundColor: color }} aria-hidden />
-                    ))}
-                  </span>
-                  <span className="mt-2 block text-sm font-medium">{preset.name}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">{preset.description}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-sm font-medium">Accent</p>
-            <div className="flex flex-wrap items-center gap-2">
-              {ACCENTS.map((accent) => (
-                <button
-                  key={accent.id}
-                  type="button"
-                  onClick={() => theme.setAccent(accent.id)}
-                  aria-label={`${accent.name} accent`}
-                  aria-pressed={theme.accent === accent.id}
-                  className={cn(
-                    "flex h-9 items-center gap-2 rounded-full border px-3 text-sm transition-colors",
-                    theme.accent === accent.id
-                      ? "border-primary font-medium"
-                      : "border-border hover:border-primary/40",
-                  )}
-                >
-                  <span
-                    className="h-4 w-4 rounded-full"
-                    style={{ backgroundColor: `hsl(${accent.primary})` }}
-                    aria-hidden
-                  />
-                  {accent.name}
-                </button>
-              ))}
-            </div>
+            <p className="mb-1 text-sm font-medium">Theme</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Each theme changes the palette, typography, corner shape, density, depth and motion —
+              not just the colours.
+            </p>
+            <ThemeSelector />
           </div>
         </div>
       </section>
 
       <AiConnectionsPanel />
 
-      <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+      <section className="surface-panel p-5">
         <h2 className="mb-1 flex items-center gap-2 font-semibold">
           <Check className="h-4 w-4 text-primary" aria-hidden /> Preferences
         </h2>

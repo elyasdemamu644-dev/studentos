@@ -17,6 +17,7 @@ import { confirmationStore, summarizeOutcomes, toPendingActionResponse } from "@
 import { executeProposalActions } from "@/modules/ai/tools/confirm-tool";
 import { verificationFields, verificationTools, verifyExecutedAction } from "@/modules/ai/tools/verify";
 import { eventsService } from "@/modules/events/service";
+import { tasksService } from "@/modules/tasks/service";
 import { zodToJsonSchema } from "@/modules/ai/tools/json-schema";
 import {
   executeTool,
@@ -551,6 +552,41 @@ describe("Confirmation store", () => {
 
   it("returns null for no pending action", () => {
     expect(toPendingActionResponse(null)).toBeNull();
+  });
+
+  it("expires a proposal after the TTL so a stale confirm cannot fire", () => {
+    const created = confirmationStore.create({
+      userId: "u1",
+      conversationId: "c1",
+      title: "Plan",
+      actions: [action],
+    });
+
+    // Simulate a proposal that is already past its TTL by backdating it.
+    const past = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+    created.createdAt = past;
+    created.expiresAt = past;
+
+    // getPending sweeps expired proposals, so it should return null.
+    expect(confirmationStore.getPending("u1", "c1")).toBeNull();
+    // The expired proposal is gone from the store entirely.
+    expect(confirmationStore.get("u1", "c1", created.id)).toBeNull();
+  });
+
+  it("does not let a consumed proposal be consumed again", () => {
+    const created = confirmationStore.create({
+      userId: "u1",
+      conversationId: "c1",
+      title: "Plan",
+      actions: [action],
+    });
+
+    const first = confirmationStore.consume("u1", "c1", created.id);
+    expect(first?.status).toBe("EXECUTED");
+
+    // Second consume returns null — the proposal is no longer PENDING.
+    const second = confirmationStore.consume("u1", "c1", created.id);
+    expect(second).toBeNull();
   });
 });
 
@@ -1659,6 +1695,118 @@ describe("Verified batch outcomes", () => {
     // And the stored proposal carries the counts, not just the prose summary.
     const result = confirmed.body.data.pendingAction.result;
     expect(result).toMatchObject({ executed: 1, verified: 1, failed: 1 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Post-write verification", () => {
+  let userId: string;
+
+  beforeEach(async () => {
+    const auth = await registerAndLogin(`verify-${Date.now()}@test.com`, "Pass123!");
+    userId = auth.user.id;
+  });
+
+  it("verifies a created task by re-reading it through the domain service", async () => {
+    const created = await tasksService.create(userId, {
+      title: "Test task",
+      type: "HOMEWORK",
+      priority: "HIGH",
+      status: "TODO",
+    });
+
+    const result = await verifyExecutedAction(userId, "create_task", { title: "Test task", type: "HOMEWORK", priority: "HIGH" }, created);
+
+    expect(result.verified).toBe(true);
+    expect(result.message).toContain("Verified:");
+    expect(result.record).toBeDefined();
+  });
+
+  it("fails verification when a field does not match what was approved", async () => {
+    const created = await tasksService.create(userId, {
+      title: "Original title",
+      type: "HOMEWORK",
+      priority: "LOW",
+      status: "TODO",
+    });
+
+    // Verify with different arguments than what was actually written.
+    const result = await verifyExecutedAction(userId, "create_task", { title: "Different title", priority: "HIGH" }, created);
+
+    expect(result.verified).toBe(false);
+    expect(result.message).toContain("does not match");
+  });
+
+  it("fails verification when the record cannot be found", async () => {
+    const result = await verifyExecutedAction(userId, "create_task", { title: "Ghost" }, { id: "nonexistent" });
+
+    expect(result.verified).toBe(false);
+    expect(result.message).toContain("could not be verified");
+  });
+
+  it("fails verification when the tool has no verifier defined", async () => {
+    const result = await verifyExecutedAction(userId, "unknown_tool", {}, { id: "some-id" });
+
+    expect(result.verified).toBe(false);
+    expect(result.message).toContain("No verification is defined");
+  });
+
+  it("verifies complete_task by checking the status invariant", async () => {
+    const created = await tasksService.create(userId, {
+      title: "Task to complete",
+      type: "HOMEWORK",
+      priority: "MEDIUM",
+      status: "TODO",
+    });
+
+    // Complete the task.
+    await tasksService.update(userId, created.id, { status: "COMPLETED" });
+
+    const result = await verifyExecutedAction(userId, "complete_task", {}, { id: created.id });
+
+    expect(result.verified).toBe(true);
+    expect(result.message).toContain("Verified:");
+  });
+
+  it("fails complete_task verification when status is not COMPLETED", async () => {
+    const created = await tasksService.create(userId, {
+      title: "Incomplete task",
+      type: "HOMEWORK",
+      priority: "MEDIUM",
+      status: "TODO",
+    });
+
+    // Don't complete it — status is still TODO.
+    const result = await verifyExecutedAction(userId, "complete_task", {}, { id: created.id });
+
+    expect(result.verified).toBe(false);
+    expect(result.message).toContain("expected COMPLETED");
+  });
+
+  it("lists all write tools as having verifiers", () => {
+    const writeTools = [
+      "create_task", "update_task", "complete_task",
+      "create_subtask", "update_subtask", "create_task_tag",
+      "create_study_session", "update_study_session",
+      "create_goal", "update_goal_progress", "create_milestone", "update_milestone",
+      "create_note", "update_note",
+      "create_resource", "update_resource",
+      "create_event", "update_event",
+      "create_grade", "update_grade",
+      "update_course",
+    ];
+
+    for (const tool of writeTools) {
+      expect(verificationTools).toContain(tool);
+    }
+  });
+
+  it("exposes verification fields for each tool", () => {
+    const fields = verificationFields("create_task");
+    expect(fields).toContain("title");
+    expect(fields).toContain("type");
+    expect(fields).toContain("priority");
   });
 });
 

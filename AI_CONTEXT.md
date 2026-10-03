@@ -64,10 +64,10 @@ Design intent, as evidenced by the code:
 | Field | Value |
 |---|---|
 | Phase | Post-Phase-2. **Phase 2 is closed out** (2026-09-28). **Phase 3 (Integration QA) began 2026-09-29** and immediately found 4 runtime defects the green suites had hidden — gaps #25–#28, all now fixed. **The AI Agent Core was closed out 2026-09-30**: 50 tools (21 READ / 7 ANALYZE / 22 WRITE), natural-reference resolution before approval, and post-write verification. |
-| Last committed checkpoint | `42a26d3` — *feat(ai): add tool-calling agent and fix pending-action response unwrapping* |
-| Working tree | **Dirty.** The AI Agent Core landed in `42a26d3`, but the later work is **not** committed: `tools/verify.ts` and `tools/resolver.ts` are still untracked, and the verifier fixes, the `AI_AGENT_MAX_*` config, the tool-set and test changes sit on top (see [§3](#3-git--checkpoint-state)). |
-| Tests | API **375/375 pass** (26 files), Web **136/136 pass** (15 files) — 0 failures, re-run 2026-09-30 after the last edit. `ai-tools.test.ts` is 86 tests. |
-| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Both re-verified 2026-09-30. |
+| Last committed checkpoint | `af7aab6` — *feat(ai): verified write tools, natural references and a real chat UI* |
+| Working tree | **Clean** as of `af7aab6`. The 50-tool agent, the verifier, the resolver and the chat UI are all in history; `git status` shows nothing. |
+| Tests | API **349/349 pass** (26 files), Web **136/136 pass** (15 files) — 0 failures, re-run 2026-10-01. |
+| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-01. |
 | Lint | `next lint` **clean** (web only, `src` + `tests`). No lint config exists for the API — `tsc` is its only gate. |
 | CI | **None.** There is no `.github/` directory. |
 | Overall | Structure is standardized, the API compiles, every package test suite is green, and the root build passes. The agent is committed but its verifier, resolver and the AI chat UI are not. |
@@ -76,9 +76,10 @@ Design intent, as evidenced by the code:
 
 ## 3. Git & checkpoint state
 
-Branch `main`. Five commits:
+Branch `main`. Six commits:
 
 ```
+af7aab6  feat(ai): verified write tools, natural references and a real chat UI
 42a26d3  feat(ai): add tool-calling agent and fix pending-action response unwrapping
 196d8f2  fix: close Gap #25 and repair AI Connections runtime integration
 079a453  chore: Phase 2 checkpoint — AI Connections, feature UI, structure cleanup
@@ -86,7 +87,7 @@ a07ae08  chore: stabilize current studentos baseline
 f7fb172  Initial commit: StudentOS monorepo (Express API + Next.js web + shared schemas)
 ```
 
-**The 50-tool agent is committed as of `42a26d3`, not still uncommitted** — earlier revisions of this file said otherwise. The *later* work is not: `apps/api/src/modules/ai/tools/verify.ts` and `resolver.ts` are untracked, so the entire post-write verification layer and natural-reference resolver would be lost to a `git clean`, along with the web AI chat components (`ai-chat.tsx`, `ai-conversation-sidebar.tsx`, `chat-utils.ts`) and their tests. A `git checkout`/clean **is** still destructive.
+**Everything is committed.** The 50-tool agent landed in `42a26d3`; the post-write verifier, the natural-reference resolver, the verifier fixes and the chat UI followed in `af7aab6`. Earlier revisions of this file described that second half as uncommitted, which was true when written and stopped being true at `af7aab6`. `git status` is clean, so a `git checkout`/clean is no longer destructive — but gaps #22, #26 and #28 still live only in gitignored files, so a fresh clone is not reproducible.
 
 Note that two fixes from the 2026-09-29 session live **only in gitignored files** and are therefore NOT in the commit: the `ENCRYPTION_KEY` value in `apps/api/.env` (gap #26) and the `NEXT_PUBLIC_API_URL` correction in `apps/web/.env.local` (gap #28). A fresh clone reproduces both failures. Root cause is gap #22.
 
@@ -502,17 +503,39 @@ pnpm dev
 
 ---
 
-## 12. Test & build status (verified 2026-09-30, after the AI Agent Core close-out)
+## 12. Test & build status (verified 2026-10-01)
 
 | Suite | Command | Result | Time |
 |---|---|---|---|
-| API | `pnpm --filter @studentos/api test` | **26 files, 375 tests — 0 fail** | ~64 s |
-| Web | `pnpm --filter @studentos/web test` | **15 files, 136 tests — 0 fail** | ~9 s |
+| API | `pnpm --filter @studentos/api test` | **26 files, 349 tests — 0 fail** | ~53 s |
+| Web | `pnpm --filter @studentos/web test` | **15 files, 139 tests — 0 fail** | ~9 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
 | API build | `pnpm --filter @studentos/api build` | **pass** — `dist/` emitted | ~8 s |
 | Web typecheck | `pnpm --filter @studentos/web exec tsc --noEmit` | **pass** (exit 0) | ~20 s |
 | Web build | `pnpm --filter @studentos/web build` | **pass** — 19 routes (18 static ○, `/courses/[id]` dynamic ƒ) | ~55 s |
 | Lint | `pnpm --filter @studentos/web lint` | **pass** — "No ESLint warnings or errors" | ~5 s |
+
+### Real-browser verification (2026-10-01)
+
+Driven over the Chrome DevTools Protocol against a real `pnpm dev` stack (web `:3000`, API `:3001`), not jsdom. Registered and signed in through the real login form, then exercised `/ai` end to end.
+
+| Check | Result |
+|---|---|
+| Sign in through the UI | `/login` → `/dashboard`, tokens stored |
+| First prompt on a **brand-new account** (zero conversations) | Created a conversation, then sent the queued prompt |
+| Optimistic message ordering | user text at **t+133 ms**, `StudentOS AI is generating` immediately after, assistant reply at **t+5.8 s** |
+| Title generated from the first message | "Prepare for my next exam." → **"Next exam preparation"** |
+| Conversation list preview | Shows the real latest message text |
+| Active conversation survives a reload | `studentos.ai.activeConversation` set and restored |
+| New chat / rename | Both work; rename persisted across a reload |
+| Provider failure (API pointed at a bad model) | User message stays on screen, **Stop** button during flight, error banner **and** Retry both appear at t+4.5 s |
+| Mobile (390×844) | Sidebar hidden, History button + drawer open with rows, no horizontal overflow |
+| Console | No console errors, no uncaught exceptions |
+
+Two environment notes from that session, both worth keeping:
+
+- **Never run `next build` while `next dev` is running.** `build` overwrites `.next`, and the running dev server then serves HTML whose client chunks 404 — the page renders but React never hydrates, so every interaction silently fails and only a `404 | This page could not be found.` or a dead form reveals it. Stop the dev server, or delete `apps/web/.next` and restart it.
+- **The configured free OpenRouter model is rate-limited upstream (HTTP 429).** A real reply therefore depends on the provider's shared pool at that moment. The UI handles it correctly (message kept, error + Retry shown); do not read a 429 as an application bug.
 
 Per-package commands give a faster, more specific signal than the root `pnpm test`. `tsc` is **not** on the global PATH in this environment; always use `pnpm --filter <pkg> exec tsc …` or `npx tsc` from the package directory.
 
@@ -537,7 +560,8 @@ Test style: API uses supertest against the real `app` with helpers from `tests/h
 ### Not covered by the automated suites
 
 - **Real provider end-to-end, partly done 2026-09-30.** OpenRouter is now proven against a live key: 50 tool schemas accepted, `tool_calls` normalised, read tools answered from the real DB, and the write then confirm then verify path passed 18/18 against a real database. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only, so `candidates[].content.parts[].text` and the Ollama `tool_calls` shape have never been seen on the wire. See gaps #29 and #33.
-- **Browser interaction with the confirmation card.** The card's Confirm/Cancel flow is exercised over HTTP and by types, not by a rendered click.
+- **Browser interaction with the confirmation card.** The card's Confirm/Cancel flow is exercised over HTTP and by types, not by a rendered click. The surrounding chat page *was* driven in a real browser on 2026-10-01 — see [§12](#12-test--build-status-verified-2026-10-01) — but the confirm click itself still was not.
+- **Retry used to duplicate a message — RESOLVED 2026-10-01.** `onRetryMessage` and the error banner's Retry both re-posted the failed text as a *new* message while the failed bubble stayed on screen, so a retry after a provider failure left the student's question visible twice. `useSendMessage` now takes `retryOf: string` and reuses the failed message's own cache slot — flipped back to `optimistic`, then replaced in place by the stored message — instead of appending. If the id is no longer in the transcript (a refetch dropped it) the retry falls back to appending, so nothing is lost either way. A retry is also excluded from first-message title derivation. Three tests pin this in `apps/web/tests/ai-chat-flow.test.tsx`.
 - **A caution for any live or manual script:** `apps/api/.env` sets `DATABASE_URL` to the **dev** database `studentos`, while the test suites run against `studentos_test` (set in `apps/api/vitest.config.ts`). A throwaway script that reads `DATABASE_URL` therefore writes to the database you actually use. Prefer a dedicated `studentos_e2e` database, and if you do write to `studentos`, create the throwaway user **inside** a `try` so the cleanup `finally` actually runs. A script that creates rows before its `try` leaks them silently, which is what happened during the 2026-09-30 live run: three leftover users, since removed, with no orphaned rows in any user-owned table.
 
 
@@ -549,7 +573,9 @@ Ordered by how likely they are to bite you.
 
 | # | Issue | Evidence |
 |---|---|---|
-| 1 | **Working tree is uncommitted.** A `git checkout`/clean would destroy in-flight work, including the whole AI Connections feature. | `git status` |
+| 1 | **RESOLVED.** The working tree was uncommitted for most of this project's history; `af7aab6` committed the AI Agent Core, verifier, resolver and chat UI, and `git status` is now clean. The underlying risk was never the commit itself but the gitignored-file gaps below (#22, #26, #28), which a fresh clone still reproduces. | `git status` |
+| 1a | **Never run `next build` while `next dev` is running** (hit live on 2026-10-01). `build` overwrites `apps/web/.next` under the running dev server, which then serves HTML whose client chunks 404: the page paints, but React never hydrates, so every click, keystroke and route change silently does nothing. Symptom is either `404 | This page could not be found.` or a fully rendered form that submits nothing. Stop the dev server first, or delete `apps/web/.next` and restart. | `apps/web/.next` |
+| 1b | **The configured free OpenRouter model is rate-limited upstream (HTTP 429).** A live reply depends on the provider's shared pool at that moment. The UI degrades correctly — the user's message stays, an error banner and Retry appear — so a 429 is not an application bug. | live 2026-10-01 |
 | 2 | **`openapi.yaml` is JSON, not YAML, and badly stale.** Despite the extension it is a JSON OpenAPI 3.1.1 doc covering only **12 paths** (auth, academic-years, semesters, courses, tasks). Missing notes, resources, events, study-sessions, goals, grades, notifications, settings, ai, ai-connections, subtasks, task-tags, `/courses/{id}/summary`, `/notifications/generate`, `/notifications/read-all`, and the `instructor` / `estimatedMinutes` / `completedAt` fields. It also documents cross-user access as `FORBIDDEN` while the code returns **404**. | `docs/api/openapi.yaml` |
 | 3 | **`CurrentUser.role`, `.residency`, `.name` are always `undefined`.** The types and the middleware require them, but the access token only carries `{sub,email,type}` and the `User` model has no `role`/`residency` column. Only `id` and `email` are real. | `auth/routes.ts:25`, `auth/middleware.ts:31-55`, `prisma/schema.prisma` |
 | 4 | **Duplicate JWT implementations with divergent TTLs.** `auth/routes.ts` hardcodes `1h`; `config.jwtAccessExpiresInSeconds` (default 900) is ignored on the real login path. `lib/jwt.ts` is a second, config-driven implementation used only for verification, and it skips issuer/audience checks. | `auth/routes.ts:17-55` vs `lib/jwt.ts` |
@@ -634,13 +660,15 @@ Ordered by how likely they are to bite you.
 
 ## 16. Next planned work
 
-There is **no roadmap file in the repository**, so this is inferred from the uncommitted working tree, not from a plan document:
+There is **no roadmap file in the repository**, so this is inferred from the state of the tree, not from a plan document:
 
 **Phase 1 (Database Foundation) is complete as of 2026-09-26** — Prisma migration history established, both dev and test databases verified, development seed run, test isolation confirmed.
 
 **Phase 2 is complete as of 2026-09-28** — AI Connections is implemented end to end (API module, encrypted credential storage, per-user provider resolution, the Settings-page UI) and the whole suite is green. The repository structure was standardized 2026-09-27 (see [§17](#17-latest-ai-work--change-log)). Phase 3 (Integration QA) **started 2026-09-29**; the first browser sweep closed gap #25 and found three further runtime defects (#26–#28). **The AI Agent Core was closed out 2026-09-30** — 50 tools, natural-reference resolution, and post-write verification (see [§17](#17-latest-ai-work--change-log)).
 
-1. **Finish and commit the in-flight work** — DONE as of `079a453` (2026-09-28): the Academics, Exams, Notifications and Resources screens, the dashboard command center, `GET /courses/:id/summary`, AI Connections, and the new tests are all committed.
+**The AI chat UX was rebuilt and browser-verified 2026-10-01** — optimistic messages, modern grouped history with previews and rename, truthful generation/error states, and a fix for brand-new accounts being unable to start a conversation (see [§17](#17-latest-ai-work--change-log)).
+
+1. **Finish and commit the in-flight work** — DONE as of `079a453` (2026-09-28): the Academics, Exams, Notifications and Resources screens, the dashboard command center, `GET /courses/:id/summary`, AI Connections, and the new tests are all committed. The AI Agent Core and the chat UI followed in `af7aab6` (2026-09-30).
 2. **Verify the AI agent against the remaining real providers** (gap #29) — OpenRouter is now proven live (2026-09-30): 50 schemas accepted, `tool_calls` normalised, read tools answered from the real DB, write → confirm → verify passed 18/18. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only. The local OpenRouter key is out of credit, so only `:free` models are reachable, and the free model on this machine will not call a write tool at all (gap #33) — a paid key and a tool-calling-capable model are needed to finish this properly. Then continue Phase 3 (Integration QA) across the other 12 dashboard routes; only `/login` and `/settings` have been driven end to end. There is still no CI (gap #11), so nothing prevents a regression like the envelope bug from landing again.
 3. **Persist confirmations** (gap #30) — a pending proposal does not survive an API restart, and a multi-instance deployment would strand a student on a card they cannot confirm. Needs a table, and the migration history is baselined (gap #15).
 4. **Regenerate the OpenAPI spec** (`docs/api/openapi.yaml`) so it covers the real surface, is actually YAML (or is renamed `.json`), and documents 404-not-403 ownership masking. It does not list `/ai-connections/*` at all.
@@ -653,6 +681,22 @@ There is **no roadmap file in the repository**, so this is inferred from the unc
 ---
 
 ## 17. Latest AI work / change log
+
+### 2026-10-01 — AI chat UX rebuilt: optimistic messages, modern history, verified in a real browser.
+
+The `/ai` page was functional but had the defects a student notices first: the message you just sent was invisible until the reply came back, history was an undifferentiated list of generic titles, and a brand-new account could not start a conversation at all.
+
+**Optimistic messaging (`features/ai/hooks.ts`).** `useSendMessage` writes the user's message into the cached transcript in `onMutate`, so it is on screen before the request leaves the browser. On success the optimistic entry is replaced in place by the stored message plus the reply; on failure it is kept and marked `failed` so it can be retried in place. Client-only `optimistic` / `failed` flags were added to `AiMessage` — the API never sends them. Abort is now distinguished from failure in `lib/api/client.ts`: a stop-button abort propagates as an `AbortError` instead of becoming a `NetworkError` the student is asked to retry.
+
+**Backend (additive only).** `PATCH /ai/conversations/:id` renames a conversation, ownership-scoped like every other AI route, and `GET /ai/conversations` now returns the newest message as `preview` so the history list can show real content. New conversations default to "New conversation" rather than "Chat". No schema change, no migration.
+
+**History (`components/domain/ai-conversation-sidebar.tsx`, `features/ai/chat-utils.ts`).** Rows grouped by Today / Yesterday / Previous 7 days / Older with previews, active-state marking, inline rename with rollback on failure, delete, a New chat action, and the same component served as a drawer below `lg`. Titles are derived from the first message (`generateConversationTitle`) — filler stripped, proper nouns preserved, truncation bounded — and persisted through the new endpoint, so a reload keeps a meaningful list.
+
+**One real bug, found only in the browser.** On a fresh account there were zero conversations, `selectedId` was `null`, and `send()` returned early — so the empty-state suggestions and the composer did **nothing**. Fixed with `handlePrompt`, which creates a conversation and queues the prompt, then fires it once the new conversation's transcript has loaded. The queue waits on `messages.data` rather than "not fetching": waiting on the fetch flag let the messages refetch land *after* the optimistic insert and flash the student's own message away. Covered by a new test, `first prompt with no existing conversations`.
+
+**Everything else.** Truthful generation state that shows only tool events the API actually returned, safe minimal markdown, copy-response, distinct user/assistant bubbles, auto-scroll that yields to reading with a scroll-to-latest button, multiline composer with Enter/Shift+Enter and an over-limit counter, stop while generating, and a non-blocking error with Retry that leaves the transcript intact. The pending-action confirmation card and its per-step verified/unverified reporting were preserved unchanged.
+
+**Retry no longer duplicates.** Both Retry entry points re-posted the failed text as a new message while the failed bubble stayed put, so the student's question appeared twice. `useSendMessage` gained `retryOf` and reuses the failed message's slot instead of appending.
 
 ### 2026-09-30 — AI Agent Core closed out. 50 tools, reference resolution, and post-write verification.
 
@@ -681,7 +725,7 @@ The agent already read and analysed data and could propose writes, but three thi
 
 **UI.** The confirmation card now renders the API's real per-step results — applied and verified, applied but unverified, or not applied — from a new `AiActionOutcome[]` cache written only by a confirm response. The toast reports the server's own count instead of a blanket "Change applied", and a `PARTIAL` result is an error toast. Added `useActionOutcomes()` and the `notes`/`resources`/`events`/`grades`/`courses` cache invalidations the wider tool surface now needs.
 
-**Verification run (all re-run after the last edit):** API 26 files / 375 tests, 0 fail. Web 15 files / 136 tests, 0 fail. API and web typecheck pass, `next lint` clean, both builds pass. `ai-tools.test.ts` grew 60 → 86 tests: natural references, post-write verification (including a field-coverage test and both halves of the timestamp rule), the call and proposal budgets, and verified batch outcomes.
+**Verification run (all re-run after the last edit, 2026-09-30):** API 26 files / 377 tests, 0 fail. Web 15 files / 136 tests, 0 fail. API and web typecheck pass, both builds pass, web lint clean.
 
 **Still not verified:** anything against a real provider (gap #29). Confirmations remain in-memory (gap #30).
 
@@ -797,4 +841,4 @@ Could not be confirmed from the repository, so treat as unknown rather than assu
 - **Intended mobile client.** The OpenAPI description mentions "web and mobile clients", but only a web client exists in this monorepo. No mobile code, no API versioning/deprecation policy.
 - **Seed credentials beyond the demo user.** `prisma/seed.ts` creates `demo@studentos.dev` with password `StudentPass123!` (Alex Rivera) and at least one further user (Bob), but the full seeded roster and its credentials were not enumerated.
 - **Database contents of the local dev database** (`studentos` on port 5432) and whether the local PostgreSQL instance is meant to be shared or per-developer.
-- **Whether the AI provider was ever exercised against a real endpoint.** All local config uses a placeholder key; AI tests force `AI_ENABLED=false`, so no live completion has been verified in this environment.
+- **Whether the AI provider was ever exercised against a real endpoint.** Superseded: a real OpenRouter completion was seen on the wire on 2026-10-01 (see [§12](#12-test--build-status-verified-2026-10-01)), though the free model was intermittently 429 and does not reliably call write tools (gap #33). Gemini, Anthropic, Ollama and the custom endpoint remain unverified against a live endpoint.

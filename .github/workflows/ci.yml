@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studentos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Prisma client
+        run: pnpm --filter @studentos/api exec prisma generate
+      - name: Run API tests
+        run: pnpm --filter @studentos/api test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studentos_test?schema=public
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studentos_test?schema=public
+          JWT_SECRET: test-secret
+          JWT_REFRESH_SECRET: test-refresh-secret
+          ENCRYPTION_KEY: test-encryption-key-32-chars-long!!
+      - name: Typecheck API
+        run: pnpm --filter @studentos/api exec tsc --noEmit
+      - name: Build API
+        run: pnpm --filter @studentos/api build
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run web tests
+        run: pnpm --filter @studentos/web test
+      - name: Typecheck web
+        run: pnpm --filter @studentos/web exec tsc --noEmit
+      - name: Lint web
+        run: pnpm --filter @studentos/web lint
+      - name: Build web
+        run: pnpm --filter @studentos/web build
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint

@@ -3,8 +3,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * `rounded-badge`, not `rounded-full`: pill-shaped badges are one theme's
+ * choice, not the product's. Paper gives them a printed-tab radius, Neon a
+ * square one and Focus a barely-softened one, so the shape language reaches the
+ * smallest components too.
+ */
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors focus:outline-none",
+  "inline-flex items-center gap-1 rounded-badge border px-2.5 py-0.5 text-xs font-medium transition-colors focus:outline-none",
   {
     variants: {
       variant: {

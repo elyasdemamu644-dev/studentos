@@ -28,7 +28,7 @@ export function TaskCard({
         }
       }}
       className={cn(
-        "flex items-start gap-3 rounded-xl border border-border bg-card p-4 transition-all group",
+        "flex items-start gap-3 surface-panel p-4 transition-all group",
         onClick && "cursor-pointer hover:border-primary/40 hover:shadow-card",
         done && "opacity-70",
       )}

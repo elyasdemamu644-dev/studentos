@@ -16,24 +16,17 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
-import { Button, LoadingButton } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FilterBar, SearchField, SelectFilter } from "@/components/ui/filter-bar";
+import { Surface } from "@/components/ui/surface";
 import { useCourses } from "@/features/courses/hooks";
 import { useDeleteResource, useResources } from "@/features/resources/hooks";
 import { ResourceFormDialog } from "@/features/resources/resource-form";
-import { DialogShell } from "@/features/tasks/task-form";
 import type { ResourceRecord, ResourceType } from "@/types/api-types";
 import { RESOURCE_TYPE_LABELS } from "@/lib/labels";
 import { relativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 const TYPE_FILTERS: Array<ResourceType | ""> = [
   "",
@@ -93,6 +86,12 @@ export default function ResourcesPage() {
     setFormOpen(true);
   };
 
+  const clearFilters = () => {
+    setSearch("");
+    setCourseFilter("");
+    setTypeFilter("");
+  };
+
   return (
     <div>
       <PageHeader
@@ -106,51 +105,34 @@ export default function ResourcesPage() {
         }
       />
 
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search resources…"
-            aria-label="Search resources"
-            className="pl-9"
-          />
-        </div>
-
-        <Select value={courseFilter} onValueChange={setCourseFilter}>
-          <SelectTrigger aria-label="Filter by course" className="sm:w-56">
-            <SelectValue placeholder="All courses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All courses</SelectItem>
-            {(courses.data ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
+      <FilterBar onClear={hasFilters ? clearFilters : undefined}>
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          label="Search resources"
+          placeholder="Search resources…"
+        />
+        <SelectFilter
+          value={courseFilter}
+          onChange={setCourseFilter}
+          label="Filter by course"
+          placeholder="All courses"
+          allLabel="All courses"
+          options={(courses.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+          className="sm:w-56"
+        />
+        <SelectFilter
           value={typeFilter}
-          onValueChange={(v) => setTypeFilter(v as ResourceType | "")}
-        >
-          <SelectTrigger aria-label="Filter by type" className="sm:w-40">
-            <SelectValue placeholder="All types" />
-          </SelectTrigger>
-          <SelectContent>
-            {TYPE_FILTERS.map((t) => (
-              <SelectItem key={t || "all"} value={t}>
-                {t ? RESOURCE_TYPE_LABELS[t] : "All types"}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+          onChange={(value) => setTypeFilter(value as ResourceType | "")}
+          label="Filter by type"
+          placeholder="All types"
+          allLabel="All types"
+          options={TYPE_FILTERS.filter((t): t is ResourceType => t !== "").map((t) => ({
+            value: t,
+            label: RESOURCE_TYPE_LABELS[t],
+          }))}
+        />
+      </FilterBar>
 
       {resources.isPending ? (
         <ListSkeleton rows={4} />
@@ -167,15 +149,7 @@ export default function ResourcesPage() {
           }
           action={
             hasFilters ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSearch("");
-                  setCourseFilter("");
-                  setTypeFilter("");
-                }}
-              >
+              <Button variant="outline" size="sm" onClick={clearFilters}>
                 Clear filters
               </Button>
             ) : (
@@ -188,11 +162,9 @@ export default function ResourcesPage() {
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Resources">
           {items.map((resource) => (
-            <li
-              key={resource.id}
-              className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-card"
-            >
-              <div className="flex items-start justify-between gap-2">
+            <li key={resource.id} className="flex flex-col">
+              <Surface className="flex h-full flex-col p-4 transition-all hover:border-primary/30 hover:shadow-pop">
+                <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-start gap-3">
                   <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     {resource.resourceType === "LINK" ? (
@@ -245,13 +217,14 @@ export default function ResourcesPage() {
                     variant="ghost"
                     size="icon-sm"
                     aria-label={`Delete ${resource.title}`}
-                    className={cn("text-danger hover:text-danger")}
+                    className="text-danger hover:text-danger"
                     onClick={() => setDeleting(resource)}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden />
                   </Button>
                 </div>
               </div>
+              </Surface>
             </li>
           ))}
         </ul>
@@ -259,32 +232,21 @@ export default function ResourcesPage() {
 
       <ResourceFormDialog open={formOpen} onOpenChange={setFormOpen} resource={editing} />
 
-      <DialogShell
+      <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Delete resource"
         description={
           deleting
-            ? `This removes "${deleting.title}" from your library. This cannot be undone.`
+            ? `"${deleting.title}" will be removed from your library. This cannot be undone.`
             : undefined
         }
-      >
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setDeleting(null)}>
-            Cancel
-          </Button>
-          <LoadingButton
-            variant="destructive"
-            loading={deleteResource.isPending}
-            onClick={() => {
-              if (!deleting) return;
-              void deleteResource.mutateAsync(deleting.id).then(() => setDeleting(null));
-            }}
-          >
-            <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Delete
-          </LoadingButton>
-        </div>
-      </DialogShell>
+        busy={deleteResource.isPending}
+        onConfirm={() => {
+          if (!deleting) return;
+          void deleteResource.mutateAsync(deleting.id).then(() => setDeleting(null));
+        }}
+      />
     </div>
   );
 }

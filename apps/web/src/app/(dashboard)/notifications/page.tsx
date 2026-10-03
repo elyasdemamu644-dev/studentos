@@ -8,13 +8,7 @@ import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FilterBar, SelectFilter, ToggleFilter } from "@/components/ui/filter-bar";
 import {
   useGenerateNotifications,
   useMarkAllNotificationsRead,
@@ -80,32 +74,23 @@ export default function NotificationsPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Select value={filter} onValueChange={(v) => setFilter(v as NotificationFilter)}>
-          <SelectTrigger aria-label="Filter notifications" className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {NOTIFICATION_FILTERS.map((f) => (
-              <SelectItem key={f.value} value={f.value}>
-                {f.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={showArchived}
-            onChange={(e) => setShowArchived(e.target.checked)}
-            className="h-4 w-4 rounded border-input accent-primary"
-          />
-          Show archived
-        </label>
-
-        {unreadCount > 0 && <Badge className="ml-auto">{unreadCount} unread</Badge>}
-      </div>
+      <FilterBar className="items-start">
+        <SelectFilter
+          value={filter}
+          onChange={(value) => setFilter(value as NotificationFilter)}
+          label="Filter notifications"
+          placeholder="All notifications"
+          allowEmpty={false}
+          options={NOTIFICATION_FILTERS}
+          className="sm:w-44"
+        />
+        <ToggleFilter
+          checked={showArchived}
+          onChange={setShowArchived}
+          label="Show archived"
+        />
+        {unreadCount > 0 && <Badge className="sm:ml-auto">{unreadCount} unread</Badge>}
+      </FilterBar>
 
       {notifications.isPending ? (
         <ListSkeleton rows={4} />

@@ -2,14 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FilePlus2, Search, StickyNote, Trash2, UserRound } from "lucide-react";
+import { FilePlus2, StickyNote, Trash2, UserRound } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Button, LoadingButton } from "@/components/ui/button";
+import { FilterBar, SearchField, SelectFilter } from "@/components/ui/filter-bar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Surface } from "@/components/ui/surface";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -160,29 +162,23 @@ export default function NotesPage() {
 
       <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
         <aside className="space-y-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-            <Input
+          <FilterBar className="lg:flex-col">
+            <SearchField
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={setSearch}
+              label="Search notes"
               placeholder="Search notes…"
-              aria-label="Search notes"
-              className="pl-9"
             />
-          </div>
-          <Select value={courseFilter} onValueChange={setCourseFilter}>
-            <SelectTrigger aria-label="Filter by course">
-              <SelectValue placeholder="All courses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">All courses</SelectItem>
-              {(courses.data ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <SelectFilter
+              value={courseFilter}
+              onChange={setCourseFilter}
+              label="Filter by course"
+              placeholder="All courses"
+              allLabel="All courses"
+              options={(courses.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+              className="lg:w-full"
+            />
+          </FilterBar>
 
           {notes.isPending ? (
             <ListSkeleton rows={5} />
@@ -225,7 +221,7 @@ export default function NotesPage() {
           )}
         </aside>
 
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+        <Surface className="p-5">
           {selectedId === null ? (
             <EmptyState
               icon={StickyNote}
@@ -313,7 +309,7 @@ export default function NotesPage() {
               </div>
             </div>
           )}
-        </section>
+        </Surface>
       </div>
     </div>
   );

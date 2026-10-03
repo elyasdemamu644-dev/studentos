@@ -8,10 +8,13 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
+import { SectionCard } from "@/components/ui/surface";
 import { Button, LoadingButton } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -23,10 +26,10 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { DialogShell } from "@/features/tasks/task-form";
 import { useCourses } from "@/features/courses/hooks";
 import {
   useCompleteSession,
@@ -38,16 +41,25 @@ import type { StudySession } from "@/types/api-types";
 import { formatMinutes, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const PRESETS = [
-  { label: "25 min", value: 25 },
-  { label: "45 min", value: 45 },
-  { label: "60 min", value: 60 },
-];
+const PRESETS = [25, 45, 60] as const;
 
+/** `25:00`, `1:05:00` for anything an hour or longer. */
 function formatClock(totalSeconds: number): string {
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(sec).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/**
+ * Rounds *before* splitting. `formatMinutes` composed from a raw
+ * `minutes % 60`, which rendered durations like "1 hr 35.5 min".
+ */
+function formatDuration(totalSeconds: number): string {
+  return formatMinutes(Math.round(totalSeconds / 60));
 }
 
 export default function StudyPage() {
@@ -59,12 +71,13 @@ export default function StudyPage() {
 
   const [courseId, setCourseId] = useState("");
   const [topic, setTopic] = useState("");
-  const [minutes, setMinutes] = useState(25);
+  const [minutes, setMinutes] = useState<number>(25);
   const [active, setActive] = useState<StudySession | null>(null);
   const [endTime, setEndTime] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [completeOpen, setCompleteOpen] = useState(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<StudySession | null>(null);
   const [focusRating, setFocusRating] = useState<number>(3);
   const autoOpenedRef = useRef(false);
 
@@ -84,11 +97,26 @@ export default function StudyPage() {
     return Math.max(0, Math.round((endTime - now) / 1000));
   }, [endTime, now]);
 
+  // Opens the log dialog the moment the timer hits zero.
   useEffect(() => {
     if (!active || !endTime || remainingSeconds > 0) return;
     if (autoOpenedRef.current) return;
     autoOpenedRef.current = true;
     setCompleteOpen(true);
+  }, [active, endTime, remainingSeconds]);
+
+  // Announced to screen readers rather than shown, because a live clock that
+  // ticks every second would otherwise flood the reader with updates.
+  const [clockAnnouncement, setClockAnnouncement] = useState("");
+  useEffect(() => {
+    if (!active || !endTime) return;
+    const marks: Record<number, string> = {
+      300: "5 minutes remaining",
+      60: "1 minute remaining",
+      30: "30 seconds remaining",
+      10: "10 seconds remaining",
+    };
+    if (marks[remainingSeconds]) setClockAnnouncement(marks[remainingSeconds]);
   }, [active, endTime, remainingSeconds]);
 
   const onStart = () => {
@@ -107,6 +135,7 @@ export default function StudyPage() {
 
   const onComplete = () => {
     if (!active) return;
+    // Round first, so a 25:40 session logs as 26 rather than being floored to 25.
     const actual = Math.max(1, Math.round(elapsedSeconds / 60));
     void completeSession.mutateAsync(
       { id: active.id, input: { endedAt: new Date().toISOString(), durationMinutes: actual, focusRating } },
@@ -116,15 +145,22 @@ export default function StudyPage() {
     autoOpenedRef.current = false;
   };
 
-  const onCancel = () => {
+  const onDiscard = () => {
     if (active) void deleteSession.mutateAsync(active.id);
     setActive(null);
     setEndTime(null);
+    setDiscardOpen(false);
     autoOpenedRef.current = false;
+  };
+
+  const onDeleteLogged = () => {
+    if (!deleteTarget) return;
+    void deleteSession.mutateAsync(deleteTarget.id, { onSettled: () => setDeleteTarget(null) });
   };
 
   const summary = todaySessions.data?.summary;
   const sessionItems = todaySessions.data?.items ?? [];
+  const counted = summary && summary.count > 0 ? summary.totalMinutes / summary.count : 0;
 
   return (
     <div>
@@ -145,41 +181,52 @@ export default function StudyPage() {
           icon={Timer}
           label="Sessions today"
           value={summary?.count ?? 0}
+          hint={summary?.count ? "Logged" : "None yet"}
         />
         <StatCard
           icon={Flame}
           label="Avg. session"
-          value={
-            summary && summary.count > 0
-              ? formatMinutes(Math.round(summary.totalMinutes / summary.count))
-              : "—"
-          }
+          value={summary && summary.count > 0 ? formatMinutes(Math.round(counted)) : "—"}
           tone="success"
         />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section className="rounded-xl border border-border bg-card p-6 shadow-card">
+        <section className="surface-panel p-6">
+          <h2 className="sr-only">{active ? "Active focus session" : "Start a focus session"}</h2>
           {active ? (
             <div className="text-center">
               <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                 Focus session
               </p>
               <p className="mt-1 truncate font-semibold">{active.topic ?? active.course?.name ?? "Focused study"}</p>
-              <p className="mt-6 font-mono text-6xl font-bold tabular-nums tracking-tight">
+              <p
+                role="timer"
+                aria-label={endTime ? "Time remaining" : "Time elapsed"}
+                aria-live="off"
+                className="mt-6 font-mono text-6xl font-bold tabular-nums tracking-tight"
+              >
                 {endTime ? formatClock(remainingSeconds) : formatClock(elapsedSeconds)}
               </p>
+              <span role="status" aria-live="polite" className="sr-only">
+                {clockAnnouncement}
+              </span>
               <p className="mt-2 text-sm text-muted-foreground">
                 {endTime ? "remaining" : "elapsed"} · started {format(new Date(active.startedAt), "h:mm a")}
               </p>
               {endTime && (
-                <Progress className="mt-6" value={(elapsedSeconds / (minutes * 60)) * 100} />
+                <Progress
+                  className="mt-6"
+                  label="Session progress"
+                  value={(elapsedSeconds / (minutes * 60)) * 100}
+                  valueText={`${formatDuration(elapsedSeconds)} of ${formatDuration(minutes * 60)}`}
+                />
               )}
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <Button size="lg" onClick={() => setCompleteOpen(true)}>
                   <Square className="mr-1.5 h-4 w-4" aria-hidden /> Finish & log
                 </Button>
-                <Button variant="ghost" onClick={() => setConfirmDeleteOpen(true)}>
+                <Button variant="ghost" onClick={() => setDiscardOpen(true)}>
                   Cancel session
                 </Button>
               </div>
@@ -190,13 +237,15 @@ export default function StudyPage() {
                 Start a session
               </p>
               <div className="space-y-2">
-                <Label htmlFor="study-course">Course <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                <Label htmlFor="study-course">
+                  Course <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
                 <Select value={courseId} onValueChange={setCourseId}>
                   <SelectTrigger id="study-course">
                     <SelectValue placeholder="General study" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">General study</SelectItem>
+                    <SelectItem value="__general">General study</SelectItem>
                     {(courses.data ?? []).map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.name}
@@ -215,25 +264,16 @@ export default function StudyPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Duration</Label>
-                <div className="flex flex-wrap gap-2">
-                  {PRESETS.map((p) => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => setMinutes(p.value)}
-                      aria-pressed={minutes === p.value}
-                      className={cn(
-                        "rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
-                        minutes === p.value
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background hover:border-primary/50",
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
+                <Label id="study-duration-label">Duration</Label>
+                <SegmentedControl
+                  label="Duration"
+                  value={String(minutes)}
+                  onChange={(value) => setMinutes(Number(value))}
+                  options={PRESETS.map((preset) => ({
+                    value: String(preset),
+                    label: `${preset} min`,
+                  }))}
+                />
               </div>
               <Button
                 className="w-full"
@@ -247,17 +287,18 @@ export default function StudyPage() {
           )}
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-semibold">
-              <Timer className="h-4 w-4 text-primary" aria-hidden /> Today&apos;s sessions
-            </h2>
-            <span className="text-xs text-muted-foreground">
+        <SectionCard
+          title="Today's sessions"
+          icon={Timer}
+          className="p-5"
+          headerExtra={
+            <span className="shrink-0 text-xs text-muted-foreground">
               {summary?.count ?? 0} session{summary?.count !== 1 ? "s" : ""}
             </span>
-          </div>
+          }
+        >
           {todaySessions.isPending ? (
-            <ListSkeleton rows={4} />
+            <ListSkeleton rows={4} label="Loading today’s study sessions" />
           ) : todaySessions.isError ? (
             <ErrorState error={todaySessions.error} retry={() => todaySessions.refetch()} />
           ) : sessionItems.length === 0 ? (
@@ -265,7 +306,7 @@ export default function StudyPage() {
               icon={Timer}
               title="No sessions yet today"
               description="The timer on the left is ready when you are."
-              className="py-8"
+              compact
             />
           ) : (
             <ul className="max-h-[420px] space-y-2.5 overflow-y-auto pr-1">
@@ -287,8 +328,8 @@ export default function StudyPage() {
                     variant="ghost"
                     size="icon-sm"
                     className="text-muted-foreground hover:text-danger"
-                    onClick={() => deleteSession.mutateAsync(session.id)}
-                    aria-label="Delete session"
+                    onClick={() => setDeleteTarget(session)}
+                    aria-label={`Delete session: ${session.topic ?? session.course?.name ?? "focused study"}`}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden />
                   </Button>
@@ -296,29 +337,36 @@ export default function StudyPage() {
               ))}
             </ul>
           )}
-        </section>
+        </SectionCard>
       </div>
 
-      <Dialog open={completeOpen} onOpenChange={(o) => { setCompleteOpen(o); autoOpenedRef.current = false; }}>
+      <Dialog
+        open={completeOpen}
+        onOpenChange={(o) => {
+          setCompleteOpen(o);
+          autoOpenedRef.current = false;
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Finish session</DialogTitle>
             <DialogDescription>
-              You focused for {formatMinutes(Math.round(elapsedSeconds / 60))}. How did it go?
+              You focused for {formatDuration(elapsedSeconds)}. How did it go?
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <Label>Focus level</Label>
-            <div className="flex items-center gap-2" role="radiogroup" aria-label="Focus rating">
+            <Label id="focus-rating-label">Focus level</Label>
+            <div className="flex items-center gap-2" role="radiogroup" aria-labelledby="focus-rating-label">
               {[1, 2, 3, 4, 5].map((rating) => (
                 <button
                   key={rating}
                   type="button"
                   role="radio"
                   aria-checked={focusRating === rating}
+                  aria-label={`${rating} of 5`}
                   onClick={() => setFocusRating(rating)}
                   className={cn(
-                    "flex h-11 w-11 items-center justify-center rounded-lg border text-sm font-semibold transition-colors",
+                    "flex h-11 w-11 items-center justify-center rounded-lg border text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     focusRating === rating
                       ? "border-primary bg-primary text-primary-foreground"
                       : "border-border bg-background hover:border-primary/50",
@@ -329,30 +377,51 @@ export default function StudyPage() {
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={() => { setCompleteOpen(false); autoOpenedRef.current = false; }}>
+          <DialogFooter className="pt-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCompleteOpen(false);
+                autoOpenedRef.current = false;
+              }}
+            >
               Keep studying
             </Button>
             <LoadingButton loading={completeSession.isPending} onClick={onComplete}>
               Log session
             </LoadingButton>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <DialogShell
-        open={confirmDeleteOpen}
-        onOpenChange={setConfirmDeleteOpen}
+      <ConfirmDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
         title="Cancel session"
         description="This discards the current session without logging any study time."
-      >
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setConfirmDeleteOpen(false)}>Keep going</Button>
-          <LoadingButton variant="destructive" loading={deleteSession.isPending} onClick={onCancel}>
-            <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Discard session
-          </LoadingButton>
-        </div>
-      </DialogShell>
+        confirmLabel="Discard session"
+        busy={deleteSession.isPending}
+        onConfirm={onDiscard}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete this session?"
+        description={
+          <>
+            This removes{" "}
+            <span className="font-medium text-foreground">
+              {deleteTarget?.topic ?? deleteTarget?.course?.name ?? "this focus session"}
+            </span>{" "}
+            from today&rsquo;s log. The time will no longer count toward your totals.
+          </>
+        }
+        busy={deleteSession.isPending}
+        onConfirm={onDeleteLogged}
+      />
     </div>
   );
 }

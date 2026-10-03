@@ -23,30 +23,30 @@ import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FilterBar, SelectFilter } from "@/components/ui/filter-bar";
+import { Surface } from "@/components/ui/surface";
 import { useGrades, useDeleteGrade } from "@/features/grades/hooks";
 import { GradeFormDialog } from "@/features/grades/grade-form";
 import { useCourses } from "@/features/courses/hooks";
 import { useSessions } from "@/features/study/hooks";
 import type { GradeRecord, GradeType } from "@/types/api-types";
 import { formatDate, formatMinutes } from "@/lib/format";
+import {
+  CHART_SERIES,
+  chartAxisStyle,
+  barRadius,
+  chartAxisTick,
+  chartGridStyle,
+  chartTooltipStyle,
+} from "@/lib/theme/chart-theme";
 
-const PALETTE = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-];
+/**
+ * Chart colours come from the theme's chart tokens, resolved as CSS values.
+ * Passing raw triplets as SVG attributes would not resolve `var()`, which is
+ * why the grid and axes previously rendered invisible.
+ */
+const PALETTE = CHART_SERIES.map((token) => `hsl(${token})`);
 
 const GRADE_TYPE_LABELS: Record<string, string> = {
   ASSIGNMENT: "Assignment",
@@ -73,6 +73,7 @@ export default function AnalyticsPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<GradeRecord | undefined>(undefined);
+  const [deleting, setDeleting] = useState<GradeRecord | undefined>(undefined);
 
   const grades = useGrades({
     courseId: courseFilter || undefined,
@@ -134,6 +135,7 @@ export default function AnalyticsPage() {
   }, [graded]);
 
   const hasData = items.length > 0;
+  const hasFilters = courseFilter !== "" || typeFilter !== "";
 
   return (
     <div>
@@ -148,34 +150,38 @@ export default function AnalyticsPage() {
         }
       />
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Select value={courseFilter} onValueChange={setCourseFilter}>
-          <SelectTrigger className="w-full sm:w-48" aria-label="Filter by course">
-            <SelectValue placeholder="All courses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All courses</SelectItem>
-            {(courses.data ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-full sm:w-40" aria-label="Filter by type">
-            <SelectValue placeholder="All types" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All types</SelectItem>
-            {Object.entries(GRADE_TYPE_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <FilterBar
+        onClear={
+          hasFilters
+            ? () => {
+                setCourseFilter("");
+                setTypeFilter("");
+              }
+            : undefined
+        }
+      >
+        <SelectFilter
+          value={courseFilter}
+          onChange={setCourseFilter}
+          label="Filter by course"
+          placeholder="All courses"
+          allLabel="All courses"
+          options={(courses.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+          className="sm:w-48"
+        />
+        <SelectFilter
+          value={typeFilter}
+          onChange={setTypeFilter}
+          label="Filter by type"
+          placeholder="All types"
+          allLabel="All types"
+          options={Object.entries(GRADE_TYPE_LABELS).map(([value, label]) => ({
+            value,
+            label,
+          }))}
+          className="sm:w-40"
+        />
+      </FilterBar>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Award} label="Average score" value={avg != null ? `${avg}%` : "—"} tone="primary" />
@@ -204,7 +210,7 @@ export default function AnalyticsPage() {
       ) : (
         <>
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+            <Surface className="p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 font-semibold">
                   <TrendingUp className="h-4 w-4 text-primary" aria-hidden /> Score trend
@@ -214,17 +220,17 @@ export default function AnalyticsPage() {
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
-                    <Tooltip formatter={(value) => [`${value}%`, "Score"]} contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)" }} />
-                    <Line type="monotone" dataKey="score" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ r: 3 }} />
+                    <CartesianGrid strokeDasharray="3 3" style={chartGridStyle} />
+                    <XAxis dataKey="name" tick={chartAxisTick} style={chartAxisStyle} />
+                    <YAxis domain={[0, 100]} tick={chartAxisTick} style={chartAxisStyle} />
+                    <Tooltip formatter={(value) => [`${value}%`, "Score"]} contentStyle={chartTooltipStyle} />
+                    <Line type="monotone" dataKey="score" stroke={PALETTE[0]} strokeWidth={2} dot={{ r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </section>
+            </Surface>
 
-            <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+            <Surface className="p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 font-semibold">
                   <Award className="h-4 w-4 text-primary" aria-hidden /> Average by type
@@ -250,7 +256,7 @@ export default function AnalyticsPage() {
                             <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value) => [`${value}%`, "Average"]} contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)" }} />
+                        <Tooltip formatter={(value) => [`${value}%`, "Average"]} contentStyle={chartTooltipStyle} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -267,10 +273,10 @@ export default function AnalyticsPage() {
                   </ul>
                 </div>
               )}
-            </section>
+            </Surface>
           </div>
 
-          <section className="mt-6 rounded-xl border border-border bg-card p-5 shadow-card">
+          <Surface className="mt-6 p-5">
             <h2 className="mb-4 flex items-center gap-2 font-semibold">
               <Award className="h-4 w-4 text-primary" aria-hidden /> Average by course
             </h2>
@@ -280,11 +286,11 @@ export default function AnalyticsPage() {
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={byCourse} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
-                    <Tooltip formatter={(value) => [`${value}%`, "Average"]} contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)" }} />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    <CartesianGrid strokeDasharray="3 3" style={chartGridStyle} />
+                    <XAxis dataKey="name" tick={chartAxisTick} style={chartAxisStyle} />
+                    <YAxis domain={[0, 100]} tick={chartAxisTick} style={chartAxisStyle} />
+                    <Tooltip formatter={(value) => [`${value}%`, "Average"]} contentStyle={chartTooltipStyle} />
+                    <Bar dataKey="value" radius={barRadius()}>
                       {byCourse.map((_, i) => (
                         <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
                       ))}
@@ -293,9 +299,9 @@ export default function AnalyticsPage() {
                 </ResponsiveContainer>
               </div>
             )}
-          </section>
+          </Surface>
 
-          <section className="mt-6 rounded-xl border border-border bg-card p-5 shadow-card">
+          <Surface className="mt-6 p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="flex items-center gap-2 font-semibold">
                 <Award className="h-4 w-4 text-primary" aria-hidden /> All grades
@@ -309,7 +315,7 @@ export default function AnalyticsPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b border-border-strong bg-surface-sunken text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th scope="col" className="px-3 py-2 font-semibold">Title</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Type</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Course</th>
@@ -343,7 +349,7 @@ export default function AnalyticsPage() {
                           <Button variant="ghost" size="icon-sm" onClick={() => { setEditing(grade); setFormOpen(true); }} aria-label="Edit grade">
                             <Pencil className="h-4 w-4" aria-hidden />
                           </Button>
-                          <Button variant="ghost" size="icon-sm" className="text-danger hover:text-danger" onClick={() => void deleteGrade.mutateAsync(grade.id)} aria-label="Delete grade">
+                          <Button variant="ghost" size="icon-sm" className="text-danger hover:text-danger" onClick={() => setDeleting(grade)} aria-label={`Delete ${grade.title}`}>
                             <Trash2 className="h-4 w-4" aria-hidden />
                           </Button>
                         </div>
@@ -353,11 +359,27 @@ export default function AnalyticsPage() {
                 </tbody>
               </table>
             </div>
-          </section>
+          </Surface>
         </>
       )}
 
       <GradeFormDialog open={formOpen} onOpenChange={setFormOpen} grade={editing} />
+
+      <ConfirmDialog
+        open={deleting !== undefined}
+        onOpenChange={(open) => !open && setDeleting(undefined)}
+        title="Delete grade"
+        description={
+          deleting
+            ? `"${deleting.title}" will be removed and your averages recalculated. This cannot be undone.`
+            : undefined
+        }
+        busy={deleteGrade.isPending}
+        onConfirm={() => {
+          if (!deleting) return;
+          void deleteGrade.mutateAsync(deleting.id).then(() => setDeleting(undefined));
+        }}
+      />
     </div>
   );
 }

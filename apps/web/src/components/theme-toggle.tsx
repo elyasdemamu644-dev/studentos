@@ -1,56 +1,60 @@
 "use client";
 
-import { Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "@/lib/theme/theme-provider";
 import type { ThemeMode } from "@/lib/theme/themes";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 
-const MODES: { value: ThemeMode; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "System" },
+const MODES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
 ];
 
+/**
+ * Appearance control: light / dark / system.
+ *
+ * Deliberately knows nothing about visual themes. Theme choice lives in the
+ * theme selector, so the two axes can be changed independently.
+ */
 export function ThemeModeToggle({ compact = false }: { compact?: boolean }) {
   const { mode, setMode } = useTheme();
 
   if (compact) {
+    // Cycles rather than flipping, so "system" is still reachable from the
+    // chrome. Flipping between light and dark would strand a user who chose
+    // to follow their OS with no way back to that choice.
+    const nextMode = MODES[(MODES.findIndex((option) => option.value === mode) + 1) % MODES.length].value;
+    const label = mode === "system" ? "Appearance: system" : `Appearance: ${mode}`;
+
     return (
       <Button
         type="button"
         variant="ghost"
         size="icon"
-        onClick={() => setMode(mode === "dark" ? "light" : "dark")}
-        aria-label="Toggle color scheme"
-        title="Toggle color scheme"
+        onClick={() => setMode(nextMode)}
+        aria-label={`${label}. Change appearance`}
+        title={`${label}. Change appearance`}
       >
-        <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" aria-hidden />
-        <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" aria-hidden />
+        {mode === "light" && <Sun className="h-4 w-4" aria-hidden />}
+        {mode === "dark" && <Moon className="h-4 w-4" aria-hidden />}
+        {mode === "system" && <Monitor className="h-4 w-4" aria-hidden />}
       </Button>
     );
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Change color scheme">
-          <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" aria-hidden />
-          <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {MODES.map((m) => (
-          <DropdownMenuItem key={m.value} onClick={() => setMode(m.value)}>
-            {m.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <SegmentedControl
+      label="Appearance"
+      value={mode}
+      onChange={(value) => setMode(value as ThemeMode)}
+      options={MODES.map(({ value, label, icon: Icon }) => ({
+        value,
+        label,
+        icon: <Icon className="h-3.5 w-3.5" aria-hidden />,
+      }))}
+      className="surface-panel border-0 bg-muted/50 p-0.5 shadow-none"
+    />
   );
 }

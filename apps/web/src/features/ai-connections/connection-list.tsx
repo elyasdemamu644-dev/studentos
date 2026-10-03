@@ -92,7 +92,7 @@ export function AiConnectionsPanel() {
   const items = connections.data?.items ?? [];
 
   return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+    <section className="surface-panel p-5">
       <div className="mb-1 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 font-semibold">
           <Plug className="h-4 w-4 text-primary" aria-hidden /> AI connections

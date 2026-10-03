@@ -2,23 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, Plus, Search } from "lucide-react";
+import { BookOpen, Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, GridSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { CourseCard } from "@/components/domain/course-card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FilterBar, SearchField, SelectFilter } from "@/components/ui/filter-bar";
 import { CourseFormDialog } from "@/features/courses/course-form";
 import { useCourses, useSemesters } from "@/features/courses/hooks";
+
+const STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "Active" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "DROPPED", label: "Dropped" },
+] as const;
 
 export default function CoursesPage() {
   const router = useRouter();
@@ -61,57 +60,43 @@ export default function CoursesPage() {
         }
       />
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:w-64">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search courses…"
-            aria-label="Search courses"
-            className="pl-9"
-          />
-        </div>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-full sm:w-40" aria-label="Filter by status">
-            <SelectValue placeholder="All statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All statuses</SelectItem>
-            <SelectItem value="ACTIVE">Active</SelectItem>
-            <SelectItem value="COMPLETED">Completed</SelectItem>
-            <SelectItem value="DROPPED">Dropped</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={semesterId} onValueChange={setSemesterId}>
-          <SelectTrigger className="w-full sm:w-44" aria-label="Filter by semester">
-            <SelectValue placeholder="All semesters" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All semesters</SelectItem>
-            {(semesters.data ?? []).map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {hasFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSearch("");
-              setDebouncedSearch("");
-              setStatus("");
-              setSemesterId("");
-              router.replace("/courses");
-            }}
-          >
-            Clear filters
-          </Button>
-        )}
-      </div>
+      <FilterBar
+        onClear={
+          hasFilters
+            ? () => {
+                setSearch("");
+                setDebouncedSearch("");
+                setStatus("");
+                setSemesterId("");
+                router.replace("/courses");
+              }
+            : undefined
+        }
+      >
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          label="Search courses"
+          placeholder="Search courses…"
+        />
+        <SelectFilter
+          value={status}
+          onChange={setStatus}
+          label="Filter by status"
+          placeholder="All statuses"
+          allLabel="All statuses"
+          options={STATUS_OPTIONS}
+        />
+        <SelectFilter
+          value={semesterId}
+          onChange={setSemesterId}
+          label="Filter by semester"
+          placeholder="All semesters"
+          allLabel="All semesters"
+          options={(semesters.data ?? []).map((s) => ({ value: s.id, label: s.name }))}
+          className="sm:w-44"
+        />
+      </FilterBar>
 
       {courses.isPending ? (
         <GridSkeleton cards={6} />

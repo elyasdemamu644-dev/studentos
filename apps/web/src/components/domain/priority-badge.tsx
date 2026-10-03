@@ -12,7 +12,7 @@ export function PriorityBadge({ priority }: { priority: TaskPriority }) {
   } as const;
 
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${map[priority]}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-badge px-2 py-0.5 text-xs font-medium ${map[priority]}`}>
       <span aria-hidden>
         {priority === "URGENT" && <AlertCircle className="h-3 w-3" />}
         {priority === "HIGH" && <AlertCircle className="h-3 w-3" />}

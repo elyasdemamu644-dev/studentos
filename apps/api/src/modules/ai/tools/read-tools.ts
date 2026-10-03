@@ -804,14 +804,14 @@ export const getNotificationsTool: AiToolDefinition = {
   activityLabel: "Checking your notifications",
   parameters: z.object({
     unreadOnly: z.boolean().optional().default(false).describe("Only unread reminders."),
-    type: z.enum(["ASSIGNMENT_DUE", "OVERDUE_TASK", "EXAM_REMINDER", "GOAL_REMINDER"]).optional(),
+    type: z.enum(["ASSIGNMENT_DUE", "OVERDUE_TASK", "EXAM_REMINDER", "GOAL_REMINDER", "GENERAL"]).optional(),
     limit: limitArg(20),
   }),
   async execute(args, ctx) {
     const input = z
       .object({
         unreadOnly: z.boolean().optional().default(false),
-        type: z.enum(["ASSIGNMENT_DUE", "OVERDUE_TASK", "EXAM_REMINDER", "GOAL_REMINDER"]).optional(),
+        type: z.enum(["ASSIGNMENT_DUE", "OVERDUE_TASK", "EXAM_REMINDER", "GOAL_REMINDER", "GENERAL"]).optional(),
         limit: limitArg(20),
       })
       .parse(args);

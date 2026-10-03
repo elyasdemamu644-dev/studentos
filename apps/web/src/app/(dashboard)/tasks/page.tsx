@@ -2,21 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ListTodo, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ListTodo, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { TaskCard } from "@/components/domain/task-card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FilterBar, SearchField, SelectFilter } from "@/components/ui/filter-bar";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +28,6 @@ import { TaskFormDialog } from "@/features/tasks/task-form";
 import { useCourses } from "@/features/courses/hooks";
 import { PRIORITY_LABELS, TASK_TYPE_LABELS } from "@/lib/labels";
 import type { Task, TaskPriority, TaskType } from "@/types/api-types";
-import { cn } from "@/lib/utils";
 
 type View = "ALL" | "TODO" | "IN_PROGRESS" | "COMPLETED";
 
@@ -167,95 +160,69 @@ export default function TasksPage() {
         }
       />
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
-          {VIEWS.map((v) => (
-            <button
-              key={v.value}
-              type="button"
-              onClick={() => setView(v.value)}
-              aria-pressed={view === v.value}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                view === v.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-        <div className="relative w-full flex-1 sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tasks…"
-            aria-label="Search tasks"
-            className="pl-9"
-          />
-        </div>
+      <div className="mb-4">
+        <SegmentedControl<View>
+          label="Task view"
+          value={view}
+          onChange={setView}
+          options={VIEWS}
+          className="max-w-full overflow-x-auto"
+        />
       </div>
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Select value={priority} onValueChange={setPriority}>
-          <SelectTrigger className="w-full sm:w-36" aria-label="Filter by priority">
-            <SelectValue placeholder="Any priority" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">Any priority</SelectItem>
-            {(Object.keys(PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-              <SelectItem key={p} value={p}>
-                {PRIORITY_LABELS[p]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={type} onValueChange={setType}>
-          <SelectTrigger className="w-full sm:w-40" aria-label="Filter by type">
-            <SelectValue placeholder="Any type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">Any type</SelectItem>
-            {(Object.keys(TASK_TYPE_LABELS) as TaskType[]).map((t) => (
-              <SelectItem key={t} value={t}>
-                {TASK_TYPE_LABELS[t]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={courseId} onValueChange={setCourseId}>
-          <SelectTrigger className="w-full sm:w-48" aria-label="Filter by course">
-            <SelectValue placeholder="Any course" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">Any course</SelectItem>
-            {(courses.data ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {hasFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSearch("");
-              setDebouncedSearch("");
-              setPriority("");
-              setType("");
-              setCourseId("");
-              setView("ALL");
-              router.replace("/tasks");
-            }}
-          >
-            Clear filters
-          </Button>
-        )}
-      </div>
+      <FilterBar
+        onClear={
+          hasFilters
+            ? () => {
+                setSearch("");
+                setDebouncedSearch("");
+                setPriority("");
+                setType("");
+                setCourseId("");
+                setView("ALL");
+                router.replace("/tasks");
+              }
+            : undefined
+        }
+      >
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          label="Search tasks"
+          placeholder="Search tasks…"
+        />
+        <SelectFilter
+          value={priority}
+          onChange={setPriority}
+          label="Filter by priority"
+          placeholder="Any priority"
+          allLabel="Any priority"
+          options={(Object.keys(PRIORITY_LABELS) as TaskPriority[]).map((p) => ({
+            value: p,
+            label: PRIORITY_LABELS[p],
+          }))}
+        />
+        <SelectFilter
+          value={type}
+          onChange={setType}
+          label="Filter by type"
+          placeholder="Any type"
+          allLabel="Any type"
+          options={(Object.keys(TASK_TYPE_LABELS) as TaskType[]).map((t) => ({
+            value: t,
+            label: TASK_TYPE_LABELS[t],
+          }))}
+        />
+        <SelectFilter
+          value={courseId}
+          onChange={setCourseId}
+          label="Filter by course"
+          placeholder="Any course"
+          allLabel="Any course"
+          options={(courses.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+          className="sm:w-48"
+        />
+      </FilterBar>
 
       {tasks.isPending ? (
         <ListSkeleton rows={6} />

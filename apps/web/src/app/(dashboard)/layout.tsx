@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { useAuth } from "@/features/auth/auth-provider";
+import { ErrorBoundary } from "@/components/states";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
   const router = useRouter();
-  const redirected = useRef(false);
 
   useEffect(() => {
-    if (status === "unauthenticated" && !redirected.current) {
-      redirected.current = true;
+    if (status === "unauthenticated") {
       router.replace("/login");
     }
   }, [status, router]);
@@ -20,17 +19,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (status !== "authenticated") {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
-        <div
-          role="status"
-          aria-label="Checking your session"
-          className="flex flex-col items-center gap-4"
-        >
-          <span className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <div role="status" aria-live="polite" aria-busy="true" className="flex flex-col items-center gap-4">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-hidden />
           <p className="text-sm text-muted-foreground">Loading your workspace…</p>
         </div>
       </div>
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <ErrorBoundary>
+      <AppShell>{children}</AppShell>
+    </ErrorBoundary>
+  );
 }

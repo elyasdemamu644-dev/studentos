@@ -9,7 +9,7 @@ export function CourseCard({ course, children }: { course: Course; children?: Re
   return (
     <Link
       href={`/courses/${course.id}`}
-      className="group block rounded-xl border border-border bg-card p-5 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-pop"
+      className="group block surface-panel p-5 transition-all hover:-translate-y-0.5 hover:shadow-pop"
     >
       <div className="flex items-start justify-between gap-3">
         <CourseSwatch id={course.id} className="inline-block h-2.5 w-10 rounded-full" />

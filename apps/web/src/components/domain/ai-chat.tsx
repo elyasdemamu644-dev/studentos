@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDown,
   Check,
@@ -21,6 +21,7 @@ import {
 import { ErrorState, formatApiError } from "@/components/states";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   CHAT_SUGGESTIONS,
@@ -85,7 +86,7 @@ function Markdown({ content }: { content: string }) {
           return (
             <pre
               key={index}
-              className="overflow-x-auto rounded-lg border border-border bg-background/70 p-3 text-xs"
+              className="overflow-x-auto rounded-lg border border-border bg-ai-muted p-3 text-xs font-mono"
             >
               {block.language && (
                 <span className="mb-1 block font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -216,7 +217,7 @@ function MessageBubble({
             "rounded-2xl px-4 py-2.5 text-sm",
             isUser
               ? "rounded-tr-sm bg-primary text-primary-foreground"
-              : "rounded-tl-sm border border-border bg-card text-card-foreground shadow-card",
+              : "rounded-tl-sm border border-border bg-ai text-card-foreground shadow-card",
             message.failed && "border border-danger/40 bg-danger/5",
             message.optimistic && "opacity-70",
           )}
@@ -392,10 +393,10 @@ export function GeneratingIndicator({ activity }: { activity: AiToolActivity[] }
   return (
     <div className="animate-fade-in space-y-1" role="status" aria-live="polite">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Sparkles className="h-4 w-4 shrink-0 animate-pulse text-primary" aria-hidden />
+        <Sparkles className="pulse-live h-4 w-4 shrink-0 text-primary" aria-hidden />
         <span className="font-medium text-foreground">StudentOS AI is generating</span>
         <span
-          className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+          className="pulse-live h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
           aria-hidden
         />
       </div>
@@ -442,7 +443,7 @@ export function ChatEmptyState({
   busy: boolean;
 }) {
   return (
-    <div className="mx-auto flex max-w-2xl flex-1 flex-col items-center justify-center px-4 py-10 text-center">
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-4 py-10 text-center">
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
         <Sparkles className="h-6 w-6" aria-hidden />
       </div>
@@ -459,7 +460,7 @@ export function ChatEmptyState({
               type="button"
               disabled={busy}
               onClick={() => onPrompt(suggestion.prompt)}
-              className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-left text-sm shadow-card transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              className="surface-blur flex w-full items-center gap-2 rounded-lg border border-border bg-ai px-3.5 py-2.5 text-left text-sm shadow-card transition-colors hover:border-primary/40 hover:bg-ai-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             >
               <span className="min-w-0 flex-1 truncate font-medium">{suggestion.label}</span>
               <Send className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -477,7 +478,9 @@ export function ChatEmptyState({
  * The message input.
  *
  * Enter sends, Shift+Enter inserts a newline, and the send button turns into a
- * stop button while a generation is in flight.
+ * stop button while a generation is in flight. It is a flex item in the
+ * workspace's column, so it must not shrink (`shrink-0`) — a squeezed composer
+ * is the one part of the chat the student cannot work around.
  */
 export function ChatComposer({
   draft,
@@ -499,6 +502,7 @@ export function ChatComposer({
   placeholder: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hintId = useId();
   const state = composerState(draft, { busy, disabled });
 
   // Grow with the content, then shrink back. Capped so the composer can never
@@ -511,60 +515,68 @@ export function ChatComposer({
   }, [draft]);
 
   return (
-    <div className="border-t border-border bg-card/60 px-3 py-3 sm:px-4">
-      {disabled && disabledReason && (
-        <p className="mb-2 px-1 text-xs text-muted-foreground">{disabledReason}</p>
-      )}
-      <div className="flex items-end gap-2">
-        <Textarea
-          ref={textareaRef}
-          value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (shouldSendOnKey(event.key, event.shiftKey)) {
-              event.preventDefault();
-              if (state.canSend) onSend();
-            }
-          }}
-          placeholder={placeholder}
-          aria-label="Message StudentOS AI"
-          rows={1}
-          maxLength={MAX_MESSAGE_LENGTH + 500}
-          disabled={disabled}
-          className="max-h-40 min-h-[2.5rem] flex-1 resize-none py-2 leading-relaxed"
-        />
-
-        {busy ? (
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            onClick={onStop}
-            aria-label="Stop generating"
-          >
-            <Square className="h-3.5 w-3.5 fill-current" aria-hidden />
-          </Button>
-        ) : (
-          <LoadingButton
-            size="icon"
-            className="shrink-0"
-            loading={false}
-            disabled={!state.canSend}
-            onClick={onSend}
-            aria-label="Send message"
-          >
-            <Send className="h-4 w-4" aria-hidden />
-          </LoadingButton>
+    <div className="surface-blur shrink-0 border-t border-border bg-ai px-3 py-3 sm:px-4">
+      {/* The reading column, matched to the transcript so the input sits under
+          the messages it continues rather than at the far edge of a wide screen. */}
+      <div className="mx-auto w-full max-w-3xl">
+        {disabled && disabledReason && (
+          <p className="mb-2 px-1 text-xs text-muted-foreground">{disabledReason}</p>
         )}
-      </div>
+        <div className="flex items-end gap-2">
+          <Textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(event) => onDraftChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (shouldSendOnKey(event.key, event.shiftKey)) {
+                event.preventDefault();
+                if (state.canSend) onSend();
+              }
+            }}
+            placeholder={placeholder}
+            aria-label="Message StudentOS AI"
+            aria-describedby={hintId}
+            rows={1}
+            maxLength={MAX_MESSAGE_LENGTH + 500}
+            disabled={disabled}
+            className="max-h-40 min-h-[2.5rem] min-w-0 flex-1 resize-none py-2 leading-relaxed"
+          />
 
-      <p className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-muted-foreground">
-        <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
-        <span className="sm:hidden">Enter sends</span>
-        <span className={cn("tabular-nums", state.overLimit && "font-medium text-danger")}>
-          {draft.length > MAX_MESSAGE_LENGTH - 200 ? `${state.remaining}` : ""}
-        </span>
-      </p>
+          {busy ? (
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              onClick={onStop}
+              aria-label="Stop generating"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" aria-hidden />
+            </Button>
+          ) : (
+            <LoadingButton
+              size="icon"
+              className="shrink-0"
+              loading={false}
+              disabled={!state.canSend}
+              onClick={onSend}
+              aria-label="Send message"
+            >
+              <Send className="h-4 w-4" aria-hidden />
+            </LoadingButton>
+          )}
+        </div>
+
+        <p
+          id={hintId}
+          className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-muted-foreground"
+        >
+          <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
+          <span className="sm:hidden">Enter sends</span>
+          <span className={cn("tabular-nums", state.overLimit && "font-medium text-danger")}>
+            {draft.length > MAX_MESSAGE_LENGTH - 200 ? `${state.remaining}` : ""}
+          </span>
+        </p>
+      </div>
     </div>
   );
 }
@@ -573,6 +585,12 @@ export function ChatComposer({
 
 export interface MessageListProps {
   messages: AiMessage[];
+  /**
+   * The conversation on screen. Scrolling follows the *conversation*, not the
+   * message count: two conversations can easily hold the same number of
+   * messages, and switching between them still has to land on the latest one.
+   */
+  conversationId?: string | null;
   isLoading: boolean;
   isError: boolean;
   error: unknown;
@@ -595,8 +613,22 @@ export interface ActivityRun {
   activity: AiToolActivity[];
 }
 
+/**
+ * How far from the bottom still counts as "reading the bottom".
+ *
+ * Sub-pixel layout rounding means a container scrolled as far as it goes can
+ * report a one or two pixel gap, and without the tolerance that would silently
+ * detach the transcript from the next message.
+ */
+const BOTTOM_SLACK_PX = 32;
+
+function isAtBottom(node: HTMLElement, slack = BOTTOM_SLACK_PX) {
+  return node.scrollHeight - node.scrollTop - node.clientHeight <= slack;
+}
+
 function Transcript({
   messages,
+  conversationId,
   isLoading,
   isError,
   error,
@@ -608,72 +640,142 @@ function Transcript({
   children,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
+  // Mirrored into a ref so the resize observer can read it without being torn
+  // down and rebuilt on every scroll event.
+  const pinnedRef = useRef(true);
 
-  // Only auto-scroll while the student is already at the bottom, so reading
-  // back through a reply is not interrupted by an incoming message.
+  const setFollowing = useCallback((next: boolean) => {
+    pinnedRef.current = next;
+    setPinned(next);
+  }, []);
+
+  /**
+   * Moves this transcript, and only this transcript.
+   *
+   * `scrollIntoView` would walk up to the nearest scrollable ancestor and can
+   * drag the page with it — in a workspace whose whole premise is that the
+   * page does not scroll, that is a bug rather than a convenience.
+   */
+  const scrollToBottom = useCallback(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, []);
+
+  // Follow the conversation only while the student is reading its bottom;
+  // scrolling back up to re-read a reply must not be yanked away by the next
+  // message arriving.
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
-    const onScroll = () => {
-      const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
-      setPinned(distance < 80);
-    };
+    const onScroll = () => setFollowing(isAtBottom(node));
     node.addEventListener("scroll", onScroll, { passive: true });
+    // Read the real position once, so a transcript that mounts already scrolled
+    // away from the bottom (a restored scroll position, a short viewport) does
+    // not claim to be following.
+    onScroll();
     return () => node.removeEventListener("scroll", onScroll);
+  }, [setFollowing]);
+
+  // Opening a conversation starts at its latest message, including on mount and
+  // including when the next conversation holds the same number of messages as
+  // the one being left.
+  useLayoutEffect(() => {
+    setFollowing(true);
+    scrollToBottom();
+  }, [conversationId, scrollToBottom, setFollowing]);
+
+  // A chat panel that collapsed to its rail and came back mounts a fresh
+  // transcript with no scroll position of its own. That is the same situation as
+  // opening a conversation, and it has to resolve the same way — otherwise
+  // re-expanding drops the student at the top of a reply they had already read
+  // past, with a "Jump to latest" button they did not ask for.
+  useLayoutEffect(() => {
+    setFollowing(true);
+    scrollToBottom();
+  }, [scrollToBottom, setFollowing]);
+
+  // A new message, the generation indicator appearing or clearing, or a panel
+  // toggled closed all change how far down the content reaches.
+  useLayoutEffect(() => {
+    if (pinnedRef.current) scrollToBottom();
+  }, [messages.length, generating, children, scrollToBottom]);
+
+  // Text arriving token by token, a web font finishing, or a resized panel all
+  // change the height of the content without changing any of the values above.
+  // Observing the content is what keeps the bottom pinned through a streamed
+  // reply; the alternative is polling on a timer, which is both slower to react
+  // and impossible to reason about.
+  useEffect(() => {
+    const node = scrollRef.current;
+    const content = contentRef.current;
+    if (!node || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) node.scrollTop = node.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (!pinned) return;
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, generating, pinned]);
+  const jumpToLatest = useCallback(() => {
+    scrollToBottom();
+    setFollowing(true);
+  }, [scrollToBottom, setFollowing]);
 
   return (
-    <div className="relative min-h-0 flex-1">
-      <div ref={scrollRef} className="h-full space-y-4 overflow-y-auto px-3 py-4 sm:px-5" data-testid="transcript">
-        {isLoading ? (
-          <div className="space-y-4" aria-hidden>
-            <div className="flex justify-end">
-              <div className="h-12 w-52 animate-pulse rounded-2xl bg-muted" />
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* `role="log"` is the chat-log pattern: additions are announced, and the
+          transcript is focusable so it can be scrolled from the keyboard. */}
+      <div
+        ref={scrollRef}
+        data-testid="transcript"
+        role="log"
+        aria-label="Conversation messages"
+        aria-relevant="additions text"
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5"
+      >
+        <div ref={contentRef} className="mx-auto w-full max-w-3xl space-y-4">
+          {isLoading ? (
+            <div className="space-y-4" aria-hidden>
+              <div className="flex justify-end">
+                <Skeleton className="h-12 w-52 rounded-ai" />
+              </div>
+              <div className="flex justify-start">
+                <Skeleton className="h-20 w-72 rounded-ai" />
+              </div>
             </div>
-            <div className="flex justify-start">
-              <div className="h-20 w-72 animate-pulse rounded-2xl bg-muted" />
-            </div>
-          </div>
-        ) : isError ? (
-          <ErrorState error={error} retry={onRetryLoad} />
-        ) : (
-          messages.map((message) => (
-            <div key={message.id} className="space-y-1">
-              <MessageBubble message={message} onRetry={onRetryMessage} />
-              {activityRun?.replyId === message.id && (
-                <div className="pl-9">
-                  <ToolActivityFeed activity={activityRun.activity} />
-                </div>
-              )}
-            </div>
-          ))
-        )}
+          ) : isError ? (
+            <ErrorState error={error} retry={onRetryLoad} />
+          ) : (
+            messages.map((message) => (
+              <div key={message.id} className="space-y-1">
+                <MessageBubble message={message} onRetry={onRetryMessage} />
+                {activityRun?.replyId === message.id && (
+                  <div className="pl-9">
+                    <ToolActivityFeed activity={activityRun.activity} />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
 
-        {children}
+          {children}
 
-        {generating && <GeneratingIndicator activity={liveActivity} />}
-        <div ref={bottomRef} />
+          {generating && <GeneratingIndicator activity={liveActivity} />}
+        </div>
       </div>
 
       {!pinned && !isLoading && messages.length > 0 && (
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
-            setPinned(true);
-            bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-          }}
+          onClick={jumpToLatest}
           className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-pop"
         >
           <ArrowDown className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-          Scroll to latest
+          Jump to latest
         </Button>
       )}
     </div>

@@ -7,7 +7,8 @@ node_modules/
 .env
 .env.local
 .env.*.local
-.env.example
+# .env.example is tracked — it documents required vars for a fresh clone
+# .env.example
 
 # Build
 dist/
@@ -39,6 +40,7 @@ coverage/
 # Temporary
 tmp/
 temp/
+*.session.sql
 
 # Generated
 *.generated.*
