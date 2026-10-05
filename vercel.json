@@ -3,7 +3,8 @@
   "services": {
     "api": {
       "root": "apps/api",
-      "framework": "express"
+      "framework": "express",
+      "entrypoint": "src/vercel.ts"
     },
     "web": {
       "root": "apps/web",
