@@ -3,7 +3,7 @@
     "composite": false,
     "target": "ES2022",
     "module": "CommonJS",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "Node",
     "skipLibCheck": true,
     "strictNullChecks": true,
     "esModuleInterop": true,
