@@ -703,7 +703,7 @@ const PROVIDER_ADAPTERS: Record<AiProviderName, AiProviderAdapter> = {
   openrouter: new OpenAiAdapter(
     "openrouter",
     "openai/gpt-4o",
-    "https://openrouter.ai/api",
+    "https://openrouter.ai/api/v1",
     "/chat/completions"
   ),
   custom: new OpenAiAdapter("custom", DEFAULT_OPENAI_MODEL, "https://api.openai.com/v1"),

@@ -140,9 +140,13 @@ describe("theme selector", () => {
     const buttons = within(group).getAllByRole("button");
     expect(buttons).toHaveLength(THEME_IDS.length);
 
+    // A button's accessible name also carries its description and character
+    // traits, and Paper's description ends "for focused study" — so an unanchored
+    // `/Focus/i` name match resolves to two buttons. Anchor on whole words so a
+    // theme can only be matched by its own name.
     for (const summary of THEME_SUMMARIES) {
       expect(
-        within(group).getByRole("button", { name: new RegExp(summary.name, "i") }),
+        within(group).getByRole("button", { name: new RegExp(`\\b${summary.name}\\b`, "i") }),
         summary.id,
       ).toBeInTheDocument();
     }

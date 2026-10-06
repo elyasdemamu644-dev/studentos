@@ -507,10 +507,13 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     renderWithQuery(<AiPage />);
     await screen.findByRole("navigation", { name: "Conversation history" });
 
-    // Below `lg` there is no history column and below the three-pane width there
-    // is no context column, so both must be reachable from a drawer instead.
+    // The History trigger is deliberately NOT width-gated. It used to carry
+    // `lg:hidden`, which hid it exactly where the history column already existed,
+    // so the control appeared at some widths and vanished at others. See
+    // AiConversationDrawer: the drawer is now simply one more way in at every
+    // width, which is what keeps the route reachable for everyone.
     const historyButton = screen.getByRole("button", { name: /^history/i });
-    expect(historyButton.className).toContain("lg:hidden");
+    expect(historyButton.className).not.toContain("lg:hidden");
 
     const contextButton = screen.getByRole("button", { name: "Open StudentOS context" });
     expect(contextButton.className).toContain("min-[1360px]:hidden");
@@ -520,6 +523,15 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     expect(within(drawer).getByText("StudentOS Context")).toBeInTheDocument();
 
     await userEvent.click(within(drawer).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // The unconditional trigger still has to open the drawer it promises.
+    await userEvent.click(historyButton);
+    const historyDrawer = await screen.findByRole("dialog");
+    expect(within(historyDrawer).getByText("Conversations")).toBeInTheDocument();
+    expect(within(historyDrawer).getByRole("navigation", { name: "Conversation history" })).toBeInTheDocument();
+
+    await userEvent.click(within(historyDrawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 

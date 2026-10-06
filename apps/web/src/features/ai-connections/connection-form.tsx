@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateConnection, useTestConnection, useUpdateConnection } from "./hooks";
+import { toClientError } from "@/lib/api/errors";
 import { DialogShell } from "@/features/tasks/task-form";
 import { AI_PROVIDER_LABELS, isCredentialFreeProvider, isEndpointRequiredProvider } from "@/lib/labels";
 import { cn } from "@/lib/utils";
@@ -137,14 +138,22 @@ export function AiConnectionFormDialog({
       return;
     }
     const payload = toPayload(parsed.data);
-    if (connection) {
-      // A saved connection already has its credentials on the server.
-      const result = await testConnection.mutateAsync({ id: connection.id });
-      setTestResult(result.success ? `Connected${result.model ? ` · ${result.model}` : ""}` : (result.error ?? result.message));
-      return;
+    try {
+      const result = connection
+        ? // A saved connection already has its credentials on the server.
+          await testConnection.mutateAsync({ id: connection.id })
+        : await testConnection.mutateAsync({ input: payload });
+      setTestResult(
+        result.success
+          ? `Connected${result.model ? ` · ${result.model}` : ""}`
+          : (result.error ?? result.message),
+      );
+    } catch (error) {
+      // The request itself failed (network, auth, or the API returned a
+      // non-JSON body). Surface the mapped message instead of letting the
+      // rejection escape unhandled.
+      setTestResult(toClientError(error, "Could not test the connection.").message);
     }
-    const result = await testConnection.mutateAsync({ input: payload });
-    setTestResult(result.success ? `Connected${result.model ? ` · ${result.model}` : ""}` : (result.error ?? result.message));
   };
 
   return (

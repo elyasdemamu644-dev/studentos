@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useCreateTask, useUpdateTask } from "@/features/tasks/hooks";
 import { useCourses } from "@/features/courses/hooks";
+import { useCourseContext } from "@/features/academics/academic-context";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +70,7 @@ export function TaskFormDialog({
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const courses = useCourses();
+  const courseContext = useCourseContext();
 
   const {
     register,
@@ -95,9 +97,10 @@ export function TaskFormDialog({
         estimatedMinutes: task.estimatedMinutes != null ? String(task.estimatedMinutes) : "",
       });
     } else {
-      reset(EMPTY_VALUES);
+      // Pre-fill course from URL context when creating a new task
+      reset({ ...EMPTY_VALUES, courseId: courseContext ?? "" });
     }
-  }, [open, task, reset]);
+  }, [open, task, reset, courseContext]);
 
   const onSubmit = async (values: TaskFormValues) => {
     const payload = {

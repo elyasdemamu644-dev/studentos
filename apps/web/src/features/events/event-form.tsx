@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useCreateEvent, useUpdateEvent } from "@/features/events/hooks";
 import { useCourses } from "@/features/courses/hooks";
+import { useCourseContext } from "@/features/academics/academic-context";
 import { DialogShell } from "@/features/tasks/task-form";
 
 const eventFormSchema = z
@@ -92,6 +93,7 @@ export function EventFormDialog({
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const courses = useCourses();
+  const courseContext = useCourseContext();
   const mutationError = event ? updateEvent.error : createEvent.error;
 
   const {
@@ -125,9 +127,10 @@ export function EventFormDialog({
         ...EMPTY_VALUES,
         type: lockType ?? EMPTY_VALUES.type,
         startDate: defaultDate ?? format(new Date(), "yyyy-MM-dd"),
+        courseId: courseContext ?? "",
       });
     }
-  }, [open, event, defaultDate, lockType, reset]);
+  }, [open, event, defaultDate, lockType, reset, courseContext]);
 
   const onSubmit = async (values: EventFormValues) => {
     const payload = {

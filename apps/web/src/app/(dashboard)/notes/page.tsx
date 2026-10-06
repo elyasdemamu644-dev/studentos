@@ -25,6 +25,8 @@ import { useCreateNote, useDeleteNote, useNote, useNotes, useUpdateNote } from "
 import type { Note } from "@/types/api-types";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Breadcrumb } from "@/components/layout/breadcrumb";
+import { useAcademicBreadcrumb } from "@/features/academics/use-academic-breadcrumb";
 
 interface Draft {
   title: string;
@@ -147,8 +149,11 @@ export default function NotesPage() {
     b.updatedAt.localeCompare(a.updatedAt),
   );
 
+  const breadcrumbItems = useAcademicBreadcrumb(courseFilter || null, "Notes");
+
   return (
     <div>
+      <Breadcrumb items={breadcrumbItems} />
       <PageHeader
         kicker="Knowledge"
         title="Notes"

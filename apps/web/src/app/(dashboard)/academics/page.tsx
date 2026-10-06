@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarRange, GraduationCap, Pencil, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { CalendarRange, ChevronDown, GraduationCap, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
@@ -15,6 +16,7 @@ import {
 } from "@/features/academics/academic-forms";
 import {
   useAcademicYears,
+  useCourses,
   useDeleteAcademicYear,
   useDeleteSemester,
   useSemesters,
@@ -38,12 +40,26 @@ export default function AcademicsPage() {
   const semesters = useSemesters();
   const deleteYear = useDeleteAcademicYear();
   const deleteSemester = useDeleteSemester();
+  const allCourses = useCourses({ limit: 50 });
 
   const [yearDialog, setYearDialog] = useState(false);
   const [semesterDialog, setSemesterDialog] = useState(false);
   const [editingYear, setEditingYear] = useState<AcademicYear | undefined>(undefined);
   const [editingSemester, setEditingSemester] = useState<Semester | undefined>(undefined);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
+  const [expandedSemesters, setExpandedSemesters] = useState<Set<string>>(new Set());
+
+  const toggleSemester = (semesterId: string) => {
+    setExpandedSemesters((prev) => {
+      const next = new Set(prev);
+      if (next.has(semesterId)) {
+        next.delete(semesterId);
+      } else {
+        next.add(semesterId);
+      }
+      return next;
+    });
+  };
 
   const openYearForm = (year?: AcademicYear) => {
     setEditingYear(year);
@@ -143,43 +159,89 @@ export default function AcademicsPage() {
                   </p>
                 ) : (
                   <ul className="mt-3 space-y-2">
-                    {children.map((semester) => (
-                      <li
-                        key={semester.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/40 px-3 py-2 transition-colors hover:border-primary/30 hover:bg-background"
-                      >
-                        <div>
-                          <p className="flex items-center gap-2 text-sm font-medium">
-                            {semester.name}
-                            <Badge variant={STATUS_VARIANT[semester.status]}>
-                              {semester.status.toLowerCase()}
-                            </Badge>
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatDate(semester.startDate, "MMM d")} –{" "}
-                            {formatDate(semester.endDate, "MMM d, yyyy")}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openSemesterForm(semester)}
-                          >
-                            <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Delete ${semester.name}`}
-                            className="text-danger hover:text-danger"
-                            onClick={() => setPendingDelete({ kind: "semester", item: semester })}
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden />
-                          </Button>
-                        </div>
-                      </li>
-                    ))}
+                    {children.map((semester) => {
+                      const coursesForSemester = (allCourses.data ?? []).filter(
+                        (c) => c.semesterId === semester.id,
+                      );
+                      const isExpanded = expandedSemesters.has(semester.id);
+                      return (
+                        <li
+                          key={semester.id}
+                          className="rounded-lg border border-border/70 bg-background/40 transition-colors hover:border-primary/30 hover:bg-background"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                            <button
+                              type="button"
+                              className="flex flex-1 items-center gap-2 text-left"
+                              onClick={() => toggleSemester(semester.id)}
+                              aria-expanded={isExpanded}
+                            >
+                              <ChevronDown
+                                className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
+                                aria-hidden
+                              />
+                              <div>
+                                <p className="flex items-center gap-2 text-sm font-medium">
+                                  {semester.name}
+                                  <Badge variant={STATUS_VARIANT[semester.status]}>
+                                    {semester.status.toLowerCase()}
+                                  </Badge>
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatDate(semester.startDate, "MMM d")} –{" "}
+                                  {formatDate(semester.endDate, "MMM d, yyyy")}
+                                </p>
+                              </div>
+                            </button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openSemesterForm(semester)}
+                              >
+                                <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Edit
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Delete ${semester.name}`}
+                                className="text-danger hover:text-danger"
+                                onClick={() => setPendingDelete({ kind: "semester", item: semester })}
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden />
+                              </Button>
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="border-t border-border/50 px-3 py-2">
+                              {coursesForSemester.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                  No courses in this semester yet.
+                                </p>
+                              ) : (
+                                <ul className="space-y-1.5">
+                                  {coursesForSemester.map((course) => (
+                                    <li key={course.id}>
+                                      <Link
+                                        href={`/courses/${course.id}`}
+                                        className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-primary/5 hover:text-primary"
+                                      >
+                                        <span className="truncate font-medium">{course.name}</span>
+                                        {course.code && (
+                                          <span className="shrink-0 text-xs text-muted-foreground">
+                                            {course.code}
+                                          </span>
+                                        )}
+                                      </Link>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </Surface>

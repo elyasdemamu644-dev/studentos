@@ -108,11 +108,43 @@ async function requestInternal<T>(
   };
 
   const respond = async (res: Response): Promise<T> => {
+    // A successful response is allowed to carry no body at all (204 No
+    // Content, e.g. delete). Never treat that as a routing failure.
+    // `headers` is optional so a partial Response-like stub (e.g. a test double)
+    // does not blow up here.
+    const contentType = res.headers?.get?.("content-type") ?? "";
+    const isEmptyBody = res.status === 204 || res.status === 205;
+    // Only distrust a body that is positively identified as HTML, or a non-JSON
+    // error response. A missing content-type is not itself evidence of a
+    // misroute — some legitimate responses (and test doubles) omit it.
+    const looksLikeHtml = contentType.includes("text/html");
+    if (!isEmptyBody && (looksLikeHtml || (res.status >= 400 && contentType && !contentType.includes("application/json")))) {
+      const body = res.text ? await res.text().catch(() => "") : "";
+      if (looksLikeHtml || /^\s*<!doctype html/i.test(body)) {
+        throw new ApiClientError(
+          `The API returned an HTML page instead of JSON (HTTP ${res.status}). ` +
+            `NEXT_PUBLIC_API_URL is probably pointing at the web app (${API_BASE_URL}) ` +
+            `rather than the API server.`,
+          res.status,
+          "API_BASE_URL_MISCONFIGURED",
+        );
+      }
+      throw new ApiClientError(
+        `Request failed (${res.status})`,
+        res.status,
+        "INVALID_RESPONSE",
+      );
+    }
+
     let json: Envelope<T> | null = null;
-    try {
-      json = (await res.json()) as Envelope<T>;
-    } catch {
-      // Empty body is fine for some endpoints (204-ish).
+    if (!isEmptyBody) {
+      try {
+        json = (await res.json()) as Envelope<T>;
+      } catch {
+        // A JSON content-type with an unparseable body (e.g. a truncated
+        // response). Treat it as an empty body so the status still drives the
+        // outcome below.
+      }
     }
 
     if (res.status >= 200 && res.status < 300) {

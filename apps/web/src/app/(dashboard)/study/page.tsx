@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Breadcrumb } from "@/components/layout/breadcrumb";
+import { useAcademicBreadcrumb } from "@/features/academics/use-academic-breadcrumb";
 import {
   Select,
   SelectContent,
@@ -31,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useCourses } from "@/features/courses/hooks";
+import { useCourseContext } from "@/features/academics/academic-context";
 import {
   useCompleteSession,
   useDeleteSession,
@@ -64,12 +67,13 @@ function formatDuration(totalSeconds: number): string {
 
 export default function StudyPage() {
   const courses = useCourses();
+  const courseContext = useCourseContext();
   const todaySessions = useSessions({ range: "today", limit: 100 });
   const startSession = useStartSession();
   const completeSession = useCompleteSession();
   const deleteSession = useDeleteSession();
 
-  const [courseId, setCourseId] = useState("");
+  const [courseId, setCourseId] = useState(courseContext ?? "");
   const [topic, setTopic] = useState("");
   const [minutes, setMinutes] = useState<number>(25);
   const [active, setActive] = useState<StudySession | null>(null);
@@ -161,9 +165,11 @@ export default function StudyPage() {
   const summary = todaySessions.data?.summary;
   const sessionItems = todaySessions.data?.items ?? [];
   const counted = summary && summary.count > 0 ? summary.totalMinutes / summary.count : 0;
+  const breadcrumbItems = useAcademicBreadcrumb(courseId, "Study");
 
   return (
     <div>
+      <Breadcrumb items={breadcrumbItems} />
       <PageHeader
         kicker="Focus"
         title="Study"

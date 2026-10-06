@@ -37,6 +37,8 @@ import { DialogShell } from "@/features/tasks/task-form";
 import { EVENT_TYPE_LABELS } from "@/lib/labels";
 import { formatDate, formatMinutes, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Breadcrumb } from "@/components/layout/breadcrumb";
+import { useAcademicBreadcrumb } from "@/features/academics/use-academic-breadcrumb";
 
 export default function CourseDetailPage() {
   const params = useParams<{ id: string }>();
@@ -56,6 +58,7 @@ export default function CourseDetailPage() {
   const completeTask = useCompleteTask();
   const updateTask = useUpdateTask();
   const deleteCourse = useDeleteCourse();
+  const breadcrumbItems = useAcademicBreadcrumb(id);
 
   if (course.isPending || summary.isPending) {
     return (
@@ -94,6 +97,7 @@ export default function CourseDetailPage() {
 
   return (
     <div className="space-y-8">
+      <Breadcrumb items={breadcrumbItems} />
       <div>
         <Button asChild variant="ghost" size="sm" className="mb-3 -ml-2">
           <Link href="/courses">
@@ -261,7 +265,7 @@ export default function CourseDetailPage() {
               <ListTodo className="h-4 w-4 text-primary" aria-hidden /> Open tasks
             </h2>
             <Button asChild variant="ghost" size="sm">
-              <Link href="/tasks">
+              <Link href={`/tasks?course=${id}`}>
                 All tasks <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
               </Link>
             </Button>

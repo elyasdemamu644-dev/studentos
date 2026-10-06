@@ -267,21 +267,28 @@ describe("buildThemeCss", () => {
   });
 
   it("clamps the derived scale so a small base radius cannot go negative", () => {
-    // Neon sits at a 2px base radius, so a plain `calc(--radius - 4px)` would
-    // compute -2px. The browser clamps that silently, but the token itself must
+    // Neon sits at a 1px base radius, so a plain `calc(--radius - 4px)` would
+    // compute -3px. The browser clamps that silently, but the token itself must
     // never be a negative length.
     expect(css).toContain("--radius-sm: max(calc(var(--radius) - 4px), 0px)");
     expect(css).toContain("--radius-md: max(calc(var(--radius) - 2px), 0px)");
     expect(css).not.toMatch(/--radius-sm:\s*calc\(/);
     expect(css).not.toMatch(/--radius-md:\s*calc\(/);
 
-    // Every theme with a radius below 4px must therefore clamp rather than
-    // produce an inverted scale.
+    // How small a base radius may be is a design decision per theme — Neon wants
+    // square geometry — so the invariant is not "every small radius equals some
+    // fixed value". It is that every theme declares a real, non-negative base
+    // radius and that the generated scale for that theme clamps rather than
+    // inverting.
     for (const theme of THEMES) {
       const radiusPx = Number.parseFloat(theme.characterTokens.radius) * 16;
-      if (radiusPx < 4) {
-        expect(theme.characterTokens.radius).toBe("0.125rem");
-      }
+      expect(Number.isFinite(radiusPx), theme.id).toBe(true);
+      expect(radiusPx, theme.id).toBeGreaterThanOrEqual(0);
+
+      const themeCss = buildThemeCss([theme]);
+      expect(themeCss, theme.id).toContain("--radius-sm: max(calc(var(--radius) - 4px), 0px)");
+      expect(themeCss, theme.id).toContain("--radius-md: max(calc(var(--radius) - 2px), 0px)");
+      expect(themeCss, theme.id).not.toMatch(/--radius-sm:\s*calc\(/);
     }
   });
 
@@ -315,9 +322,12 @@ describe("buildThemeCss", () => {
 
 describe("buildPreviewCss", () => {
   it("scopes the full token set so a preview renders the real theme", () => {
-    const css = buildPreviewCss(getTheme("neon")!);
+    const neon = getTheme("neon")!;
+    const css = buildPreviewCss(neon);
     expect(css.startsWith(".theme-preview {")).toBe(true);
-    expect(css).toContain("--radius: 0.125rem");
+    // Asserted against the theme's own declaration rather than a hardcoded
+    // literal, so the preview cannot drift away from the token it renders.
+    expect(css).toContain(`--radius: ${neon.characterTokens.radius}`);
     expect(css).toContain("--motion-ease: steps(4, end)");
   });
 

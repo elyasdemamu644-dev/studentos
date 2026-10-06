@@ -28,6 +28,8 @@ import { TaskFormDialog } from "@/features/tasks/task-form";
 import { useCourses } from "@/features/courses/hooks";
 import { PRIORITY_LABELS, TASK_TYPE_LABELS } from "@/lib/labels";
 import type { Task, TaskPriority, TaskType } from "@/types/api-types";
+import { Breadcrumb } from "@/components/layout/breadcrumb";
+import { useAcademicBreadcrumb } from "@/features/academics/use-academic-breadcrumb";
 
 type View = "ALL" | "TODO" | "IN_PROGRESS" | "COMPLETED";
 
@@ -47,7 +49,7 @@ export default function TasksPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [priority, setPriority] = useState("");
   const [type, setType] = useState("");
-  const [courseId, setCourseId] = useState("");
+  const [courseId, setCourseId] = useState(searchParams.get("course") ?? "");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Task | undefined>(undefined);
 
@@ -147,8 +149,11 @@ export default function TasksPage() {
     </ul>
   );
 
+  const breadcrumbItems = useAcademicBreadcrumb(courseId, "Tasks");
+
   return (
     <div>
+      <Breadcrumb items={breadcrumbItems} />
       <PageHeader
         kicker="Workload"
         title="Tasks"
