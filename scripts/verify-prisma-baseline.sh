@@ -5,7 +5,7 @@ set -euo pipefail
 # Run from anywhere: paths are resolved relative to this script.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT/apps/api"
+cd "$REPO_ROOT/backend"
 
 echo "========================================="
 echo "  StudentOS — Prisma baseline verification"

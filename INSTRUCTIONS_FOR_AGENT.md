@@ -67,7 +67,7 @@ pnpm lint                                # web only
 
 Three things that will bite you:
 
-- **API tests need a live PostgreSQL.** They are integration tests, not mocks. No database means no meaningful result. If the whole suite reports every test as *skipped* with a `PrismaClientInitializationError`, the credentials in `apps/api/.env` are wrong — that is a broken environment, not a passing run (gap #24).
+- **API tests need a live PostgreSQL.** They are integration tests, not mocks. No database means no meaningful result. If the whole suite reports every test as *skipped* with a `PrismaClientInitializationError`, the credentials in `backend/.env` are wrong — that is a broken environment, not a passing run (gap #24).
 - **Never run two API test suites concurrently.** Each test file `TRUNCATE`s all tables on setup; two concurrent runs deadlock (PostgreSQL `40P01`). This has been observed in this environment.
 - **The `db:seed` script and the API test suite are destructive.** Point `TEST_DATABASE_URL` at a throwaway database.
 
@@ -114,7 +114,7 @@ Do not claim a test passed unless you ran it and saw it pass. Do not describe in
 | Find a file | Use the lookup tables in `AI_CONTEXT.md`, not a repo-wide search |
 | Run one app's tests | `pnpm --filter @studentos/api test` / `pnpm --filter @studentos/web test` |
 | Full verification | `pnpm test && pnpm build` |
-| Add an API endpoint | `src/modules/<domain>/{routes,service,schema}.ts` + a test in `apps/api/tests/` |
-| Add a web page | `src/app/(dashboard)/<name>/page.tsx` + `src/features/<name>/` + nav entry in `app-shell.tsx` |
-| Change the DB schema | `apps/api/prisma/schema.prisma`, then `db:push`; **there are no migrations** |
+| Add an API endpoint | `src/{routes,services,schemas}/<domain>.ts` + a test in `backend/tests/` |
+| Add a web page | `app/(dashboard)/<name>/page.tsx` + `features/<name>/` + nav entry in `app-shell.tsx` |
+| Change the DB schema | `backend/prisma/schema.prisma`, then `db:push`; **there are no migrations** |
 | Stuck on a contract | Read the test file for that domain |

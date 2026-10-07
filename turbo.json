@@ -8,16 +8,20 @@
     "lint": {},
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["apps/*/dist/**"]
+      "outputs": ["backend/dist/**"]
     },
     "test": {
       "dependsOn": ["build"],
       "inputs": [
-        "apps/api/src/**",
-        "apps/api/tests/**",
-        "apps/api/prisma/**",
-        "apps/web/src/**",
-        "apps/web/tests/**",
+        "backend/src/**",
+        "backend/tests/**",
+        "backend/prisma/**",
+        "frontend/app/**",
+        "frontend/components/**",
+        "frontend/features/**",
+        "frontend/lib/**",
+        "frontend/types/**",
+        "frontend/tests/**",
         "package.json",
         "pnpm-lock.yaml"
       ]

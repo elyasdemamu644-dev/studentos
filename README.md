@@ -29,15 +29,15 @@ No `engines` field is declared in any `package.json`, so no minimum Node version
 ```bash
 pnpm install
 
-cp apps/api/.env.example apps/api/.env
-# edit apps/api/.env — at minimum set DATABASE_URL and JWT_SECRET
+cp backend/.env.example backend/.env
+# edit backend/.env — at minimum set DATABASE_URL and JWT_SECRET
 
-cp apps/web/.env.local.example apps/web/.env.local
+cp frontend/.env.local.example frontend/.env.local
 
 pnpm --filter @studentos/api db:generate   # prisma generate
 
 # create the schema from migrations — works on an empty database too:
-npx prisma migrate deploy        # run from apps/api
+npx prisma migrate deploy        # run from backend
 
 pnpm --filter @studentos/api db:seed     # optional: demo data (destructive)
 pnpm --filter @studentos/api db:push     # schema-only escape hatch, no history
@@ -85,11 +85,11 @@ pnpm --filter @studentos/api db:migrate    # prisma migrate dev (needs a shadow 
 pnpm --filter @studentos/api db:seed       # destructive demo seed
 ```
 
-Type-check the web app alone: `npx tsc --noEmit` in `apps/web`.
+Type-check the web app alone: `npx tsc --noEmit` in `frontend`.
 
 ## Configuration
 
-`apps/api/.env` — only `DATABASE_URL` and `JWT_SECRET` are strictly required to boot; `validateConfig()` throws with a clear message if anything mandatory is missing. With `NODE_ENV=production` it additionally refuses to start on a placeholder or short (<32 char) `JWT_SECRET`/`ENCRYPTION_KEY`, or when `CORS_ORIGINS` was never set (the localhost default would block a real web origin).
+`backend/.env` — only `DATABASE_URL` and `JWT_SECRET` are strictly required to boot; `validateConfig()` throws with a clear message if anything mandatory is missing. With `NODE_ENV=production` it additionally refuses to start on a placeholder or short (<32 char) `JWT_SECRET`/`ENCRYPTION_KEY`, or when `CORS_ORIGINS` was never set (the localhost default would block a real web origin).
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -104,7 +104,7 @@ Type-check the web app alone: `npx tsc --noEmit` in `apps/web`.
 | `AI_MODEL` | `gpt-4o-mini` | any OpenAI-compatible model |
 | `OPENAI_BASE_URL` | `https://api.openai.com` | point at a compatible endpoint |
 
-`apps/web/.env.local`
+`frontend/.env.local`
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -118,14 +118,14 @@ Resources: auth, academics (years + semesters), courses, tasks (+ subtasks, tags
 
 `docs/api/openapi.yaml` is the OpenAPI 3.1.1 contract for the whole surface (60 paths / 111 operations, regenerated 2026-10-07). It is derived from the code by hand, so the code remains authoritative on any conflict.
 
-Migrations live in `apps/api/prisma/migrations/` — `20261006000000_init_from_schema` (the whole schema) and `20261007000000_add_owner_indexes`. `npx prisma migrate deploy` applies them from empty and is the command to use in production; `prisma migrate status` reports "Database schema is up to date!".
+Migrations live in `backend/prisma/migrations/` — `20261006000000_init_from_schema` (the whole schema) and `20261007000000_add_owner_indexes`. `npx prisma migrate deploy` applies them from empty and is the command to use in production; `prisma migrate status` reports "Database schema is up to date!".
 
 ## Production run-book
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm --filter @studentos/api build          # typecheck gate (dist/ is not the runtime)
-cd apps/api && npx prisma migrate deploy    # applies migrations, safe from empty
+cd backend && npx prisma migrate deploy    # applies migrations, safe from empty
 pnpm --filter @studentos/api start          # tsx src/server.ts
 curl -fsS http://localhost:3001/health       # {"database":"connected"} or HTTP 503
 ```
@@ -141,8 +141,8 @@ curl -fsS http://localhost:3001/health       # {"database":"connected"} or HTTP 
 ## Project layout
 
 ```
-apps/api        Express REST API + Prisma (tests/ at apps/api/tests)
-apps/web        Next.js web app (tests/ at apps/web/tests)
+backend        Express REST API + Prisma (tests/ at backend/tests)
+frontend        Next.js web app (tests/ at frontend/tests)
 packages/shared Shared Zod schemas and types
 docs/           api/ (OpenAPI 3.1.1 contract) + audits/ (archived historical reports)
 scripts/        Repository maintenance scripts

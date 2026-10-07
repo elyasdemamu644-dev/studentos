@@ -15,7 +15,7 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
-  apps/api:
+  backend:
     dependencies:
       '@node-rs/argon2':
         specifier: ^2.1.0
@@ -25,7 +25,7 @@ importers:
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@studentos/shared':
         specifier: workspace:*
-        version: link:../../packages/shared
+        version: link:../packages/shared
       compression:
         specifier: ^1.7.4
         version: 1.8.2
@@ -88,7 +88,7 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.4)(jiti@2.7.0)(jsdom@25.0.1)(tsx@4.23.15)
 
-  apps/web:
+  frontend:
     dependencies:
       '@hookform/resolvers':
         specifier: ^3.9.1
@@ -131,7 +131,7 @@ importers:
         version: 1.2.16(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@studentos/shared':
         specifier: workspace:*
-        version: link:../../packages/shared
+        version: link:../packages/shared
       '@tanstack/react-query':
         specifier: ^5.59.16
         version: 5.103.2(react@18.3.1)
