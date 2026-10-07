@@ -35,6 +35,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Generate Prisma client
         run: pnpm --filter @studentos/api exec prisma generate
+      - name: Create database schema
+        run: pnpm --filter @studentos/api exec prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studentos_test?schema=public
       - name: Run API tests
         run: pnpm --filter @studentos/api test
         env:
