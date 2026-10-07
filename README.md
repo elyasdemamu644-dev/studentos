@@ -15,7 +15,7 @@ Full-stack TypeScript monorepo: **Next.js 14** web app + **Express 5 / Prisma / 
 | **Database** | PostgreSQL |
 | **Shared** | `@studentos/shared` — Zod schemas and cross-app types |
 | **Tooling** | pnpm workspaces + Turborepo, Vitest, ESLint (`next lint`) |
-| **Tests** | 338 passing — 261 API (integration, real DB) + 77 web (jsdom) |
+| **Tests** | 649 passing — 422 API (integration, real DB) + 227 web (jsdom) |
 
 ## Requirements
 
@@ -34,18 +34,14 @@ cp apps/api/.env.example apps/api/.env
 
 cp apps/web/.env.local.example apps/web/.env.local
 
-# Option A — push (fast, schema-only, no history):
-pnpm --filter @studentos/api db:push
-
-# Option B — migrations (versioned history, recommended for teams):
-# prisma migrate dev creates `prisma/migrations/` from `schema.prisma`.
-# For an existing database with a baseline already recorded, use:
 pnpm --filter @studentos/api db:generate   # prisma generate
-# then mark the existing baseline as applied:
-npx prisma migrate resolve --applied 20260926004652_baseline
 
-pnpm --filter @studentos/api db:seed     # optional: demo data
-pnpm --filter @studentos/api db:migrate  # future schema changes go here
+# create the schema from migrations — works on an empty database too:
+npx prisma migrate deploy        # run from apps/api
+
+pnpm --filter @studentos/api db:seed     # optional: demo data (destructive)
+pnpm --filter @studentos/api db:push     # schema-only escape hatch, no history
+pnpm --filter @studentos/api db:migrate  # create a migration for a schema change
 ```
 
 The seed creates `demo@studentos.dev` / `StudentPass123!`. **It deletes all existing rows first.**
@@ -70,7 +66,7 @@ Run from the repository root:
 pnpm dev          # both apps in parallel
 pnpm build        # API tsc + Web next build
 pnpm lint         # web only — the API has no linter
-pnpm test         # full suite, 338 tests
+pnpm test         # full suite, 649 tests
 ```
 
 Per package:
@@ -84,8 +80,8 @@ Database:
 
 ```bash
 pnpm --filter @studentos/api db:generate   # prisma generate
-pnpm --filter @studentos/api db:push       # prisma db push  (schema is not versioned)
-pnpm --filter @studentos/api db:migrate    # prisma migrate dev
+pnpm --filter @studentos/api db:push       # prisma db push  (escape hatch, no history)
+pnpm --filter @studentos/api db:migrate    # prisma migrate dev (needs a shadow DB)
 pnpm --filter @studentos/api db:seed       # destructive demo seed
 ```
 
@@ -93,14 +89,16 @@ Type-check the web app alone: `npx tsc --noEmit` in `apps/web`.
 
 ## Configuration
 
-`apps/api/.env` — only `DATABASE_URL` and `JWT_SECRET` are strictly required to boot; `validateConfig()` throws with a clear message if anything mandatory is missing.
+`apps/api/.env` — only `DATABASE_URL` and `JWT_SECRET` are strictly required to boot; `validateConfig()` throws with a clear message if anything mandatory is missing. With `NODE_ENV=production` it additionally refuses to start on a placeholder or short (<32 char) `JWT_SECRET`/`ENCRYPTION_KEY`, or when `CORS_ORIGINS` was never set (the localhost default would block a real web origin).
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | — | **required** — PostgreSQL connection string |
-| `JWT_SECRET` | — | **required** — HS256 signing secret; use a long random value in production |
+| `JWT_SECRET` | — | **required** — HS256 signing secret; 32+ random characters in production |
+| `ENCRYPTION_KEY` | — | encrypts stored AI connection credentials; 32+ random characters in production |
 | `PORT` / `HOST` | `3001` / `0.0.0.0` | API bind address |
-| `CORS_ORIGINS` | `http://localhost:3000` | comma-separated allowlist |
+| `TRUST_PROXY` | `0` | hops to trust (`1` behind nginx/ALB) so rate limiting keys on the real client IP |
+| `CORS_ORIGINS` | `http://localhost:3000` | comma-separated allowlist; **set it explicitly in production** |
 | `AI_ENABLED` | `true` | set `false` to disable AI generation |
 | `OPENAI_API_KEY` | — | required at boot when AI is enabled |
 | `AI_MODEL` | `gpt-4o-mini` | any OpenAI-compatible model |
@@ -120,7 +118,19 @@ Resources: auth, academics (years + semesters), courses, tasks (+ subtasks, tags
 
 `docs/api/openapi.yaml` is the OpenAPI 3.1.1 contract for the whole surface (60 paths / 111 operations, regenerated 2026-10-07). It is derived from the code by hand, so the code remains authoritative on any conflict.
 
-Baseline migration: `apps/api/prisma/migrations/20260926004652_baseline/` — recorded 2026-09-26. New databases: push schema, then `npx prisma migrate resolve --applied 20260926004652_baseline`.
+Migrations live in `apps/api/prisma/migrations/` — `20261006000000_init_from_schema` (the whole schema) and `20261007000000_add_owner_indexes`. `npx prisma migrate deploy` applies them from empty and is the command to use in production; `prisma migrate status` reports "Database schema is up to date!".
+
+## Production run-book
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter @studentos/api build          # typecheck gate (dist/ is not the runtime)
+cd apps/api && npx prisma migrate deploy    # applies migrations, safe from empty
+pnpm --filter @studentos/api start          # tsx src/server.ts
+curl -fsS http://localhost:3001/health       # {"database":"connected"} or HTTP 503
+```
+
+`NODE_ENV=production` + 32+ character `JWT_SECRET`/`ENCRYPTION_KEY` + an explicit `CORS_ORIGINS` are enforced at boot. The server fails fast if the database is unreachable, handles `EADDRINUSE`, and shuts down on `SIGTERM`/`SIGINT` (10 s force exit). `/health` pings the database and answers `503` when it is down.
 
 ## Testing notes
 
@@ -134,6 +144,6 @@ Baseline migration: `apps/api/prisma/migrations/20260926004652_baseline/` — re
 apps/api        Express REST API + Prisma (tests/ at apps/api/tests)
 apps/web        Next.js web app (tests/ at apps/web/tests)
 packages/shared Shared Zod schemas and types
-docs/           api/ (stale OpenAPI spec) + audits/ (archived historical reports)
+docs/           api/ (OpenAPI 3.1.1 contract) + audits/ (archived historical reports)
 scripts/        Repository maintenance scripts
 ```

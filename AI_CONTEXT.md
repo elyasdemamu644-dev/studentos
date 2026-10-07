@@ -63,33 +63,30 @@ Design intent, as evidenced by the code:
 
 | Field | Value |
 |---|---|
-| Phase | Post-Phase-2. **Phase 2 is closed out** (2026-09-28). **Phase 3 (Integration QA) began 2026-09-29** and immediately found 4 runtime defects the green suites had hidden — gaps #25–#28, all now fixed. **The AI Agent Core was closed out 2026-09-30**: 50 tools (21 READ / 7 ANALYZE / 22 WRITE), natural-reference resolution before approval, and post-write verification. |
-| Last committed checkpoint | `af7aab6` — *feat(ai): verified write tools, natural references and a real chat UI* |
-| Working tree | **Clean** as of `af7aab6`. The 50-tool agent, the verifier, the resolver and the chat UI are all in history; `git status` shows nothing. |
-| Tests | API **349/349 pass** (26 files), Web **136/136 pass** (15 files) — 0 failures, re-run 2026-10-01. |
-| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-01. |
-| Lint | `next lint` **clean** (web only, `src` + `tests`). No lint config exists for the API — `tsc` is its only gate. |
-| CI | **None.** There is no `.github/` directory. |
-| Overall | Structure is standardized, the API compiles, every package test suite is green, and the root build passes. The agent is committed but its verifier, resolver and the AI chat UI are not. |
+| Phase | **Phase 3 (capstone) complete 2026-10-07.** All phases are closed: Phase 0 (regenerated migrations), Phase 1 (backend foundation), Phase 2 (OpenAPI + contract safety + production readiness), Phase 3 (production config guardrails, owner indexes, IDOR sweep, migration deploy verification, live smoke, docs refresh). |
+| Last committed checkpoint | `7b44461` — *phase3: production config guardrails, owner indexes migration, IDOR sweep + config tests* |
+| Working tree | **Clean** — `git status` shows nothing after the Phase 3 commits. |
+| Tests | API **422/422 pass** (29 files), Web **227/227 pass** (18 files) — 0 failures, re-run 2026-10-07. |
+| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-07. |
+| Lint | `next lint` **clean** (web only, `src` + `tests`); root `pnpm lint` clean. No lint config exists for the API — `tsc` is its gate. |
+| CI | **`.github/workflows/ci.yml` exists** — two jobs (api with a `postgres:16` service, web): `pnpm install --frozen-lockfile`, tests, `tsc`, lint, build. |
+| Overall | Green: suites, typecheck, lint, builds, `prisma validate`, `migrate status`, and a live HTTP smoke run. Docs describe the current state. |
 
 ---
 
 ## 3. Git & checkpoint state
 
-Branch `main`. Six commits:
+Branch `main`. Most recent commits (`git log --oneline`):
 
 ```
-af7aab6  feat(ai): verified write tools, natural references and a real chat UI
-42a26d3  feat(ai): add tool-calling agent and fix pending-action response unwrapping
-196d8f2  fix: close Gap #25 and repair AI Connections runtime integration
-079a453  chore: Phase 2 checkpoint — AI Connections, feature UI, structure cleanup
-a07ae08  chore: stabilize current studentos baseline
-f7fb172  Initial commit: StudentOS monorepo (Express API + Next.js web + shared schemas)
+7b44461  phase3: production config guardrails, owner indexes migration, IDOR sweep + config tests
+4f03cc6  phase2: regenerate full OpenAPI spec, add contract-safety tests, production-readiness hardening
+a5c9734  phase1: harden backend foundation (single prisma+jwt source, error contract, rate limiting, validation)
+5528756  phase0: regenerate migrations from schema.prisma; drop stale legacy migrations; merge prisma singletons; align env examples; refresh AI_CONTEXT/README
+ca161a0  WIP: audit follow-ups (client HTML detection, provider base, web tests) before Phase 0
 ```
 
-**Everything is committed.** The 50-tool agent landed in `42a26d3`; the post-write verifier, the natural-reference resolver, the verifier fixes and the chat UI followed in `af7aab6`. Earlier revisions of this file described that second half as uncommitted, which was true when written and stopped being true at `af7aab6`. `git status` is clean, so a `git checkout`/clean is no longer destructive — but gaps #22, #26 and #28 still live only in gitignored files, so a fresh clone is not reproducible.
-
-Note that two fixes from the 2026-09-29 session live **only in gitignored files** and are therefore NOT in the commit: the `ENCRYPTION_KEY` value in `apps/api/.env` (gap #26) and the `NEXT_PUBLIC_API_URL` correction in `apps/web/.env.local` (gap #28). A fresh clone reproduces both failures. Root cause is gap #22.
+**Everything is committed** and `git status` is clean. The branch has diverged from `origin/main` (local commits ahead, remote commits behind) — nothing has been pushed. Gaps #22, #26 and #28 still live only in gitignored files (`apps/api/.env`, `apps/web/.env.local`), so a fresh clone must create them itself — the README setup steps do exactly that.
 
 ---
 
@@ -127,7 +124,7 @@ StudentOS/
         └── src/schemas/           <- the only source folder
 ```
 
-There is **no** `.github/`, no `apps/mobile/`, no `packages/config/`, no `packages/ui/`, and no `apps/api/src/types/` — those were empty or orphaned and have been removed.
+`.github/workflows/ci.yml` is the only thing in `.github/`. There is **no** `apps/mobile/`, no `packages/config/`, no `packages/ui/`, and no `apps/api/src/types/` — those were empty or orphaned and have been removed.
 
 | Package | Name | Stack |
 |---|---|---|
@@ -269,7 +266,7 @@ Navigation (`app-shell.tsx`): 12 sidebar items — Dashboard, Courses, Academics
 ## 7. Database / Prisma
 
 - PostgreSQL. Generator `prisma-client-js`. Schema: `apps/api/prisma/schema.prisma`.
-- **Migration history exists**: `prisma/migrations/20260926004652_baseline/` and `prisma/migrations/20260926010000_add_ai_connections/`. `prisma migrate status` reports "Database schema is up to date!" against the local dev database. `prisma validate` passes.
+- **Migration history exists**: `prisma/migrations/20261006000000_init_from_schema/` (the whole schema, squashed in Phase 0) and `prisma/migrations/20261007000000_add_owner_indexes/` (Phase 3). `prisma migrate deploy` was verified **from an empty database** (create DB → deploy → status clean → drop), on `studentos`, and on `studentos_test`. `prisma migrate status` reports "Database schema is up to date!". `prisma validate` passes. Note: `prisma migrate dev` cannot run here — its shadow database is unreachable (P1001), so new migrations are hand-written and applied with `migrate deploy`.
 - 22 models, all `@@map`-ed to snake_case plural tables; 17 enums.
 - Prisma client singleton lives in `src/lib/prisma.ts` **and** `src/server.ts` (the server one is cached on `globalThis` in development). Tests import it as `prisma` from `@/server`.
 - All child models cascade from `User`. Optional course/task relations use `onDelete: SetNull`.
@@ -283,7 +280,9 @@ Navigation (`app-shell.tsx`): 12 sidebar items — Dashboard, Courses, Academics
 | Content | `Note`, `Resource`, `Event` |
 | Tracking | `StudySession`, `Goal`, `GoalMilestone`, `Grade` |
 | Notifications | `Notification` (indexed `[userId,status]`, `[userId,createdAt]`) |
-| AI | `AiConversation`, `AiMessage` (indexed `[conversationId,createdAt]`), `AiStudyPlan`, `AiStudyPlanEntry`, `AiConnection` (`@@unique([userId,provider])`, uncommitted) |
+| AI | `AiConversation` (indexed `[userId,updatedAt]`), `AiMessage` (indexed `[conversationId,createdAt]`), `AiStudyPlan` (indexed `[userId,updatedAt]`), `AiStudyPlanEntry`, `AiConnection` (`@@unique([userId,provider])`) |
+
+**Indexes:** every owner-scoped list/filter column is indexed (Phase 3 added 16: owner+status/date on tasks, courses, goals, academic years, semesters; `userId` on refresh tokens; `position` on subtasks/milestones; `updatedAt`/`createdAt`/`startedAt`/`dueDate` sort keys). `migrations/20261007000000_add_owner_indexes` carries them.
 
 Notable column-level facts: `Task.estimatedMinutes` + `Task.completedAt`; `Course.instructor`; `StudySession.durationMinutes` (stored, not derived at read); `Resource` has both URL fields and S3 fields (`fileKey`/`fileName`/`fileSize`/`mimeType`); `AiMessage.contextSnapshot` stores the JSON context actually sent to the model.
 
@@ -507,17 +506,19 @@ pnpm dev
 
 ---
 
-## 12. Test & build status (verified 2026-10-01)
+## 12. Test & build status (verified 2026-10-07)
 
 | Suite | Command | Result | Time |
 |---|---|---|---|
-| API | `pnpm --filter @studentos/api test` | **26 files, 349 tests — 0 fail** | ~53 s |
-| Web | `pnpm --filter @studentos/web test` | **15 files, 139 tests — 0 fail** | ~9 s |
+| API | `pnpm --filter @studentos/api test` | **29 files, 422 tests — 0 fail** | ~75 s |
+| Web | `pnpm --filter @studentos/web test` | **18 files, 227 tests — 0 fail** | ~17 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
-| API build | `pnpm --filter @studentos/api build` | **pass** — `dist/` emitted | ~8 s |
+| API build | `pnpm --filter @studentos/api build` | **pass** — `tsc` gate (`dist/` is not the runtime; `start` runs `tsx src/server.ts`) | ~8 s |
 | Web typecheck | `pnpm --filter @studentos/web exec tsc --noEmit` | **pass** (exit 0) | ~20 s |
 | Web build | `pnpm --filter @studentos/web build` | **pass** — 19 routes (18 static ○, `/courses/[id]` dynamic ƒ) | ~55 s |
-| Lint | `pnpm --filter @studentos/web lint` | **pass** — "No ESLint warnings or errors" | ~5 s |
+| Lint | `pnpm lint` (root, → web) | **pass** — "No ESLint warnings or errors" | ~5 s |
+| DB | `npx prisma validate` / `npx prisma migrate status` | **valid** / **up to date** (2 migrations) | — |
+| Lockfile | `pnpm install --frozen-lockfile` | **pass** (CI-compatible) | ~2 s |
 
 ### Real-browser verification (2026-10-01)
 
@@ -553,11 +554,11 @@ Prisma `createMany` stamps all rows with a single `now()`, so tests that assert 
 
 Both suites are **flat**, next to the app they test, never colocated with source.
 
-**API** (`apps/api/tests/`, 26 files + `helpers.ts` + `setup.ts`): `academics`, `ai`, `ai-connections`, `ai-provider-resolution`, `ai-tools`, `auth`, `course-summary`, `courses`, `cross-user`, `dashboard`, `dashboard-command-center`, `encryption-provider-ai-connections`, `events`, `goals`, `grades`, `health`, `integration`, `malformed-body`, `notes`, `notifications`, `resources`, `settings`, `study-sessions`, `subtasks`, `task-tags`, `tasks`.
+**API** (`apps/api/tests/`, 29 files + `helpers.ts` + `setup.ts`): `academics`, `ai`, `ai-connections`, `ai-provider-resolution`, `ai-tools`, `auth`, `contract-safety`, `course-summary`, `courses`, `cross-user`, `dashboard`, `dashboard-command-center`, `encryption-provider-ai-connections`, `error-envelope`, `events`, `goals`, `grades`, `health`, `integration`, `malformed-body`, `notes`, `notifications`, `production-config`, `resources`, `settings`, `study-sessions`, `subtasks`, `task-tags`, `tasks`.
 
 `ai-tools.test.ts` is the AI agent suite: registry registration and JSON-Schema conversion, argument handling and error safety, real-data scoping, the WRITE confirmation gate, the confirmation store, the agent loop (tool round-trip, round limit, **call and proposal budgets**, proposal-then-prose, provider fallback), provider tool-call support, the HTTP surface, natural references, post-write verification (including a check that **every field a write tool can change is re-read**), and verified batch outcomes.
 
-**Web** (`apps/web/tests/`, 15 files + `setup.ts`): `academic-forms`, `ai-chat-flow` (tsx), `ai-chat-utils`, `ai-connections`, `ai-pending-action` (ts), `app-shell`, `calendar-page`, `errors`, `exam-utils`, `format`, `labels`, `notification-utils`, `task-form`, `themes`, `utils`.
+**Web** (`apps/web/tests/`, 18 files + `setup.ts`): `academic-forms`, `ai-chat-flow` (tsx), `ai-chat-utils`, `ai-connections`, `ai-pending-action` (ts), `ai-transcript-scroll`, `ai-workspace`, `app-shell`, `calendar-page`, `errors`, `exam-utils`, `format`, `labels`, `notification-utils`, `task-form`, `theme-system`, `themes`, `utils`.
 
 Test style: API uses supertest against the real `app` with helpers from `tests/helpers.ts` (`registerAndLogin`, `authRequestJson`, `authRequest`, `logout`). `authRequestJson`/`authRequest` are **overloaded** and accept two different call shapes; read the overloads before using them. Web tests are jsdom + Testing Library, setup in `apps/web/tests/setup.ts`, matched by the `tests/**/*.test.{ts,tsx}` glob in `apps/web/vitest.config.ts`.
 
@@ -589,11 +590,11 @@ Ordered by how likely they are to bite you.
 | 8 | **Notification delivery is `IN_APP` only.** `PUSH`/`EMAIL`/`SMS`/`TELEGRAM` enum values exist but are unimplemented, and there is **no scheduler/job** — generation is client-triggered via `POST /notifications/generate`, fired once per browser session. | `prisma/schema.prisma`, `app-shell.tsx:266-282` |
 | 9 | **Recurring tasks deferred to v1.1.** `TaskRecurrenceRule` / `RecurrenceFrequency` are commented out in the schema. | `prisma/schema.prisma:263-287` |
 | 10 | **Dead pagination types.** `PaginationInput`/`PaginationOutput` (page/limit/total) in shared are unused; the real convention is cursor-based. | `packages/shared/src/schemas/api.ts:39-48` |
-| 11 | **No CI.** There is no `.github/` directory at all; nothing runs on commit or PR. | repo root |
+| 11 | **RESOLVED.** `.github/workflows/ci.yml` runs two jobs on push/PR: `api` (postgres:16 service, `pnpm install --frozen-lockfile`, `vitest`, `tsc`) and `web` (vitest, `tsc`, `next lint`, `next build`). It is the only file in `.github/`. | `.github/workflows/ci.yml` |
 | 12 | **PARTIALLY RESOLVED 2026-09-27.** The npm `workspaces` array and the two stray lockfiles (`package-lock.json`, `apps/api/pnpm-lock.yaml` — the latter a 6-line empty stub) were removed. `pnpm-lock.yaml` is now the only lockfile and the root `start` script uses pnpm. | repo root |
 | 13 | **Three archived docs are stale and contradict reality.** `docs/audits/qa-final-report.md` claims ~95% done and lists 166 API tests; `docs/audits/frontend-progress.md` claims 40 web tests, 10 pages, and — wrongly — that the project "is not a git repo"; `docs/audits/phase-2-ai-connections-audit.md` says no test file exists. All three are frozen snapshots, each carrying an "Archived historical snapshot" banner. This file is authoritative. | `docs/audits/` |
 | 14 | **RESOLVED 2026-10-07 (Phase 1).** There is no `INTERNAL_ERROR_DEV` any more. 500s return a fixed `INTERNAL_ERROR` message in every environment; the stack goes to the log with a `req_*` request id. Prisma errors likewise return a fixed safe message (they used to echo the raw Prisma text, which quotes the failing source line and constraint fields). | `config/http.ts` |
-| 15 | **PARTIALLY RESOLVED.** Baseline migration `prisma/migrations/20260926004652_baseline/` created; `prisma migrate resolve --applied` run against both `studentos` and `studentos_test`. A second migration `20260926010000_add_ai_connections` exists. `prisma migrate status` reports "Database schema is up to date!". **Caveat: both migrations record `applied_steps_count = 0`** — they were baselined with `resolve --applied`, so **neither has ever been executed**. A fresh `prisma migrate deploy` would have failed: `add_ai_connections` used `DATETIME` (SQLite syntax; PostgreSQL rejects it with `42704 type "datetime" does not exist`) and declared a phantom `active_at` column absent from the schema. Fixed 2026-09-28 — `DATETIME` → `TIMESTAMP(3)`, `active_at` removed; verified by replaying the file against a throwaway schema on `studentos_test`. **`prisma/migrations/migration_lock.toml` now sits at the migrations root** (Prisma's expected location); two stray per-migration copies were deleted. Still not verified: a full `migrate deploy` from empty, since both DBs already carry these names in `_prisma_migrations`. New developers with an empty database: seed schema via `db push`, then `prisma migrate resolve --applied 20260926004652_baseline`. | `apps/api/prisma/migrations/` |
+| 15 | **RESOLVED 2026-10-07 (Phase 3).** The old baseline pair (`20260926004652_baseline`, `20260926010000_add_ai_connections`) was squashed in Phase 0 into `20261006000000_init_from_schema`, and Phase 3 added `20261007000000_add_owner_indexes`. Two real defects were fixed: (a) `init_from_schema/migration.sql` was **UTF-16LE**, so `migrate deploy` died on any fresh database with "string contains embedded null" — it is UTF-8 now and the recorded checksum was rebaselined with `migrate resolve --applied`; (b) `_prisma_migrations` on `studentos`/`studentos_test` still listed the deleted baseline names — cleaned up. **`prisma migrate deploy` now succeeds from a completely empty database** (created one, deployed both migrations, `migrate status` clean, dropped it) and is clean against both existing databases. Caveat that remains: `prisma migrate dev` cannot run on this machine — its shadow database is unreachable (P1001) — so migrations are hand-written and applied with `migrate deploy`. | `apps/api/prisma/migrations/` |
 | 16 | **API has no linter.** `tsc` under `strictNullChecks` is the only static gate; there is no ESLint config for `apps/api`. | `apps/api/package.json` |
 | 17 | **RESOLVED 2026-09-27.** The dead `./types/*`, `./utils/*`, `./constants/*` export entries were removed from `packages/shared/package.json`; only `./schemas/*` remains, matching the single real source folder. | `packages/shared/package.json` |
 | 18 | **`zod-express@0.0.8` is a declared but unused dependency** — `zod-validator-shim.ts` is hand-written over `zod.safeParse` and imports nothing from it. Removing the package would mean a lockfile update; until then, do not assume the shim delegates to it. | `apps/api/src/lib/zod-validator-shim.ts`, `apps/api/package.json` |
@@ -666,25 +667,36 @@ Ordered by how likely they are to bite you.
 
 There is **no roadmap file in the repository**, so this is inferred from the state of the tree, not from a plan document:
 
+**All three phases are complete as of 2026-10-07.**
+
 **Phase 1 (Database Foundation) is complete as of 2026-09-26** — Prisma migration history established, both dev and test databases verified, development seed run, test isolation confirmed.
 
-**Phase 2 is complete as of 2026-09-28** — AI Connections is implemented end to end (API module, encrypted credential storage, per-user provider resolution, the Settings-page UI) and the whole suite is green. The repository structure was standardized 2026-09-27 (see [§17](#17-latest-ai-work--change-log)). Phase 3 (Integration QA) **started 2026-09-29**; the first browser sweep closed gap #25 and found three further runtime defects (#26–#28). **The AI Agent Core was closed out 2026-09-30** — 50 tools, natural-reference resolution, and post-write verification (see [§17](#17-latest-ai-work--change-log)).
+**Phase 2 is complete as of 2026-10-07** — AI Connections end to end, the repository structure standardized, `docs/api/openapi.yaml` regenerated from the code, a cross-module contract-safety suite added, and production hardening (`x-powered-by`, `TRUST_PROXY`, `X-Request-Id`, error/timeout handlers) landed.
 
-**The AI chat UX was rebuilt and browser-verified 2026-10-01** — optimistic messages, modern grouped history with previews and rename, truthful generation/error states, and a fix for brand-new accounts being unable to start a conversation (see [§17](#17-latest-ai-work--change-log)).
+**Phase 3 (capstone) is complete as of 2026-10-07** — production config guardrails, the owner-index migration verified from an empty database, an IDOR sweep across every module, a live HTTP smoke run, and this file plus the README brought back in sync with reality.
 
-1. **Finish and commit the in-flight work** — DONE as of `079a453` (2026-09-28): the Academics, Exams, Notifications and Resources screens, the dashboard command center, `GET /courses/:id/summary`, AI Connections, and the new tests are all committed. The AI Agent Core and the chat UI followed in `af7aab6` (2026-09-30).
-2. **Verify the AI agent against the remaining real providers** (gap #29) — OpenRouter is now proven live (2026-09-30): 50 schemas accepted, `tool_calls` normalised, read tools answered from the real DB, write → confirm → verify passed 18/18. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only. The local OpenRouter key is out of credit, so only `:free` models are reachable, and the free model on this machine will not call a write tool at all (gap #33) — a paid key and a tool-calling-capable model are needed to finish this properly. Then continue Phase 3 (Integration QA) across the other 12 dashboard routes; only `/login` and `/settings` have been driven end to end. There is still no CI (gap #11), so nothing prevents a regression like the envelope bug from landing again.
-3. **Persist confirmations** (gap #30) — a pending proposal does not survive an API restart, and a multi-instance deployment would strand a student on a card they cannot confirm. Needs a table, and the migration history is baselined (gap #15).
-4. **Regenerate the OpenAPI spec** — DONE 2026-10-07 (Phase 2, gap #2): `docs/api/openapi.yaml` is YAML, covers every registered operation including `/ai-connections/*`, and documents 404-not-403 ownership masking.
-5. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
-6. **Implement or remove the parked features** — rate limiting, S3 uploads, notification delivery/notification scheduler, recurring tasks.
-7. **Add CI**, and fix the `.env.example` gitignore rule so a fresh clone can follow the README (gap #22).
-8. Decide the fate of the 3 unreferenced shared schemas (gap #21), and of `resolveUserConnection` — it is unreferenced and returns a **masked** credential string, so it cannot be used to actually call a provider. `getActiveUserConnection` is the real one.
-9. `AiProviderError` (502) is declared but never thrown — either wire provider HTTP failures to it or drop it.
+Remaining work is optional polish, not phase work:
+
+1. **Verify the AI agent against the remaining real providers** (gap #29) — OpenRouter is proven live (2026-09-30): 50 schemas accepted, `tool_calls` normalised, read tools answered from the real DB, write → confirm → verify passed 18/18. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only; the local OpenRouter key is out of credit, so only `:free` models are reachable and the free model will not call a write tool at all (gap #33).
+2. **Persist confirmations** (gap #30) — a pending proposal does not survive an API restart. Needs a table (`migrate deploy` is the way to add one here; `migrate dev` has no shadow database, see gap #15).
+3. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
+4. **Implement or remove the parked features** — S3 uploads, notification delivery/notification scheduler, recurring tasks.
+5. **Fix the `.env.example` gitignore rule** so a fresh clone can copy it (gap #22), and decide the fate of the 3 unreferenced shared schemas (gap #21) and of `resolveUserConnection` (masked credential — `getActiveUserConnection` is the real one).
+6. **`AiProviderError` (502)** is declared but never thrown — wire provider HTTP failures to it or drop it.
 
 ---
 
 ## 17. Latest AI work / change log
+
+### 2026-10-07 — Phase 3 (capstone): production safety, database safety, verification, docs.
+
+- **Production config guardrails** (`config/index.ts`): `validateConfig()` still fails fast on missing variables, and in `NODE_ENV=production` it now also rejects placeholder or short (<32 char) `JWT_SECRET`/`ENCRYPTION_KEY` and an unset/empty `CORS_ORIGINS` (the localhost default would silently block a real web origin). `productionConfigErrors()` is exported and pure, so it is unit-tested without booting anything — `tests/production-config.test.ts` (9 tests).
+- **Database safety.** 17 owner/hot-path indexes added to `schema.prisma` (owner+status/date on tasks, courses, goals, academic years, semesters; `userId` on refresh tokens; ordered children; sort keys on notes/resources/events/study sessions/grades/AI lists) and shipped as `prisma/migrations/20261007000000_add_owner_indexes/migration.sql`. Two real defects fixed along the way: `init_from_schema/migration.sql` was **UTF-16LE**, which made `migrate deploy` fail on any fresh database ("string contains embedded null"), and `_prisma_migrations` on both databases still listed the deleted Phase 0 baseline names. **Verified from an empty database**: create DB → `migrate deploy` → `migrate status` clean → drop; also clean on `studentos` and `studentos_test`. Gap #15 closed. `prisma migrate dev` still cannot run here (shadow DB unreachable, P1001), so migrations are hand-written and applied with `migrate deploy`.
+- **`tsx` promoted from devDependencies to dependencies** — `pnpm install --frozen-lockfile` still passes, and a production install can now actually run `start` (`tsx src/server.ts`). `tsc` remains a typecheck gate only; `dist/` is not runnable under plain node because of `moduleResolution: Bundler` + path aliases.
+- **IDOR sweep** (`tests/cross-user.test.ts`): Alice creates a note, event, goal, grade, resource, study session, AI conversation, study plan and connection; Bob's GET/PATCH/DELETE against every one returns **404 `NOT_FOUND`** (never 403), and Alice can still read all of them afterwards. Plus the existing per-module ownership tests.
+- **Live HTTP smoke** against a real server (`tsx src/server.ts`, port 3001): `/health` 200 with `database: connected`; register 201; duplicate register 409; login 200 with token; `GET /auth/me` 200; task create 201 → read 200 → patch 200 → delete 200 → read 404; anonymous read 401; validation failure 400 `VALIDATION_ERROR`; unknown path outside `/api/v1` 404 with the query string stripped; unknown path under `/api/v1` 401; `X-Request-Id` present, `X-Powered-By` absent; **rate limit 429 after 100 requests** with `Retry-After` and `X-RateLimit-*` headers.
+- **Docs**: README (test counts, migration/deploy instructions, production run-book, `TRUST_PROXY`/`ENCRYPTION_KEY`/32-char secrets, "stale OpenAPI" line gone) and this file (status table, git log, CI exists, migration history, test/build table, gaps #11 and #15, next-work list).
+- **Gate:** API 422 tests / 29 files, web 227 tests / 18 files, `tsc` both apps 0, `prisma validate` valid, `migrate status` up to date, `next lint` and root `pnpm lint` clean, `next build` 0, API `tsc -p tsconfig.json` 0, `pnpm install --frozen-lockfile` 0.
 
 ### 2026-10-07 — Phase 2: backend hardening for capstone review (docs, tests, production readiness, contract safety).
 
@@ -848,8 +860,8 @@ The four `tsc` errors were real, not cosmetic: the AI runtime could never have l
 
 Could not be confirmed from the repository, so treat as unknown rather than assuming:
 
-- **Product roadmap / phase definitions.** "Phase 1/2/3" appear only in `INSTRUCTIONS_FOR_AGENT.md` and the archived `docs/audits/qa-final-report.md` prose. There is no authoritative phase document; `docs/` now holds only the archived audits and the stale spec. The phase labels in this file are inferred from the code, not quoted from a spec.
-- **Deployment / infrastructure.** No Dockerfiles, no compose files, no CI config, no hosting config. How this is intended to be deployed and run in production is undocumented.
+- **Product roadmap / phase definitions.** "Phase 1/2/3" appear only in `INSTRUCTIONS_FOR_AGENT.md` and the archived `docs/audits/qa-final-report.md` prose. There is no authoritative phase document; `docs/` holds the current OpenAPI contract plus the archived audits. The phase labels in this file are inferred from the code, not quoted from a spec.
+- **Deployment / infrastructure.** No Dockerfiles, no compose files, no hosting config — only `.github/workflows/ci.yml`. How this is intended to be deployed beyond the README run-book is undocumented.
 - **Intended mobile client.** The OpenAPI description mentions "web and mobile clients", but only a web client exists in this monorepo. No mobile code, no API versioning/deprecation policy.
 - **Seed credentials beyond the demo user.** `prisma/seed.ts` creates `demo@studentos.dev` with password `StudentPass123!` (Alex Rivera) and at least one further user (Bob), but the full seeded roster and its credentials were not enumerated.
 - **Database contents of the local dev database** (`studentos` on port 5432) and whether the local PostgreSQL instance is meant to be shared or per-developer.
