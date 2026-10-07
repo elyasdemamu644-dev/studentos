@@ -75,6 +75,8 @@ model RefreshToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
 
+  // Logout and refresh-token cleanup look tokens up by owner.
+  @@index([userId])
   @@map("refresh_tokens")
 }
 
@@ -108,6 +110,7 @@ model AcademicYear {
 
   semesters Semester[]
 
+  @@index([userId, startDate])
   @@map("academic_years")
 }
 
@@ -132,6 +135,7 @@ model Semester {
   user    User     @relation("SemestersByUser", fields: [userId], references: [id], onDelete: Cascade)
   userId  String
 
+  @@index([userId, startDate])
   @@map("semesters")
 }
 
@@ -169,6 +173,7 @@ model Course {
   events        Event[]
   grades        Grade[]
 
+  @@index([userId, status])
   @@map("courses")
 }
 
@@ -208,6 +213,11 @@ model Task {
   // Tags (simple many-to-many via join, or use a tags array column if MVP wants simplicity)
   taskTags TaskTag[]
 
+  // Owner-scoped access paths. Every task query filters by userId first, then
+  // narrows by status (dashboard totals, filters) or sorts by dueDate
+  // (upcoming / overdue) — without these the whole table is scanned per user.
+  @@index([userId, status])
+  @@index([userId, dueDate])
   @@map("tasks")
 }
 
@@ -246,6 +256,7 @@ model TaskSubtask {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  @@index([taskId, position])
   @@map("task_subtasks")
 }
 
@@ -302,6 +313,7 @@ model Note {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([userId, updatedAt])
   @@map("notes")
 }
 
@@ -328,6 +340,7 @@ model Resource {
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
+  @@index([userId, createdAt])
   @@map("resources")
 }
 
@@ -365,6 +378,9 @@ model Event {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // Calendar reads are always "this user's events, startAt ascending" (and
+  // often a startAt range filter), which this index serves directly.
+  @@index([userId, startAt])
   @@map("events")
 }
 
@@ -398,6 +414,8 @@ model StudySession {
   focusRating     Int? // 1-5 stars
   createdAt       DateTime  @default(now())
 
+  // Study history reads filter by owner and sort by startedAt (newest first).
+  @@index([userId, startedAt])
   @@map("study_sessions")
 }
 
@@ -419,6 +437,7 @@ model Goal {
 
   milestones GoalMilestone[]
 
+  @@index([userId, status])
   @@map("goals")
 }
 
@@ -439,6 +458,7 @@ model GoalMilestone {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
+  @@index([goalId, position])
   @@map("goal_milestones")
 }
 
@@ -467,6 +487,8 @@ model Grade {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
+  // Gradebook reads filter by owner and sort by recordedAt (newest first).
+  @@index([userId, recordedAt])
   @@map("grades")
 }
 
@@ -545,6 +567,7 @@ model AiConversation {
 
   messages AiMessage[]
 
+  @@index([userId, updatedAt])
   @@map("ai_conversations")
 }
 
@@ -616,6 +639,7 @@ model AiStudyPlan {
 
   entries AiStudyPlanEntry[]
 
+  @@index([userId, updatedAt])
   @@map("ai_study_plans")
 }
 

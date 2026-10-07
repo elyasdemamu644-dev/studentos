@@ -87,7 +87,10 @@ export const config = {
   s3Bucket: process.env.S3_BUCKET ?? "studentos",
   s3UsePathStyle: process.env.S3_USE_PATH_STYLE === "true",
 
-  // CORS — origins allowed to hit the API (web app + mobile)
+  // CORS — origins allowed to hit the API (web app + mobile).
+  // `corsOriginsExplicit` records whether the operator actually set the
+  // variable, so production validation can refuse the localhost default.
+  corsOriginsExplicit: Boolean((process.env.CORS_ORIGINS ?? "").trim()),
   corsOrigins: (process.env.CORS_ORIGINS ?? "http://localhost:3000")
     .split(",")
     .map((o) => o.trim())
@@ -108,6 +111,71 @@ export const config = {
   appName: "StudentOS",
   appVersion: process.env.npm_package_version ?? "0.1.0",
 } as const;
+
+// ─────────────────────────────────────────────
+// Production configuration quality
+// ─────────────────────────────────────────────
+//
+// Missing variables are caught above; these are the values that *are* present
+// but would be unsafe to boot a real deployment with. Kept separate from
+// `validateConfig` so both can be unit-tested without touching process.env.
+
+/** Minimum length accepted for JWT_SECRET / ENCRYPTION_KEY in production. */
+export const MIN_PRODUCTION_SECRET_LENGTH = 32;
+
+/** Secrets that ship in `.env.example` or are common defaults — never valid in production. */
+const PLACEHOLDER_SECRETS = new Set([
+  "dev-only-secret-change-in-production",
+  "change-in-production",
+  "changeme",
+  "change-me",
+  "secret",
+  "test-secret",
+  "studentos",
+  "password",
+]);
+
+export interface ProductionConfigInput {
+  nodeEnv: string;
+  jwtSecret?: string;
+  encryptionKey?: string;
+  corsOriginsExplicit?: boolean;
+  corsOrigins?: readonly string[];
+}
+
+/** Returns one message per production misconfiguration; empty outside production. */
+export function productionConfigErrors(input: ProductionConfigInput): string[] {
+  if (input.nodeEnv !== "production") return [];
+
+  const errors: string[] = [];
+
+  const checkSecret = (name: string, value: string | undefined): void => {
+    // Absence is already reported by validateConfig as a missing variable.
+    if (!value) return;
+    const normalised = value.trim().toLowerCase();
+    if (PLACEHOLDER_SECRETS.has(normalised) || normalised.includes("change-in-production")) {
+      errors.push(`${name} is a placeholder value`);
+    } else if (value.trim().length < MIN_PRODUCTION_SECRET_LENGTH) {
+      errors.push(
+        `${name} must be at least ${MIN_PRODUCTION_SECRET_LENGTH} characters in production`,
+      );
+    }
+  };
+
+  checkSecret("JWT_SECRET", input.jwtSecret);
+  checkSecret("ENCRYPTION_KEY", input.encryptionKey);
+
+  // The web app is a separate origin (no proxy exists in next.config), so an
+  // unset CORS_ORIGINS silently leaves it on the localhost default and every
+  // deployed browser request fails preflight.
+  if (!input.corsOriginsExplicit) {
+    errors.push("CORS_ORIGINS must be set explicitly in production");
+  } else if ((input.corsOrigins ?? []).length === 0) {
+    errors.push("CORS_ORIGINS must contain at least one origin");
+  }
+
+  return errors;
+}
 
 // Validate required settings on boot.
 export function validateConfig(): void {
@@ -153,6 +221,18 @@ export function validateConfig(): void {
       `Missing required environment variables: ${missing.join(", ")}. ` +
         `Copy .env.example to .env and fill in the values.`,
     );
+  }
+
+  const unsafe = productionConfigErrors({
+    nodeEnv: config.nodeEnv,
+    jwtSecret: config.jwtSecret,
+    encryptionKey: config.encryptionKey,
+    corsOriginsExplicit: config.corsOriginsExplicit,
+    corsOrigins: config.corsOrigins,
+  });
+
+  if (unsafe.length > 0) {
+    throw new Error(`Unsafe production configuration: ${unsafe.join(", ")}.`);
   }
 }
 
