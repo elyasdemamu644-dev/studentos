@@ -4,7 +4,11 @@
 //   { success: true, data: <T>, meta?: { ... } }
 //
 // Error:
-//   { success: false, error: { code: string, message: string, details?: Record<string, unknown> } }
+//   { success: false, error: { code: string, message: string, details?: unknown } }
+//
+// `details` is always emitted by the API (never absent): a list of field
+// problems for VALIDATION_ERROR, an object for errors that carry context,
+// and [] when there is nothing further to say.
 
 export type ApiSuccess<T = unknown> = {
   success: true;
@@ -17,7 +21,7 @@ export type ApiError = {
   error: {
     code: string;
     message: string;
-    details?: Record<string, unknown>;
+    details?: unknown;
   };
 };
 

@@ -35,21 +35,10 @@ export interface CurrentUser {
   /** The user's email address — lowercase, as stored in the database. */
   readonly email: string;
 
-  /** Display name derived from `firstName` + `lastName`. */
-  readonly name: string;
-
-  /** Database role: STUDENT | INSTRUCTOR | ADMIN.
+  /** Timestamp when the access token was issued.
    *
-   * Every endpoint should check this if the operation is role-gated.
-   */
-  readonly role: "STUDENT" | "INSTRUCTOR" | "ADMIN";
-
-  /** Current student residence status (on-campus / off-campus). */
-  readonly residency: "ON_CAMPUS" | "OFF_CAMPUS";
-
-  /** Timestamp when the user's profile was last updated.
-   *
-   * Useful for cache busting in long-lived sessions.
+   * Use it for cache busting in long-lived sessions; profile changes come
+   * from `GET /auth/me`, not from the token.
    */
   readonly updatedAt: Date;
 }
@@ -58,12 +47,13 @@ export interface CurrentUser {
 // TokenPayload
 // ─────────────────────────────────────────────
 
+/** The claims actually carried by an access token. Anything not listed here
+ *  (role, residency, name) is NOT in the token — read it from the database
+ *  instead of pretending it exists. */
 export interface TokenPayload {
   readonly sub: string; // user id
   readonly email: string;
-  readonly role: "STUDENT" | "INSTRUCTOR" | "ADMIN";
-  readonly residency: "ON_CAMPUS" | "OFF_CAMPUS";
-  readonly name: string;
+  readonly type: "access" | "refresh";
   readonly iat: number;
   readonly exp: number;
 }
@@ -136,6 +126,18 @@ export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[keyof typeof AUTH_ERROR_CO
  *  router.get("/", authenticateOptional, handler);
  *  ```
  */
+/**
+ * Every 401 leaves through here so the envelope matches the rest of the API:
+ * `{ success: false, error: { code, message, details: [] } }`.
+ */
+function sendUnauthorized(
+  res: Response,
+  code: AuthErrorCode,
+  message: string,
+): void {
+  res.status(401).json({ success: false, error: { code, message, details: [] } });
+}
+
 export async function authenticate(
   req: Request,
   res: Response,
@@ -144,26 +146,14 @@ export async function authenticate(
   const header = req.headers.authorization;
 
   if (!header) {
-    res.status(401).json({
-      success: false,
-      error: {
-        code: AUTH_ERROR_CODES.INVALID_TOKEN,
-        message: "Missing Authorization header",
-      },
-    });
+    sendUnauthorized(res, AUTH_ERROR_CODES.INVALID_TOKEN, "Missing Authorization header");
     return;
   }
 
   const [scheme, token] = header.split(" ");
 
   if (scheme !== "Bearer" || !token) {
-    res.status(401).json({
-      success: false,
-      error: {
-        code: AUTH_ERROR_CODES.INVALID_TOKEN,
-        message: "Invalid Authorization header format",
-      },
-    });
+    sendUnauthorized(res, AUTH_ERROR_CODES.INVALID_TOKEN, "Invalid Authorization header format");
     return;
   }
 
@@ -173,9 +163,6 @@ export async function authenticate(
     const currentUser: CurrentUser = {
       id: payload.sub,
       email: payload.email,
-      name: payload.name,
-      role: payload.role,
-      residency: payload.residency,
       updatedAt: new Date(payload.iat * 1000),
     };
 
@@ -193,23 +180,11 @@ export async function authenticate(
         error.message.includes("expired"));
 
     if (isExpired) {
-      res.status(401).json({
-        success: false,
-        error: {
-          code: AUTH_ERROR_CODES.TOKEN_EXPIRED,
-          message: "Access token expired",
-        },
-      });
+      sendUnauthorized(res, AUTH_ERROR_CODES.TOKEN_EXPIRED, "Access token expired");
       return;
     }
 
-    res.status(401).json({
-      success: false,
-      error: {
-        code: AUTH_ERROR_CODES.INVALID_TOKEN,
-        message: "Invalid access token",
-      },
-    });
+    sendUnauthorized(res, AUTH_ERROR_CODES.INVALID_TOKEN, "Invalid access token");
     return;
   }
 }
@@ -249,9 +224,6 @@ export async function authenticateOptional(
     const currentUser: CurrentUser = {
       id: payload.sub,
       email: payload.email,
-      name: payload.name,
-      role: payload.role,
-      residency: payload.residency,
       updatedAt: new Date(payload.iat * 1000),
     };
 

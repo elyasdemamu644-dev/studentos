@@ -1,32 +1,16 @@
 import { app } from "@/app";
 import { config, validateConfig } from "@/config";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // ─────────────────────────────────────────────
-// Database client (singleton)
+// Database client
 // ─────────────────────────────────────────────
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-/** Single PrismaClient instance shared across the app lifecycle. */
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: config.isDevelopment
-      ? ["query", "error", "warn"]
-      : ["error"],
-    datasources: {
-      db: {
-        url: config.databaseUrl,
-      },
-    },
-  });
-
-if (config.isDevelopment) globalForPrisma.prisma = prisma;
+//
+// The single PrismaClient singleton lives in `@/lib/prisma` and is shared by
+// every service, route and test helper. `server.ts` only owns its lifecycle:
+// connect on boot, disconnect on shutdown.
 
 // ─────────────────────────────────────────────
 // Startup

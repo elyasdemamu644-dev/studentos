@@ -18,8 +18,16 @@ const router = Router();
 // All routes require authentication
 router.use(authenticate);
 
-// Type helper so req.params are always strings
-const params = (req: AuthRequest) => req.params;
+const idParam = { id: z.string().min(1) };
+
+/**
+ * Query validator for `GET /`. `limit` is coerced (query strings are always
+ * strings) and bounded so a client cannot ask for an unbounded page.
+ */
+const listQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().min(1).max(64).optional(),
+});
 
 const providerEnum = z.enum(["openai","gemini","anthropic","openrouter","ollama","custom"]);
 
@@ -76,16 +84,14 @@ router.post(
 
 router.get(
   "/",
+  zValidator("query", listQuerySchema),
   async (req: AuthRequest, res, next) => {
     try {
-      const { limit = "50", cursor } = req.query as {
-        limit?: string;
-        cursor?: string;
-      };
+      const { limit, cursor } = req.query as unknown as z.infer<typeof listQuerySchema>;
       const page = await aiConnectionsService.listConnections(
         req.currentUser.id,
-        parseInt(limit, 10) || 50,
-        cursor || undefined
+        limit,
+        cursor
       );
       res.json({ success: true, data: page });
     } catch (error) {
@@ -119,6 +125,7 @@ router.get(
 
 router.get(
   "/:id",
+  zValidator("params", idParam),
   async (req: AuthRequest, res, next) => {
     try {
       const conn = await aiConnectionsService.getConnection(
@@ -136,6 +143,7 @@ router.get(
 
 router.patch(
   "/:id",
+  zValidator("params", idParam),
   zValidator("body", z.object({
     provider: z.enum(["openai","gemini","anthropic","openrouter","ollama","custom"]).optional(),
     model: z.string().trim().max(256).optional().nullable(),
@@ -162,6 +170,7 @@ router.patch(
 
 router.delete(
   "/:id",
+  zValidator("params", idParam),
   async (req: AuthRequest, res, next) => {
     try {
       await aiConnectionsService.deleteConnection(
@@ -197,6 +206,7 @@ router.post(
 
 router.post(
   "/:id/test",
+  zValidator("params", idParam),
   zValidator("body", z.object({
     provider: z.enum(["openai","gemini","anthropic","openrouter","ollama","custom"]).optional(),
     model: z.string().trim().max(256).optional().nullable(),
@@ -221,6 +231,7 @@ router.post(
 
 router.post(
   "/:id/activate",
+  zValidator("params", idParam),
   async (req: AuthRequest, res, next) => {
     try {
       const conn = await aiConnectionsService.setActiveConnection(

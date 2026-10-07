@@ -29,7 +29,6 @@ export const config = {
 
   // Database — must be set (Prisma connection string)
   databaseUrl: process.env.DATABASE_URL,
-  databaseUrlWorkers: process.env.DATABASE_URL,
 
   // Auth
   jwtSecret: process.env.JWT_SECRET,
@@ -95,7 +94,7 @@ export const config = {
 
   // App metadata
   appName: "StudentOS",
-  appVersion: process.env.npm_package_version ?? "1.0.0",
+  appVersion: process.env.npm_package_version ?? "0.1.0",
 } as const;
 
 // Validate required settings on boot.
@@ -145,7 +144,3 @@ export function validateConfig(): void {
   }
 }
 
-// Resolve a nice import path for diagnostics ( ESMCompat helper ).
-export function resolveTsPath(relativePath: string): string {
-  return path.resolve(__dirname, relativePath);
-}

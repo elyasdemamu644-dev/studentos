@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { prisma } from "@/lib/prisma";
+import { config } from "@/config";
 
 /**
  * Health check endpoint — no auth, always available.
  *
  * Returns service metadata and the database connection status.
  * Used by uptime monitors and load balancer health checks.
+ *
+ * Deliberately NOT rate limited — see app.ts, where the limiter is mounted
+ * on `/api/v1` only so orchestrators can still probe a throttled service.
  */
 export const healthRouter = Router();
 
@@ -25,9 +29,9 @@ healthRouter.get("/", async (_req, res) => {
     success: status === "ok",
     data: {
       status,
-      service: "StudentOS API",
-      version: process.env.npm_package_version ?? "0.1.0",
-      environment: process.env.NODE_ENV ?? "development",
+      service: `${config.appName} API`,
+      version: config.appVersion,
+      environment: config.nodeEnv,
       database,
       timestamp: new Date().toISOString(),
     },

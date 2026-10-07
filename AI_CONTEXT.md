@@ -26,7 +26,7 @@ Read in this order, and stop as soon as you have what you need:
 | Add/change an API endpoint | `src/modules/<domain>/{routes,service,schema}.ts` | `src/routes/index.ts` (only if mounting), `tests/<domain>.test.ts` |
 | Change list pagination / response envelope | `src/modules/<domain>/service.ts` | `packages/shared/src/schemas/api.ts` |
 | Change error codes / status mapping | `src/config/errors.ts`, `src/config/http.ts` | `packages/shared/src/schemas/api.ts` (`ERROR_CODES`) |
-| Change auth / tokens / login | `src/modules/auth/routes.ts`, `src/modules/auth/middleware.ts` | `src/lib/jwt.ts` (see [Known issue #4](#known-gaps--issues)) |
+| Change auth / tokens / login | `src/modules/auth/routes.ts`, `src/modules/auth/middleware.ts` | `src/lib/jwt.ts` — the single JWT implementation (signing *and* verification) |
 | Change DB schema | `prisma/schema.prisma` | `prisma/seed.ts`, `tests/helpers.ts` (table list) |
 | Add a web page | `src/app/(dashboard)/<name>/page.tsx`, `src/components/layout/app-shell.tsx` | `src/features/<domain>/` |
 | Change HTTP transport / token refresh | `apps/web/src/lib/api/client.ts` | `apps/web/src/lib/api/auth-session.ts`, `apps/web/src/lib/api/errors.ts` |
@@ -145,10 +145,11 @@ There is **no** `.github/`, no `apps/mobile/`, no `packages/config/`, no `packag
 src/server.ts    bootstrap: validateConfig() -> prisma.$connect() -> app.listen(port)
                  graceful shutdown on SIGTERM/SIGINT (10s force-exit); only runs when executed directly
 src/app.ts       express app: helmet -> cors -> compression -> json(1mb) -> urlencoded
-                 -> requestLogger -> /health -> /api/v1 -> notFoundHandler -> globalErrorHandler
+                 -> requestLogger -> /health -> [apiRateLimiter] /api/v1 -> notFoundHandler -> globalErrorHandler
+                 (the limiter is mounted on /api/v1 only, so /health stays probeable; it no-ops under NODE_ENV=test)
 src/routes/index.ts   the apiRouter: mounts every domain router under /api/v1 (single aggregator file)
 src/config/      index.ts (env + validateConfig), errors.ts (ApiError), http.ts (logging + handlers)
-src/lib/         prisma.ts, jwt.ts, zod-validator-shim.ts, encryption.ts   (cross-cutting infra only)
+src/lib/         prisma.ts, jwt.ts, zod-validator-shim.ts, rate-limit.ts, encryption.ts   (cross-cutting infra only)
 src/modules/<domain>/  routes.ts + service.ts + schema.ts (+ auth: middleware.ts; ai: context.ts, provider.ts)
 ```
 
@@ -160,9 +161,9 @@ There is deliberately **no** `src/middleware/`, `src/utils/` or `src/types/` —
 
 **Mounting quirk:** `subtasks` and `task-tags` are mounted at `/` (not `/tasks`) because their routers declare the full `/tasks/:taskId/...` paths themselves. Do not "fix" this.
 
-**Validation:** `zValidator` is imported from `@/lib/zod-validator-shim` (a shim over `zod-express`, which is unmaintained). Prefer the shim; do not swap in `express-zod-api` casually.
+**Validation:** `zValidator` is imported from `@/lib/zod-validator-shim` — a small hand-written wrapper around `zod.safeParse` (it does **not** use the `zod-express` package, which is a declared but unused dependency). It accepts `body` / `query` / `params` / `headers`, writes parsed data back onto the request, and passes a raw `ZodError` to `next()` so `globalErrorHandler` answers 400. Prefer the shim; do not swap in `express-zod-api` casually.
 
-**Rate limiting is NOT implemented.** `config.rateLimitMaxRequests` / `rateLimitWindowSeconds` are parsed from env but no rate-limit middleware is mounted in `app.ts`. See [Known issue #5](#known-gaps--issues).
+**Rate limiting is implemented** in `src/lib/rate-limit.ts`: a dependency-free fixed-window limiter keyed on client IP, mounted in `app.ts` on `/api/v1` only (so `/health` stays reachable). Budget comes from `RATE_LIMIT_MAX_REQUESTS` (default 100) per `RATE_LIMIT_WINDOW_SECONDS` (default 60). It **no-ops when `config.isTest`** — pass `{ enabled: true }` to exercise it, as `tests/error-envelope.test.ts` does. Rejections answer 429 `RATE_LIMITED` through the standard envelope with `Retry-After` and `X-RateLimit-*` headers. See gap #5.
 
 ### API conventions (enforced by tests)
 
@@ -172,12 +173,12 @@ There is deliberately **no** `src/middleware/`, `src/utils/` or `src/types/` —
 | Public routes | `/health`, and `/api/v1/auth/{register,login,refresh,logout}` |
 | Everything else | Requires `Authorization: Bearer <access token>` |
 | Success envelope | `{ success: true, data: T }` |
-| Error envelope | `{ success: false, error: { code, message } }` |
+| Error envelope | `{ success: false, error: { code, message, details } }` — `details` is **always present**: a list of `{ path, message, code }` for `VALIDATION_ERROR`, an object for errors that carry context, `[]` otherwise |
 | Pagination | **Cursor-based.** Query: `limit` (int 1–100, default **50**) + `cursor` (id). Response: `{ items, hasMore, nextCursor }`. Implemented via `take: limit + 1` then slice. |
 | Cross-user access | Returns **404**, never 403 — ownership is part of the query filter, so other users' rows simply do not match. |
 | Duplicate create | 409 `CONFLICT` / `DUPLICATE_VALUE` |
 | Validation failure | 400 `VALIDATION_ERROR` |
-| Server error | 500 `INTERNAL_ERROR` in production; `INTERNAL_ERROR_DEV` (leaks the raw message) otherwise |
+| Server error | 500 `INTERNAL_ERROR` with a fixed message in **every** environment; the stack and the underlying error go to the server log only |
 
 **Dead code warning:** `packages/shared/src/schemas/api.ts` defines `PaginationInput`/`PaginationOutput` on a `page`/`limit`/`total` model. **Nothing uses them.** The real convention is the cursor scheme above. Do not build on the page-based types.
 
@@ -185,15 +186,18 @@ There is deliberately **no** `src/middleware/`, `src/utils/` or `src/types/` —
 
 | Source | HTTP | Code |
 |---|---|---|
-| `ApiError` | as constructed | as constructed |
-| `ZodError` | 400 | `VALIDATION_ERROR` |
-| Prisma `P2002` | 400 | `DUPLICATE_VALUE` |
-| Prisma `P2025` | 400 | `NOT_FOUND` |
+| body-parser `entity.parse.failed` | 400 | `INVALID_JSON` |
+| body-parser `entity.too.large` | 400 | `PAYLOAD_TOO_LARGE` |
+| `ApiError` (incl. 429 from the rate limiter) | as constructed | as constructed |
+| `ZodError` | 400 | `VALIDATION_ERROR` (carries the per-field `details` list) |
+| Prisma `P2002` | **409** | `CONFLICT` |
+| Prisma `P2025` | **404** | `NOT_FOUND` |
+| Prisma `P2023` | 400 | `VALIDATION_ERROR` |
 | Prisma `P2003`/`P2007` | 400 | `FOREIGN_KEY_VIOLATION` |
 | Prisma other `P2xxx` | 400 | `DATABASE_ERROR` |
-| anything else | 500 | `INTERNAL_ERROR` / `INTERNAL_ERROR_DEV` |
+| anything else | 500 | `INTERNAL_ERROR` |
 
-Note Prisma errors are flattened to **400**, including `P2025` (not found). Standard codes live in `ERROR_CODES` in `packages/shared/src/schemas/api.ts`; auth-specific codes (`AUTH_*`) are defined in `src/modules/auth/middleware.ts`.
+Every branch logs the underlying error with a `req_*` request id and returns a **fixed, safe message**. Raw Prisma text quotes column names, constraint names, submitted values and the failing source line, so it never reaches a client in any environment; the same applies to 500s (there is no `INTERNAL_ERROR_DEV` any more). Services still pre-check ownership and existence and throw typed `NotFoundError` / `ConflictError` — the Prisma mapping is only the backstop for races and unguarded constraints. Standard codes live in `ERROR_CODES` in `packages/shared/src/schemas/api.ts`; auth-specific codes (`AUTH_*`) are defined in `src/modules/auth/middleware.ts`.
 
 ### Route surface
 
@@ -306,7 +310,7 @@ Seed: `apps/api/prisma/seed.ts` (`pnpm --filter @studentos/api db:seed`). It `de
 | Body limit | 1 MB JSON / urlencoded |
 | Password storage on web | `localStorage` — **not** httpOnly cookies |
 
-**Two competing JWT implementations exist.** `src/lib/jwt.ts` is config-driven (access TTL from `config.jwtAccessExpiresInSeconds`, default 900 s) and is what `middleware.ts` verifies with. `src/modules/auth/routes.ts` defines its own local `signAccessToken` / `signRefreshToken` / `verifyToken`, and *those* are what actually mint tokens at register/login/refresh. Consequences: the real access-token TTL is **1 hour**, not the configured 15 minutes, and `config.jwtAccessExpiresInSeconds` is effectively dead. See gap #4.
+**One JWT implementation.** `src/lib/jwt.ts` is the only place tokens are minted or verified: `signAccessToken` / `signRefreshToken` / `verifyJwt`, all driven by `config.jwtAccessExpiresInSeconds` (default 900 s) and `config.jwtRefreshExpiresInSeconds` (default 604800 s), with `iss` / `aud` (`"studentos"`) enforced on verify and a `type` claim distinguishing access from refresh. `auth/routes.ts` and `auth/middleware.ts` both import it. Refresh also checks the stored `RefreshToken.expiresAt` row, not just the JWT, so a lapsed or revoked session cannot be renewed. Access tokens carry only `{ sub, email, type, iat, exp }` — no `role`, `residency` or `name` (see gap #3).
 
 ---
 
@@ -576,10 +580,10 @@ Ordered by how likely they are to bite you.
 | 1 | **RESOLVED.** The working tree was uncommitted for most of this project's history; `af7aab6` committed the AI Agent Core, verifier, resolver and chat UI, and `git status` is now clean. The underlying risk was never the commit itself but the gitignored-file gaps below (#22, #26, #28), which a fresh clone still reproduces. | `git status` |
 | 1a | **Never run `next build` while `next dev` is running** (hit live on 2026-10-01). `build` overwrites `apps/web/.next` under the running dev server, which then serves HTML whose client chunks 404: the page paints, but React never hydrates, so every click, keystroke and route change silently does nothing. Symptom is either `404 | This page could not be found.` or a fully rendered form that submits nothing. Stop the dev server first, or delete `apps/web/.next` and restart. | `apps/web/.next` |
 | 1b | **The configured free OpenRouter model is rate-limited upstream (HTTP 429).** A live reply depends on the provider's shared pool at that moment. The UI degrades correctly — the user's message stays, an error banner and Retry appear — so a 429 is not an application bug. | live 2026-10-01 |
-| 2 | **`openapi.yaml` is JSON, not YAML, and badly stale.** Despite the extension it is a JSON OpenAPI 3.1.1 doc covering only **12 paths** (auth, academic-years, semesters, courses, tasks). Missing notes, resources, events, study-sessions, goals, grades, notifications, settings, ai, ai-connections, subtasks, task-tags, `/courses/{id}/summary`, `/notifications/generate`, `/notifications/read-all`, and the `instructor` / `estimatedMinutes` / `completedAt` fields. It also documents cross-user access as `FORBIDDEN` while the code returns **404**. | `docs/api/openapi.yaml` |
-| 3 | **`CurrentUser.role`, `.residency`, `.name` are always `undefined`.** The types and the middleware require them, but the access token only carries `{sub,email,type}` and the `User` model has no `role`/`residency` column. Only `id` and `email` are real. | `auth/routes.ts:25`, `auth/middleware.ts:31-55`, `prisma/schema.prisma` |
-| 4 | **Duplicate JWT implementations with divergent TTLs.** `auth/routes.ts` hardcodes `1h`; `config.jwtAccessExpiresInSeconds` (default 900) is ignored on the real login path. `lib/jwt.ts` is a second, config-driven implementation used only for verification, and it skips issuer/audience checks. | `auth/routes.ts:17-55` vs `lib/jwt.ts` |
-| 5 | **Rate limiting is configured but not implemented.** Env keys parse into `config`, no middleware is mounted. | `config/index.ts:66-67` vs `app.ts` |
+| 2 | **`openapi.yaml` is JSON, not YAML, and badly stale.** Despite the extension it is a JSON OpenAPI 3.1.1 doc covering only **12 paths** (auth, academic-years, semesters, courses, tasks). Missing notes, resources, events, study-sessions, goals, grades, notifications, settings, ai, ai-connections, subtasks, task-tags, `/courses/{id}/summary`, `/notifications/generate`, `/notifications/read-all`, and the `instructor` / `estimatedMinutes` / `completedAt` fields. **Fixed 2026-10-07:** the description no longer advertises the unsupported `x-access-token` header, it now documents the `details` field on the error envelope, and it states that cross-user access returns 404 (it previously claimed `FORBIDDEN`). | `docs/api/openapi.yaml` |
+| 3 | **RESOLVED 2026-10-07 (Phase 1).** `CurrentUser` and `TokenPayload` no longer declare `role`, `residency` or `name`. The access token carries only `{ sub, email, type, iat, exp }`, and nothing read the phantom fields. Profile data still comes from `GET /auth/me`. | `auth/middleware.ts` |
+| 4 | **RESOLVED 2026-10-07 (Phase 1).** `auth/routes.ts` no longer mints tokens itself — `signAccessToken` / `signRefreshToken` / `verifyJwt` live only in `lib/jwt.ts`, so the login path honours `config.jwtAccessExpiresInSeconds` (900 s default) instead of a hardcoded `1h`, and verify enforces `iss` / `aud`. Refresh additionally rejects a stored `RefreshToken.expiresAt` that has lapsed. | `lib/jwt.ts`, `auth/routes.ts` |
+| 5 | **RESOLVED 2026-10-07 (Phase 1).** `src/lib/rate-limit.ts` provides a dependency-free fixed-window limiter mounted on `/api/v1` in `app.ts`; budget from `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS`, disabled under `NODE_ENV=test`, rejections answer 429 `RATE_LIMITED` with `Retry-After`. Pinned by `tests/error-envelope.test.ts`. | `src/lib/rate-limit.ts`, `app.ts` |
 | 6 | **Web stores tokens in `localStorage`**, not httpOnly cookies — any XSS yields a full session. Deliberate (survives reload) but worth knowing. | `apps/web/src/lib/api/auth-session.ts` |
 | 7 | **S3 / `UPLOAD` resources not implemented.** The enum, the DB columns and the `S3_*` config exist, but `storageType: "UPLOAD"` on create/update returns 400 `UPLOAD_STORAGE_UNAVAILABLE`. URL resources only. | `prisma/schema.prisma`, `config/index.ts:51-57` |
 | 8 | **Notification delivery is `IN_APP` only.** `PUSH`/`EMAIL`/`SMS`/`TELEGRAM` enum values exist but are unimplemented, and there is **no scheduler/job** — generation is client-triggered via `POST /notifications/generate`, fired once per browser session. | `prisma/schema.prisma`, `app-shell.tsx:266-282` |
@@ -588,15 +592,15 @@ Ordered by how likely they are to bite you.
 | 11 | **No CI.** There is no `.github/` directory at all; nothing runs on commit or PR. | repo root |
 | 12 | **PARTIALLY RESOLVED 2026-09-27.** The npm `workspaces` array and the two stray lockfiles (`package-lock.json`, `apps/api/pnpm-lock.yaml` — the latter a 6-line empty stub) were removed. `pnpm-lock.yaml` is now the only lockfile and the root `start` script uses pnpm. | repo root |
 | 13 | **Three archived docs are stale and contradict reality.** `docs/audits/qa-final-report.md` claims ~95% done and lists 166 API tests; `docs/audits/frontend-progress.md` claims 40 web tests, 10 pages, and — wrongly — that the project "is not a git repo"; `docs/audits/phase-2-ai-connections-audit.md` says no test file exists. All three are frozen snapshots, each carrying an "Archived historical snapshot" banner. This file is authoritative. | `docs/audits/` |
-| 14 | **500 responses leak internals outside production** (`INTERNAL_ERROR_DEV` returns the raw error message). | `config/http.ts:125-131` |
+| 14 | **RESOLVED 2026-10-07 (Phase 1).** There is no `INTERNAL_ERROR_DEV` any more. 500s return a fixed `INTERNAL_ERROR` message in every environment; the stack goes to the log with a `req_*` request id. Prisma errors likewise return a fixed safe message (they used to echo the raw Prisma text, which quotes the failing source line and constraint fields). | `config/http.ts` |
 | 15 | **PARTIALLY RESOLVED.** Baseline migration `prisma/migrations/20260926004652_baseline/` created; `prisma migrate resolve --applied` run against both `studentos` and `studentos_test`. A second migration `20260926010000_add_ai_connections` exists. `prisma migrate status` reports "Database schema is up to date!". **Caveat: both migrations record `applied_steps_count = 0`** — they were baselined with `resolve --applied`, so **neither has ever been executed**. A fresh `prisma migrate deploy` would have failed: `add_ai_connections` used `DATETIME` (SQLite syntax; PostgreSQL rejects it with `42704 type "datetime" does not exist`) and declared a phantom `active_at` column absent from the schema. Fixed 2026-09-28 — `DATETIME` → `TIMESTAMP(3)`, `active_at` removed; verified by replaying the file against a throwaway schema on `studentos_test`. **`prisma/migrations/migration_lock.toml` now sits at the migrations root** (Prisma's expected location); two stray per-migration copies were deleted. Still not verified: a full `migrate deploy` from empty, since both DBs already carry these names in `_prisma_migrations`. New developers with an empty database: seed schema via `db push`, then `prisma migrate resolve --applied 20260926004652_baseline`. | `apps/api/prisma/migrations/` |
 | 16 | **API has no linter.** `tsc` under `strictNullChecks` is the only static gate; there is no ESLint config for `apps/api`. | `apps/api/package.json` |
 | 17 | **RESOLVED 2026-09-27.** The dead `./types/*`, `./utils/*`, `./constants/*` export entries were removed from `packages/shared/package.json`; only `./schemas/*` remains, matching the single real source folder. | `packages/shared/package.json` |
-| 18 | `zod-express@0.0.8` is unmaintained and wrapped by a local shim. Upgrading means replacing the shim, not the dependency. | `apps/api/src/lib/zod-validator-shim.ts` |
+| 18 | **`zod-express@0.0.8` is a declared but unused dependency** — `zod-validator-shim.ts` is hand-written over `zod.safeParse` and imports nothing from it. Removing the package would mean a lockfile update; until then, do not assume the shim delegates to it. | `apps/api/src/lib/zod-validator-shim.ts`, `apps/api/package.json` |
 | 19 | **`authService.updateProfile` and `authService.changePassword` are implemented but unrouted.** `updateProfileSchema` and `changePasswordSchema` are defined and unused. There is no way to change a profile or password over HTTP. | `auth/routes.ts:141,163,202,212` vs the 5 registered routes at `auth/routes.ts:231-269` |
 | 20 | **RESOLVED 2026-09-28 — Phase 2 is closed.** All 3 failures fixed. (a) **Ollama needs no key** — `credentials` is now optional in the type but required at runtime for every other provider, via `isCredentialFreeProvider()` in `ai-connections/schema.ts` plus a matching `superRefine` in the route validator; an ollama connection stores an encrypted empty string. (b) **`@@unique([userId, provider])` kept** — one connection per provider is the product rule, so the test now exercises "activating one deactivates the others" with two *different* providers (openai + anthropic) instead of two openai ones. (c) **`AiProviderNotConfiguredError` now extends `ApiError`** (503 `AI_PROVIDER_NOT_CONFIGURED`) instead of plain `Error`, so `globalErrorHandler` maps it instead of leaking a 500. A matching `AiProviderError` (502) was added alongside it. | `apps/api/src/modules/ai/provider.ts`, `apps/api/src/modules/ai-connections/{schema,routes,service}.ts`, `apps/api/tests/ai-connections.test.ts` |
 | 21 | **3 of 12 `packages/shared` schemas are imported by nobody**: `academics.ts`, `auth.ts`, `course.ts`. The web app re-declares the same shapes locally in `features/courses/courses-api.ts`. Either wire them up or delete them — do not leave two sources of truth. | `packages/shared/src/schemas/` |
-| 22 | **`.env.example` files are gitignored, so the documented setup cannot work from a fresh clone.** Root `.gitignore` has a blanket `.env.example` rule, but `README.md` says `cp apps/api/.env.example apps/api/.env`. Needs a `!.env.example` negation. | `.gitignore:10` |
+| 22 | **RESOLVED — `.env.example` is tracked.** Root `.gitignore` lines 10-11 comment out the `.env.example` rule (with a note explaining why), so `cp apps/api/.env.example apps/api/.env` works from a fresh clone. Names in both example files were re-aligned with `config/index.ts` in Phase 1 (`CORS_ORIGINS`, `JWT_ACCESS_EXPIRES_IN_SECONDS`, `JWT_REFRESH_EXPIRES_IN_SECONDS`; `CORS_ORIGIN` / `JWT_EXPIRES_IN` / `JWT_REFRESH_SECRET` dropped). | `.gitignore:10`, `apps/api/.env.example` |
 | 23 | **`components/ui/checkbox.tsx`, `skeleton.tsx` and `tabs.tsx` are unused.** Left in place deliberately — they are part of a uniform 17-file Radix primitive set, and pruning them would break the pattern. | `apps/web/src/components/ui/` |
 | 24 | **The local `.env` pointed at a PostgreSQL role that did not exist** (`elyassql`; only `postgres` exists on this machine), so all 23 API suites failed in `beforeAll` with `PrismaClientInitializationError` and **0 tests actually ran** — 261 reported as "skipped". Fixed 2026-09-28 by switching both URLs to the `postgres` role. Worth knowing because a green-looking run of *nothing* is the failure mode: if the whole suite reports skipped, suspect the database credentials before anything else. | `apps/api/.env` |
 | 25 | **RESOLVED 2026-09-29.** The dev database `studentos` had no `ai_connections` table (`P2021`); `migrate deploy` could not fix it because both migrations are recorded in `_prisma_migrations` with `applied_steps_count = 0` (gap #15), so it is a silent no-op. A `migrate diff` preview confirmed the change was purely additive (one `CREATE TABLE`, one unique index, one FK — no `DROP`/`ALTER`), then `prisma db push` was run against `studentos`. The table now exists with all 10 columns and `prisma.aiConnection.count()` succeeds. **The real fix for a new database is still `db push` + `prisma migrate resolve --applied`** — see gap #15; the migration files themselves are corrected but still never actually execute. | `apps/api/prisma/migrations/` |

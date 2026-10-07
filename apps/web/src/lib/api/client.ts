@@ -38,7 +38,7 @@ function isAbortError(error: unknown): boolean {
 interface Envelope<T> {
   success: boolean;
   data?: T;
-  error?: { code: string; message: string; details?: Record<string, unknown> };
+  error?: { code: string; message: string; details?: unknown };
 }
 
 async function attemptRefresh(): Promise<string | null> {

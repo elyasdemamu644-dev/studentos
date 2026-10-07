@@ -1,58 +1,19 @@
 import { Router } from "express";
 import { z } from "zod";
 import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
-import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/lib/prisma";
 
-import { config } from "@/config";
 import { ConflictError, NotFoundError, unauthorizedError } from "@/config/errors";
 import type { User } from "@prisma/client";
 import { zValidator } from "@/lib/zod-validator-shim";
+import {
+  accessTokenTtlSeconds,
+  refreshTokenTtlSeconds,
+  signAccessToken,
+  signRefreshToken,
+  verifyJwt,
+} from "@/lib/jwt";
 import { AuthRequest, authenticate } from "@/modules/auth/middleware";
-
-// ─────────────────────────────────────────────
-// Token helpers
-// ─────────────────────────────────────────────
-
-const jwtIssuer = "studentos";
-const jwtAudience = "studentos";
-
-function makeKey() {
-  return new TextEncoder().encode(config.jwtSecret);
-}
-
-/** Sign an access token for the given user. */
-async function signAccessToken(userId: string, email: string): Promise<string> {
-  return new SignJWT({ sub: userId, email, type: "access" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuer(jwtIssuer)
-    .setAudience(jwtAudience)
-    .setIssuedAt()
-    .setJti(crypto.randomUUID())
-    .setExpirationTime("1h")
-    .sign(makeKey());
-}
-
-/** Sign a refresh token for the given user. */
-async function signRefreshToken(userId: string): Promise<string> {
-  return new SignJWT({ sub: userId, type: "refresh" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuer(jwtIssuer)
-    .setAudience(jwtAudience)
-    .setIssuedAt()
-    .setJti(crypto.randomUUID())
-    .setExpirationTime("7d")
-    .sign(makeKey());
-}
-
-/** Verify a token and return its payload. Throws on invalid/expired tokens. */
-async function verifyToken<T>(token: string): Promise<T> {
-  const { payload } = await jwtVerify(token, makeKey(), {
-    issuer: jwtIssuer,
-    audience: jwtAudience,
-  });
-  return payload as T;
-}
 
 // ─────────────────────────────────────────────
 // Password hashing
@@ -105,27 +66,33 @@ export const authService = {
     if (!valid) { throw unauthorizedError("Invalid email or password"); }
     const accessToken = await signAccessToken(user.id, user.email);
     const refreshToken = await signRefreshToken(user.id);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + refreshTokenTtlSeconds * 1000);
     await prisma.refreshToken.create({
       data: { token: refreshToken, userId: user.id, expiresAt },
     });
-    return { accessToken, refreshToken, expiresIn: 3600, user: toPublicUser(user) };
+    return { accessToken, refreshToken, expiresIn: accessTokenTtlSeconds, user: toPublicUser(user) };
   },
 
   async refresh(refreshToken: string) {
     let payload: { sub: string; type: string };
-    try { payload = await verifyToken<{ sub: string; type: string }>(refreshToken); }
+    try { payload = await verifyJwt(refreshToken); }
     catch { throw unauthorizedError("Invalid or expired refresh token"); }
     if (payload.type !== "refresh") { throw unauthorizedError("Invalid or expired refresh token"); }
     const stored = await prisma.refreshToken.findUnique({ where: { token: refreshToken }, include: { user: true } });
     if (!stored || stored.userId !== payload.sub) { throw unauthorizedError("Invalid or expired refresh token"); }
+    // The JWT signature can outlive the row it was stored with (rotation,
+    // revocation, clock skew) — honour the database's own expiry too.
+    if (stored.expiresAt.getTime() <= Date.now()) {
+      await prisma.refreshToken.delete({ where: { id: stored.id } });
+      throw unauthorizedError("Invalid or expired refresh token");
+    }
     await prisma.refreshToken.delete({ where: { id: stored.id } });
     const user = stored.user;
     const accessToken = await signAccessToken(user.id, user.email);
     const newRefreshToken = await signRefreshToken(user.id);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + refreshTokenTtlSeconds * 1000);
     await prisma.refreshToken.create({ data: { token: newRefreshToken, userId: user.id, expiresAt } });
-    return { accessToken, refreshToken: newRefreshToken, expiresIn: 3600, user: toPublicUser(user) };
+    return { accessToken, refreshToken: newRefreshToken, expiresIn: accessTokenTtlSeconds, user: toPublicUser(user) };
   },
 
   async logout(refreshToken: string): Promise<void> {

@@ -2,7 +2,7 @@
 // Shared test utilities — consumed by every vitest file in tests/.
 // ─────────────────────────────────────────────────────────────────────
 
-import { prisma as prismaClient } from "@/server";
+import { prisma as prismaClient } from "@/lib/prisma";
 import { authService } from "@/modules/auth/routes";
 import request from "supertest";
 import { app } from "@/app";

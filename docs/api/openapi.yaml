@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "StudentOS API",
-    "description": "Personal academic operating system — REST API for web and mobile clients.\n\nAuthentication uses HS256 JWT access tokens (short-lived) and refresh tokens stored in the database. Attach the access token as `Authorization: Bearer <token>` or via the `x-access-token` header.\n\nAll authenticated endpoints return the standard envelope from the shared contract: `{ success: true, data: T, meta?: ... }` on success and `{ success: false, error: { code, message } }` on failure.\n\n**Ownership model:** Every resource (academic year, semester, course, task, note, study session, goal, etc.) belongs to a single user. Users can only see and modify their own resources. Unauthorized access returns `FORBIDDEN`. Missing resources return `NOT_FOUND`.",
+    "description": "Personal academic operating system — REST API for web and mobile clients.\n\nAuthentication uses HS256 JWT access tokens (short-lived) and refresh tokens stored in the database. Attach the access token as `Authorization: Bearer <token>`.\n\nAll authenticated endpoints return the standard envelope from the shared contract: `{ success: true, data: T, meta?: ... }` on success and `{ success: false, error: { code, message, details } }` on failure. `details` is always present: `[]` when there is nothing further to report, and a list of `{ path, message, code }` entries for `VALIDATION_ERROR`.\n\n**Ownership model:** Every resource (academic year, semester, course, task, note, study session, goal, etc.) belongs to a single user. Users can only see and modify their own resources. Cross-user access returns `NOT_FOUND` (404) — every lookup is scoped to the authenticated owner. Explicit permission failures return `FORBIDDEN` (403), missing credentials return `UNAUTHORIZED` (401), and missing resources return `NOT_FOUND` (404). Rate-limited requests return `RATE_LIMITED` (429) with a `Retry-After` header.",
     "version": "0.1.0",
     "contact": {
       "name": "StudentOS",
@@ -690,7 +690,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "HS256 JWT access token. Send as `Authorization: Bearer <token>` or `x-access-token: <token>`."
+        "description": "HS256 JWT access token. Send as `Authorization: Bearer <token>`."
       }
     },
     "schemas": {

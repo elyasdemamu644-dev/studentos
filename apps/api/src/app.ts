@@ -6,6 +6,7 @@ import compression from "compression";
 import { config } from "@/config";
 import { apiRouter } from "@/routes";
 import { requestLogger, notFoundHandler, globalErrorHandler } from "@/config/http";
+import { apiRateLimiter } from "@/lib/rate-limit";
 import { healthRouter } from "./modules/health/routes";
 
 const app = express();
@@ -40,7 +41,12 @@ app.use("/health", healthRouter);
 // ─────────────────────────────────────────────
 // API routes
 // ─────────────────────────────────────────────
+//
+// Rate limiting sits in front of the API only — `/health` must stay
+// reachable for orchestrators even when the API is under load. The
+// middleware no-ops when config.isTest.
 
+app.use("/api/v1", apiRateLimiter);
 app.use("/api/v1", apiRouter);
 
 // ─────────────────────────────────────────────

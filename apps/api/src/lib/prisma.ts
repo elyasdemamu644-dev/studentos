@@ -1,27 +1,33 @@
 import { PrismaClient } from "@prisma/client";
 
-let prisma: PrismaClient;
+import { config } from "@/config";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __db__: PrismaClient | undefined;
-}
+// ─────────────────────────────────────────────
+// Single canonical PrismaClient singleton
+// ─────────────────────────────────────────────
+//
+// Every consumer — services, routes, test helpers — imports `prisma` from
+// `@/lib/prisma`. `server.ts` connects/disconnects this same instance; it does
+// not create its own. More than one client means more than one connection pool
+// and, in tests, rows written through one client are not always visible to the
+// other under isolation settings.
 
-// During test runs we want a single shared client so cleanup/seed
-// operations are transactional and fast; in production each process
-// gets its own instance.
+const globalForPrisma = globalThis as unknown as {
+  __db__: PrismaClient | undefined;
+};
 
-if (process.env.NODE_ENV === "production") {
-  prisma = new PrismaClient({
-    log: ["error"],
+/** The one PrismaClient instance shared across the app lifecycle. */
+export const prisma: PrismaClient =
+  globalForPrisma.__db__ ??
+  new PrismaClient({
+    // Query logging only in development; tests and production log errors only.
+    log: config.isDevelopment ? ["query", "error", "warn"] : ["error"],
+    // The datasource block in schema.prisma reads `env("DATABASE_URL")`, which
+    // `config` has already loaded from `.env` — nothing to override here.
   });
-} else {
-  if (!global.__db__) {
-    global.__db__ = new PrismaClient({
-      log: ["query", "error"],
-    });
-  }
-  prisma = global.__db__;
-}
 
-export { prisma };
+// Cache outside production so `tsx watch` / vitest worker reloads reuse the
+// instance instead of opening a new pool on every module evaluation.
+if (!config.isProduction) {
+  globalForPrisma.__db__ = prisma;
+}
