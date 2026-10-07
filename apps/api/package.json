@@ -2,10 +2,10 @@
   "name": "@studentos/api",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "node --stack-size=8000 ./node_modules/prisma/build/index.js generate && tsc -p tsconfig.json",
     "start": "tsx src/server.ts",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",

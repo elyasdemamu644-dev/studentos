@@ -20,7 +20,12 @@ import {
 
 export type { ApiClientError } from "./errors";
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1").replace(/\/$/, "");
+// Vercel service binding (injected at runtime in Vercel deployments)
+// Falls back to NEXT_PUBLIC_API_URL for local development
+const API_BASE_URL = (process.env.API_SERVICE_URL
+  ? `${process.env.API_SERVICE_URL}/api/v1`
+  : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1")
+).replace(/\/$/, "");
 
 const AUTH_PROBLEM_CODES = new Set(["AUTH_TOKEN_EXPIRED", "AUTH_INVALID_TOKEN"]);
 
