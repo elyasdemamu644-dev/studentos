@@ -2,8 +2,8 @@
   "compilerOptions": {
     "composite": false,
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "skipLibCheck": true,
     "strictNullChecks": true,
     "esModuleInterop": true,
