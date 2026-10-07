@@ -16,7 +16,9 @@ router.use(authenticate);
 const idParam = { id: z.string().min(1) };
 
 function withEntity(entity: Record<string, unknown>) {
-  return { success: true, data: entity, ...entity };
+  // One envelope, one copy of the data. The fields used to be spread onto the
+  // root as well, which gave clients two places to read the same value from.
+  return { success: true, data: entity };
 }
 
 router.get("/", zValidator("query", courseListQuerySchema), async (req: AuthRequest, res, next) => {

@@ -14,7 +14,7 @@ Read in this order, and stop as soon as you have what you need:
 
 1. **This file** (always, in full — it is the map).
 2. **[INSTRUCTIONS_FOR_AGENT.md](INSTRUCTIONS_FOR_AGENT.md)** (the workflow contract).
-3. **`docs/api/openapi.yaml`** — only for route-surface questions, and it is stale (gap #2). `docs/audits/` is archived history, never current state.
+3. **`docs/api/openapi.yaml`** — the current OpenAPI 3.1.1 spec: real YAML, all 60 paths / 111 operations, regenerated 2026-10-07 (gap #2 resolved). Still derived from the code by hand, so the code wins on any conflict. `docs/audits/` is archived history, never current state.
 4. **Only the files your task touches** — use the lookup tables below to resolve names to paths.
 5. **The matching test file** — tests encode the contract better than the code does.
 6. **Only if still blocked**, widen the search.
@@ -107,7 +107,7 @@ StudentOS/
 ├── pnpm-lock.yaml                 <- the only lockfile
 ├── turbo.json                     <- task graph
 ├── docs/
-│   ├── api/openapi.yaml           <- STALE OpenAPI 3.1.1 doc, see gap #2
+│   ├── api/openapi.yaml           <- OpenAPI 3.1.1, full surface (regenerated 2026-10-07, gap #2)
 │   └── audits/                    <- archived historical reports, not current state
 │       ├── qa-final-report.md         (was QA_FINAL_REPORT.md)
 │       ├── frontend-progress.md       (was apps/web/FRONTEND_PROGRESS.md)
@@ -580,7 +580,7 @@ Ordered by how likely they are to bite you.
 | 1 | **RESOLVED.** The working tree was uncommitted for most of this project's history; `af7aab6` committed the AI Agent Core, verifier, resolver and chat UI, and `git status` is now clean. The underlying risk was never the commit itself but the gitignored-file gaps below (#22, #26, #28), which a fresh clone still reproduces. | `git status` |
 | 1a | **Never run `next build` while `next dev` is running** (hit live on 2026-10-01). `build` overwrites `apps/web/.next` under the running dev server, which then serves HTML whose client chunks 404: the page paints, but React never hydrates, so every click, keystroke and route change silently does nothing. Symptom is either `404 | This page could not be found.` or a fully rendered form that submits nothing. Stop the dev server first, or delete `apps/web/.next` and restart. | `apps/web/.next` |
 | 1b | **The configured free OpenRouter model is rate-limited upstream (HTTP 429).** A live reply depends on the provider's shared pool at that moment. The UI degrades correctly — the user's message stays, an error banner and Retry appear — so a 429 is not an application bug. | live 2026-10-01 |
-| 2 | **`openapi.yaml` is JSON, not YAML, and badly stale.** Despite the extension it is a JSON OpenAPI 3.1.1 doc covering only **12 paths** (auth, academic-years, semesters, courses, tasks). Missing notes, resources, events, study-sessions, goals, grades, notifications, settings, ai, ai-connections, subtasks, task-tags, `/courses/{id}/summary`, `/notifications/generate`, `/notifications/read-all`, and the `instructor` / `estimatedMinutes` / `completedAt` fields. **Fixed 2026-10-07:** the description no longer advertises the unsupported `x-access-token` header, it now documents the `details` field on the error envelope, and it states that cross-user access returns 404 (it previously claimed `FORBIDDEN`). | `docs/api/openapi.yaml` |
+| 2 | **RESOLVED 2026-10-07 (Phase 2).** `docs/api/openapi.yaml` is real YAML now, covering the whole surface: **60 paths / 111 operations / 92 schemas / 759 `$ref`s, 0 broken**, verified against the 100 real route registrations. It carries `bearerAuth`, shared 400/401/404/409/429/500/502/503 responses (with `Retry-After` on 429), request schemas with the Zod constraints, `operationId`s, and the documented deviations: 404-not-403 ownership masking, the bare-array lists (`/courses`, the academic-years and semesters lists), `UPLOAD_STORAGE_UNAVAILABLE`, and provider failures as 200 with `success:false`. | `docs/api/openapi.yaml` |
 | 3 | **RESOLVED 2026-10-07 (Phase 1).** `CurrentUser` and `TokenPayload` no longer declare `role`, `residency` or `name`. The access token carries only `{ sub, email, type, iat, exp }`, and nothing read the phantom fields. Profile data still comes from `GET /auth/me`. | `auth/middleware.ts` |
 | 4 | **RESOLVED 2026-10-07 (Phase 1).** `auth/routes.ts` no longer mints tokens itself — `signAccessToken` / `signRefreshToken` / `verifyJwt` live only in `lib/jwt.ts`, so the login path honours `config.jwtAccessExpiresInSeconds` (900 s default) instead of a hardcoded `1h`, and verify enforces `iss` / `aud`. Refresh additionally rejects a stored `RefreshToken.expiresAt` that has lapsed. | `lib/jwt.ts`, `auth/routes.ts` |
 | 5 | **RESOLVED 2026-10-07 (Phase 1).** `src/lib/rate-limit.ts` provides a dependency-free fixed-window limiter mounted on `/api/v1` in `app.ts`; budget from `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS`, disabled under `NODE_ENV=test`, rejections answer 429 `RATE_LIMITED` with `Retry-After`. Pinned by `tests/error-envelope.test.ts`. | `src/lib/rate-limit.ts`, `app.ts` |
@@ -675,7 +675,7 @@ There is **no roadmap file in the repository**, so this is inferred from the sta
 1. **Finish and commit the in-flight work** — DONE as of `079a453` (2026-09-28): the Academics, Exams, Notifications and Resources screens, the dashboard command center, `GET /courses/:id/summary`, AI Connections, and the new tests are all committed. The AI Agent Core and the chat UI followed in `af7aab6` (2026-09-30).
 2. **Verify the AI agent against the remaining real providers** (gap #29) — OpenRouter is now proven live (2026-09-30): 50 schemas accepted, `tool_calls` normalised, read tools answered from the real DB, write → confirm → verify passed 18/18. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only. The local OpenRouter key is out of credit, so only `:free` models are reachable, and the free model on this machine will not call a write tool at all (gap #33) — a paid key and a tool-calling-capable model are needed to finish this properly. Then continue Phase 3 (Integration QA) across the other 12 dashboard routes; only `/login` and `/settings` have been driven end to end. There is still no CI (gap #11), so nothing prevents a regression like the envelope bug from landing again.
 3. **Persist confirmations** (gap #30) — a pending proposal does not survive an API restart, and a multi-instance deployment would strand a student on a card they cannot confirm. Needs a table, and the migration history is baselined (gap #15).
-4. **Regenerate the OpenAPI spec** (`docs/api/openapi.yaml`) so it covers the real surface, is actually YAML (or is renamed `.json`), and documents 404-not-403 ownership masking. It does not list `/ai-connections/*` at all.
+4. **Regenerate the OpenAPI spec** — DONE 2026-10-07 (Phase 2, gap #2): `docs/api/openapi.yaml` is YAML, covers every registered operation including `/ai-connections/*`, and documents 404-not-403 ownership masking.
 5. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
 6. **Implement or remove the parked features** — rate limiting, S3 uploads, notification delivery/notification scheduler, recurring tasks.
 7. **Add CI**, and fix the `.env.example` gitignore rule so a fresh clone can follow the README (gap #22).
@@ -685,6 +685,14 @@ There is **no roadmap file in the repository**, so this is inferred from the sta
 ---
 
 ## 17. Latest AI work / change log
+
+### 2026-10-07 — Phase 2: backend hardening for capstone review (docs, tests, production readiness, contract safety).
+
+- **`docs/api/openapi.yaml` regenerated** (gap #2 resolved): real YAML, OpenAPI 3.1.1, **60 paths / 111 operations / 92 schemas / 759 `$ref`s, 0 broken**, verified against the 100 registered route operations (11 are the `/academics/years` alias plus the 5 public `/auth` + `/health` ops). Carries `bearerAuth`, shared 400/401/404/409/429 (+`Retry-After`)/500/502/503 responses, Zod-derived request constraints, `operationId`s, and the honest deviations (404-not-403 ownership, bare-array lists, `UPLOAD_STORAGE_UNAVAILABLE`, provider failures as 200 `success:false`, 1 MB body, in-memory pending actions).
+- **New `apps/api/tests/contract-safety.test.ts` (15 tests)** — the cross-module regression net: standard 401 envelope on 26 protected probes in every module; success envelope on 16 list endpoints (would have caught the "Request failed (200)" envelope bug); cursor page shape; validation boundaries (`limit=0`/`limit=101`, 65-char `ai-connections` cursor, unparseable date); no DB internals in 409/404 bodies; 404 no longer echoes the query string; `X-Request-Id` present and `X-Powered-By` absent; login does not reveal whether an email exists; ownership answers 404, never 403.
+- **Production readiness:** `x-powered-by` disabled; new `TRUST_PROXY` env (default `0`) drives Express `trust proxy`, so the rate limiter keys on the real client IP only when a proxy is declared; `X-Request-Id` returned on every response; `server.on("error")` (EADDRINUSE) and `unhandledRejection` / `uncaughtException` handlers in `server.ts`; the 404 message no longer reflects `req.originalUrl`'s query string.
+- **Contract:** `courses/routes.ts` `withEntity()` no longer spreads the entity onto the envelope root — `{success, data}` only, the last envelope anomaly besides `/health`.
+- **Gate:** API 411 tests / 28 files, web 227 tests / 18 files, `tsc` both apps 0, `prisma validate` valid, `next lint` and root `pnpm lint` clean, `next build` 0.
 
 ### 2026-10-01 — AI chat UX rebuilt: optimistic messages, modern history, verified in a real browser.
 

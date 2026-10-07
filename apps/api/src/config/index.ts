@@ -27,6 +27,18 @@ export const config = {
   port: Number(process.env.PORT ?? 3001),
   host: process.env.HOST ?? "0.0.0.0",
 
+  // Number of proxies in front of the API (Express `trust proxy` setting).
+  // 0 by default: X-Forwarded-For is ignored, so the rate limiter keys on the
+  // real socket address. Set TRUST_PROXY=1 behind nginx/ALB/etc., otherwise
+  // every user behind one proxy shares a single rate-limit bucket.
+  trustProxy: (() => {
+    const raw = (process.env.TRUST_PROXY ?? "").trim();
+    if (raw === "true") return 1;
+    if (!raw || raw === "false") return 0;
+    const hops = Number(raw);
+    return Number.isFinite(hops) && hops >= 0 ? Math.floor(hops) : 0;
+  })(),
+
   // Database — must be set (Prisma connection string)
   databaseUrl: process.env.DATABASE_URL,
 

@@ -55,6 +55,11 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
   const id = ((req as unknown as Record<string, unknown>).requestId = nextRequestId());
   const start = Date.now();
 
+  // Echoed so a client can quote the id that appears in the server log for
+  // exactly this request — the only link between the two, since error bodies
+  // deliberately carry no internal detail.
+  res.setHeader("X-Request-Id", String(id));
+
   if (config.isDevelopment) {
     console.log(`[${id}] ${req.method} ${req.originalUrl} ${req.ip}`);
   }
@@ -82,9 +87,10 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
  * Mounted after all routes — catches requests that didn't match any route.
  */
 export function notFoundHandler(req: Request, res: Response): void {
-  res.status(404).json(
-    errorBody("NOT_FOUND", `Cannot ${req.method} ${req.originalUrl}`),
-  );
+  // The path is echoed back, but the query string never is: it can carry
+  // credentials or personal data, and the client already knows what it sent.
+  const path = req.originalUrl.split("?")[0];
+  res.status(404).json(errorBody("NOT_FOUND", `Cannot ${req.method} ${path}`));
 }
 
 // ─────────────────────────────

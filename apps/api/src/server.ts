@@ -37,6 +37,14 @@ async function main(): Promise<void> {
     );
   });
 
+  // EADDRINUSE and friends arrive as `error` events; without a listener Node
+  // throws them as an unhandled exception, which looks like a crash rather
+  // than the port conflict it is.
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    console.error(`HTTP server failed to start: ${error.code ?? error.name} ${error.message}`);
+    process.exit(1);
+  });
+
   // Graceful shutdown — stop accepting new connections, drain existing ones,
   // disconnect Prisma, then exit.
   const shutdown = async (signal: string): Promise<void> => {
@@ -57,6 +65,17 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // A rejected promise that nothing awaited, or an exception outside the
+  // request loop, would otherwise die silently (or take the process down with
+  // no log line). Log both with enough context to find them, then stop.
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled promise rejection:", reason);
+  });
+  process.on("uncaughtException", (error) => {
+    console.error("Uncaught exception, exiting:", error);
+    process.exit(1);
+  });
 }
 
 // Only start the server when this file is executed directly (e.g. `tsx

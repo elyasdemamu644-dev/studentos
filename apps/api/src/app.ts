@@ -15,6 +15,12 @@ const app = express();
 // Security & formatting middleware
 // ─────────────────────────────────────────────
 
+// Do not advertise the framework, and only trust X-Forwarded-* when the
+// operator says a proxy is in front (TRUST_PROXY) — otherwise the rate
+// limiter would bucket every client behind a proxy as one IP.
+app.disable("x-powered-by");
+app.set("trust proxy", config.trustProxy);
+
 app.use(helmet());
 app.use(
   cors({

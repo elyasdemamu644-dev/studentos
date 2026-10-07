@@ -118,7 +118,7 @@ Base path `/api/v1`; success is `{ success: true, data }` and failure is `{ succ
 
 Resources: auth, academics (years + semesters), courses, tasks (+ subtasks, tags), dashboard, notes, resources, events, study sessions, goals (+ milestones), grades, notifications, settings, and the AI assistant (conversations, messages, study plans).
 
-`docs/api/openapi.yaml` is **stale** — it documents only a subset of the surface. Treat the code as authoritative; see `AI_CONTEXT.md` §13.
+`docs/api/openapi.yaml` is the OpenAPI 3.1.1 contract for the whole surface (60 paths / 111 operations, regenerated 2026-10-07). It is derived from the code by hand, so the code remains authoritative on any conflict.
 
 Baseline migration: `apps/api/prisma/migrations/20260926004652_baseline/` — recorded 2026-09-26. New databases: push schema, then `npx prisma migrate resolve --applied 20260926004652_baseline`.
 
