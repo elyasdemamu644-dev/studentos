@@ -109,7 +109,7 @@ Do not claim a test passed unless you ran it and saw it pass. Do not describe in
 ## Quick reference
 
 | Need | Do this |
-|---|---|
+| --- | --- |
 | Orientation | Read `AI_CONTEXT.md` only |
 | Find a file | Use the lookup tables in `AI_CONTEXT.md`, not a repo-wide search |
 | Run one app's tests | `pnpm --filter @studentos/api test` / `pnpm --filter @studentos/web test` |

@@ -22,7 +22,7 @@ Read in this order, and stop as soon as you have what you need:
 ### Task → files to read
 
 | Task | Read these | Nothing else unless blocked |
-|---|---|---|
+| --- | --- | --- |
 | Add/change an API endpoint | `src/{routes,services,schemas}/<domain>.ts` | `src/routes/index.ts` (only if mounting), `tests/<domain>.test.ts` |
 | Change list pagination / response envelope | `src/services/<domain>.ts` | `packages/shared/src/schemas/api.ts` |
 | Change error codes / status mapping | `src/config/errors.ts`, `src/config/http.ts` | `packages/shared/src/schemas/api.ts` (`ERROR_CODES`) |
@@ -62,7 +62,7 @@ Design intent, as evidenced by the code:
 ## 2. Current phase & status
 
 | Field | Value |
-|---|---|
+| --- | --- |
 | Phase | **Phase 3 (capstone) complete 2026-10-07.** All phases are closed: Phase 0 (regenerated migrations), Phase 1 (backend foundation), Phase 2 (OpenAPI + contract safety + production readiness), Phase 3 (production config guardrails, owner indexes, IDOR sweep, migration deploy verification, live smoke, docs refresh). |
 | Last committed checkpoint | `18b4f3a` — *refactor: reorganize StudentOS project structure* (on `task/studentos-folder-migration`, **not pushed**); `main` is still at `96c106e`, in sync with `origin/main` |
 | Working tree | **Clean.** The folder migration is committed as `18b4f3a` on this branch — 285 renames `apps/api`→`backend/`, `apps/web`→`frontend/`, 8 modified root files, 0 deletions. Nothing pushed yet. |
@@ -78,7 +78,7 @@ Design intent, as evidenced by the code:
 
 Branch `task/studentos-folder-migration` (the `apps/*` → `backend/` + `frontend/` folder migration, committed as `18b4f3a`, **not yet pushed**). Most recent commits (`git log --oneline`):
 
-```
+```text
 18b4f3a  refactor: reorganize StudentOS project structure
 96c106e  fix: restore ESNext/Bundler module resolution after the Vercel merge
 9cee0c2  Merge remote-tracking branch 'origin/main'
@@ -94,7 +94,7 @@ Branch `task/studentos-folder-migration` (the `apps/*` → `backend/` + `fronten
 
 pnpm workspaces + Turborepo. 3 packages. This is the **verified actual layout** after the 2026-09-27 cleanup.
 
-```
+```text
 StudentOS/
 ├── AI_CONTEXT.md                  <- you are here
 ├── INSTRUCTIONS_FOR_AGENT.md      <- agent workflow contract
@@ -126,7 +126,7 @@ StudentOS/
 `.github/workflows/ci.yml` is the only thing in `.github/`. There is **no** `apps/mobile/`, no `packages/config/`, no `packages/ui/`, and no `backend/types/` — those were empty or orphaned and have been removed.
 
 | Package | Name | Stack |
-|---|---|---|
+| --- | --- | --- |
 | `backend` | `@studentos/api` | Express 5, TypeScript (ESM), Prisma 6, PostgreSQL, Zod, jose, `@node-rs/argon2`, Vitest + supertest |
 | `frontend` | `@studentos/web` | Next.js 14.2.30 (App Router), React 18, TypeScript `strict`, Tailwind 3.4, Radix UI, TanStack Query v5, react-hook-form + Zod, Recharts, lucide-react, sonner, Vitest + jsdom + Testing Library |
 | `packages/shared` | `@studentos/shared` | Zod schemas. Depends on `zod` — **do not remove it** (it caused a past build break) |
@@ -137,7 +137,7 @@ StudentOS/
 
 ## 5. Backend architecture
 
-```
+```text
 src/server.ts    bootstrap: validateConfig() -> prisma.$connect() -> app.listen(port)
                  graceful shutdown on SIGTERM/SIGINT (10s force-exit); only runs when executed directly
 src/app.ts       express app: helmet -> cors -> compression -> json(1mb) -> urlencoded
@@ -164,7 +164,7 @@ The `src/middlewares/` and `src/utils/` folders exist because the migration gave
 ### API conventions (enforced by tests)
 
 | Rule | Detail |
-|---|---|
+| --- | --- |
 | Base path | `/api/v1` (mounted in `app.ts:44`); health is outside it at `/health` |
 | Public routes | `/health`, and `/api/v1/auth/{register,login,refresh,logout}` |
 | Everything else | Requires `Authorization: Bearer <access token>` |
@@ -181,7 +181,7 @@ The `src/middlewares/` and `src/utils/` folders exist because the migration gave
 ### Error code mapping (`src/config/http.ts`)
 
 | Source | HTTP | Code |
-|---|---|---|
+| --- | --- | --- |
 | body-parser `entity.parse.failed` | 400 | `INVALID_JSON` |
 | body-parser `entity.too.large` | 400 | `PAYLOAD_TOO_LARGE` |
 | `ApiError` (incl. 429 from the rate limiter) | as constructed | as constructed |
@@ -198,7 +198,7 @@ Every branch logs the underlying error with a `req_*` request id and returns a *
 ### Route surface
 
 | Domain | Endpoints (under `/api/v1`) |
-|---|---|
+| --- | --- |
 | health | `GET /health` (public; returns status, service, version, environment, database, timestamp) |
 | auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` — **that is the complete set**; there is no profile-update or change-password route |
 | academics | `GET/POST /academics/academic-years`, `GET/PATCH/DELETE /academics/academic-years/:id`; identical tree under the alias `/academics/years`; same five for `/academics/semesters` |
@@ -226,7 +226,7 @@ Every branch logs the underlying error with a `req_*` request id and returns a *
 
 ## 6. Frontend architecture
 
-```
+```text
 app/
   layout.tsx  globals.css  providers.tsx
   (auth)/     layout, /login, /register
@@ -247,7 +247,7 @@ tests/         18 *.test.ts + setup.ts   (NOT colocated — see §12)
 There is deliberately **no** `hooks/` or `src/schemas/`: every hook is feature-local (`features/<domain>/hooks.ts`) and every Zod schema is feature-local (`features/<domain>/schemas.ts` or beside the form). Do not create top-level folders for these.
 
 | Concern | Implementation |
-|---|---|
+| --- | --- |
 | Transport | **Only** `lib/api/client.ts`. Components never call `fetch`. Exposes `api.get/post/patch/put/delete`, injects the bearer token, unwraps the envelope, and maps failures to `ApiClientError` / `NetworkError` / `SessionExpiredError`. |
 | Token refresh | Automatic, **retry-once**: a 401 with code `AUTH_TOKEN_EXPIRED` or `AUTH_INVALID_TOKEN` triggers `POST /auth/refresh`, then one replay. Concurrent refreshes share a single in-flight promise. Failure → `SessionExpiredError`. |
 | Session storage | `lib/api/auth-session.ts` — `localStorage` (survives reload). **Not** httpOnly cookies; see gap #6. |
@@ -271,7 +271,7 @@ Navigation (`app-shell.tsx`): 12 sidebar items — Dashboard, Courses, Academics
 - All child models cascade from `User`. Optional course/task relations use `onDelete: SetNull`.
 
 | Group | Models |
-|---|---|
+| --- | --- |
 | Identity | `User`, `RefreshToken`, `UserSetting` (`@@unique([userId,key])`) |
 | Academics | `AcademicYear`, `Semester` |
 | Courses | `Course` |
@@ -296,7 +296,7 @@ Seed: `backend/prisma/seed.ts` (`pnpm --filter @studentos/api db:seed`). It `del
 ## 8. Authentication & security
 
 | Concern | Implementation |
-|---|---|
+| --- | --- |
 | Password hashing | `@node-rs/argon2` (`hashPassword` / `verifyPassword` in `src/routes/auth.ts`) |
 | Token signing | `jose`, HS256 |
 | Access token | Claims `{ sub, email, type: "access" }`, plus `iss`/`aud` = `studentos`, a `jti`, and **hardcoded `1h` expiry** |
@@ -323,7 +323,7 @@ Seed: `backend/prisma/seed.ts` (`pnpm --filter @studentos/api db:seed`). It `del
 Limits live in code, not in the prompt, so a non-compliant model cannot exceed them. Each is a hard ceiling; `config.aiAgentMax*` may only lower it.
 
 | Limit | Ceiling | Env override | Effect |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Provider round-trips | `MAX_TOOL_ROUNDS` = 4 | `AI_AGENT_MAX_TOOL_ROUNDS` | Cut off, then one final tool-free turn so the student still gets an answer |
 | Tool calls per run | `MAX_TOOL_CALLS` = 12 | `AI_AGENT_MAX_TOOL_CALLS` | Remaining calls in the round are dropped and the model is told so |
 | Proposed actions per turn | `MAX_PROPOSED_ACTIONS` = 8 | `AI_AGENT_MAX_PROPOSED_ACTIONS` | Further writes refused with `proposal_limit`; the loop stops proposing |
@@ -342,7 +342,7 @@ Two further rules are structural, not numeric: a turn that produces a proposal b
 **50 tools: 21 READ, 7 ANALYZE, 22 WRITE** (21 mutations + `confirm_pending_actions`).
 
 | Kind | Tools |
-|---|---|
+| --- | --- |
 | READ (21) | `get_courses`, `get_active_courses`, `get_tasks`, `get_upcoming_tasks`, `get_overdue_tasks`, `get_calendar_events`, `get_upcoming_exams`, `get_study_sessions`, `get_study_history`, `get_goals_and_milestones`, `get_goal_milestones`, `get_grades`, `get_notes`, `get_note`, `search_notes`, `get_task_subtasks`, `get_task_tags`, `get_resources`, `get_academic_structure`, `get_notifications`, `get_academic_dashboard` |
 | ANALYZE (7) | `analyze_academic_progress`, `identify_weak_courses`, `identify_at_risk_work`, `analyze_study_consistency`, `calculate_workload`, `identify_upcoming_priorities`, `build_study_plan` |
 | WRITE (22) | `create_task`, `update_task`, `complete_task`, `create_subtask`, `update_subtask`, `create_task_tag`, `create_study_session`, `update_study_session`, `create_goal`, `update_goal_progress`, `create_milestone`, `update_milestone`, `create_note`, `update_note`, `create_resource`, `update_resource`, `create_event`, `update_event`, `create_grade`, `update_grade`, `update_course`, `confirm_pending_actions` |
@@ -354,7 +354,7 @@ There is deliberately **no delete, no bulk and no free-form update tool**: every
 `tools/resolver.ts` turns what the student actually says — "the Database exam", "CS210", "my lab report" — into a real record id. It collects candidates through the same domain services, scores them (exact id → exact text → space-insensitive code → prefix → substring → token overlap), and returns one of three outcomes:
 
 | Outcome | Behaviour |
-|---|---|
+| --- | --- |
 | `resolved` | A single best match, with the `match` kind recorded |
 | `ambiguous` | Refused. The model receives the candidate list and must ask the student which one it meant — it never picks |
 | `not_found` | Refused. The model is told the record is not in the student's data and must not substitute a similar one |
@@ -386,7 +386,7 @@ The REST confirm endpoint returns `EXECUTED` only when every step is both applie
 `AiProvider` = `{ name, supportsTools(), chat(), chatWithTools() }`. All six provider kinds are implemented in `provider.ts` with plain `fetch` — **no SDK** — so any OpenAI-compatible endpoint works.
 
 | Provider | Native tool calling | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `openai` | yes | `AI_PROVIDER` default; `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
 | `openrouter` | yes | Shares the OpenAI adapter; `OPENROUTER_API_KEY` |
 | `custom` | yes | `CUSTOM_AI_ENDPOINT` / `CUSTOM_AI_API_KEY`, any OpenAI-compatible endpoint |
@@ -405,7 +405,7 @@ Resolution order: the student's active personal AI connection (encrypted at rest
 **Failure modes (deliberate, not bugs).**
 
 | Condition | Result |
-|---|---|
+| --- | --- |
 | No provider configured | 503 `AI_PROVIDER_NOT_CONFIGURED`; **no message persisted** |
 | Provider returns non-2xx or empty | 502 `AI_PROVIDER_ERROR` |
 | `AI_ENABLED=true` + provider `openai` + no `OPENAI_API_KEY` | `validateConfig()` **throws at boot** |
@@ -417,7 +417,7 @@ Both AI failure codes are produced by `ApiError` subclasses in `provider.ts`, so
 **Credential-free providers.** `isCredentialFreeProvider()` in `ai-connections/schema.ts` marks `ollama` as needing no API key. `credentials` is *optional in the type* but required at runtime for every other provider — enforced in `superRefine` in both the Zod schema and the route validator. An ollama connection stores an encrypted empty string (`credentialsEncrypted` is non-nullable), and `parseProviderCredentials("")` returns `{}`.
 
 | Env var | Default | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `AI_ENABLED` | `true` (`!== "false"`) | test config forces `false` so no external call is ever made |
 | `AI_PROVIDER` | `openai` | all six values implemented; see 9.6 |
 | `AI_MODEL` | `gpt-4o-mini` | |
@@ -437,13 +437,13 @@ The whole rest of the API stays fully functional when no provider is configured.
 ## 10. Ports & environment
 
 | Service | Port | Binding |
-|---|---|---|
+| --- | --- | --- |
 | API | `3001` (`PORT`, default) | `0.0.0.0` (`HOST`, default) |
 | Web | `3000` | `next dev -p 3000` |
 | PostgreSQL | `5432` | dev DB `studentos`, test DB `studentos_test` |
 
 | File | Purpose | Gitignored |
-|---|---|---|
+| --- | --- | --- |
 | `backend/.env` | API runtime config (loaded by `src/config/index.ts` via `process.loadEnvFile`, and parsed by `vitest.config.ts`) | yes |
 | `backend/.env.example` | Documented keys: `DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_KEY` (added 2026-09-29), `PORT`, `HOST`, `NODE_ENV` | **yes — and that is a bug**: root `.gitignore` has a blanket `.env.example` rule, so this file is **not in the repository** even though the README tells you to copy it. See gap #22. |
 | `frontend/.env.local` | `NEXT_PUBLIC_API_URL` — **must be the API origin `:3001`**, not the web origin; there is no Next.js rewrite proxy | yes |
@@ -508,7 +508,7 @@ pnpm dev
 ## 12. Test & build status (verified 2026-10-07)
 
 | Suite | Command | Result | Time |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | API | `pnpm --filter @studentos/api test` | **29 files, 422 tests — 0 fail** | ~75 s |
 | Web | `pnpm --filter @studentos/web test` | **18 files, 227 tests — 0 fail** | ~17 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
@@ -524,7 +524,7 @@ pnpm dev
 Driven over the Chrome DevTools Protocol against a real `pnpm dev` stack (web `:3000`, API `:3001`), not jsdom. Registered and signed in through the real login form, then exercised `/ai` end to end.
 
 | Check | Result |
-|---|---|
+| --- | --- |
 | Sign in through the UI | `/login` → `/dashboard`, tokens stored |
 | First prompt on a **brand-new account** (zero conversations) | Created a conversation, then sent the queued prompt |
 | Optimistic message ordering | user text at **t+133 ms**, `StudentOS AI is generating` immediately after, assistant reply at **t+5.8 s** |
@@ -564,10 +564,9 @@ Test style: API uses supertest against the real `app` with helpers from `tests/h
 ### Not covered by the automated suites
 
 - **Real provider end-to-end, partly done 2026-09-30.** OpenRouter is now proven against a live key: 50 tool schemas accepted, `tool_calls` normalised, read tools answered from the real DB, and the write then confirm then verify path passed 18/18 against a real database. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only, so `candidates[].content.parts[].text` and the Ollama `tool_calls` shape have never been seen on the wire. See gaps #29 and #33.
-- **Browser interaction with the confirmation card.** The card's Confirm/Cancel flow is exercised over HTTP and by types, not by a rendered click. The surrounding chat page *was* driven in a real browser on 2026-10-01 — see [§12](#12-test--build-status-verified-2026-10-01) — but the confirm click itself still was not.
+- **Browser interaction with the confirmation card.** The card's Confirm/Cancel flow is exercised over HTTP and by types, not by a rendered click. The surrounding chat page *was* driven in a real browser on 2026-10-01 — see [§12](#12-test--build-status-verified-2026-10-07) — but the confirm click itself still was not.
 - **Retry used to duplicate a message — RESOLVED 2026-10-01.** `onRetryMessage` and the error banner's Retry both re-posted the failed text as a *new* message while the failed bubble stayed on screen, so a retry after a provider failure left the student's question visible twice. `useSendMessage` now takes `retryOf: string` and reuses the failed message's own cache slot — flipped back to `optimistic`, then replaced in place by the stored message — instead of appending. If the id is no longer in the transcript (a refetch dropped it) the retry falls back to appending, so nothing is lost either way. A retry is also excluded from first-message title derivation. Three tests pin this in `frontend/tests/ai-chat-flow.test.tsx`.
 - **A caution for any live or manual script:** `backend/.env` sets `DATABASE_URL` to the **dev** database `studentos`, while the test suites run against `studentos_test` (set in `backend/vitest.config.ts`). A throwaway script that reads `DATABASE_URL` therefore writes to the database you actually use. Prefer a dedicated `studentos_e2e` database, and if you do write to `studentos`, create the throwaway user **inside** a `try` so the cleanup `finally` actually runs. A script that creates rows before its `try` leaks them silently, which is what happened during the 2026-09-30 live run: three leftover users, since removed, with no orphaned rows in any user-owned table.
-
 
 ---
 
@@ -576,9 +575,9 @@ Test style: API uses supertest against the real `app` with helpers from `tests/h
 Ordered by how likely they are to bite you.
 
 | # | Issue | Evidence |
-|---|---|---|
+| --- | --- | --- |
 | 1 | **RESOLVED.** The working tree was uncommitted for most of this project's history; `af7aab6` committed the AI Agent Core, verifier, resolver and chat UI, and `git status` is now clean. The underlying risk was never the commit itself but the gitignored-file gaps below (#22, #26, #28), which a fresh clone still reproduces. | `git status` |
-| 1a | **Never run `next build` while `next dev` is running** (hit live on 2026-10-01). `build` overwrites `frontend/.next` under the running dev server, which then serves HTML whose client chunks 404: the page paints, but React never hydrates, so every click, keystroke and route change silently does nothing. Symptom is either `404 | This page could not be found.` or a fully rendered form that submits nothing. Stop the dev server first, or delete `frontend/.next` and restart. | `frontend/.next` |
+| 1a | **Never run `next build` while `next dev` is running** (hit live on 2026-10-01). `build` overwrites `frontend/.next` under the running dev server, which then serves HTML whose client chunks 404: the page paints, but React never hydrates, so every click, keystroke and route change silently does nothing. Symptom is either `404 \| This page could not be found.` or a fully rendered form that submits nothing. Stop the dev server first, or delete `frontend/.next` and restart. | `frontend/.next` |
 | 1b | **The configured free OpenRouter model is rate-limited upstream (HTTP 429).** A live reply depends on the provider's shared pool at that moment. The UI degrades correctly — the user's message stays, an error banner and Retry appear — so a 429 is not an application bug. | live 2026-10-01 |
 | 2 | **RESOLVED 2026-10-07 (Phase 2).** `docs/api/openapi.yaml` is real YAML now, covering the whole surface: **60 paths / 111 operations / 92 schemas / 759 `$ref`s, 0 broken**, verified against the 100 real route registrations. It carries `bearerAuth`, shared 400/401/404/409/429/500/502/503 responses (with `Retry-After` on 429), request schemas with the Zod constraints, `operationId`s, and the documented deviations: 404-not-403 ownership masking, the bare-array lists (`/courses`, the academic-years and semesters lists), `UPLOAD_STORAGE_UNAVAILABLE`, and provider failures as 200 with `success:false`. | `docs/api/openapi.yaml` |
 | 3 | **RESOLVED 2026-10-07 (Phase 1).** `CurrentUser` and `TokenPayload` no longer declare `role`, `residency` or `name`. The access token carries only `{ sub, email, type, iat, exp }`, and nothing read the phantom fields. Profile data still comes from `GET /auth/me`. | `auth/middleware.ts` |
@@ -687,7 +686,7 @@ Remaining work is optional polish, not phase work:
 
 ## 17. Latest AI work / change log
 
-### 2026-10-07 — Phase 3 (capstone): production safety, database safety, verification, docs.
+### 2026-10-07 — Phase 3 (capstone): production safety, database safety, verification, docs
 
 - **Production config guardrails** (`config/index.ts`): `validateConfig()` still fails fast on missing variables, and in `NODE_ENV=production` it now also rejects placeholder or short (<32 char) `JWT_SECRET`/`ENCRYPTION_KEY` and an unset/empty `CORS_ORIGINS` (the localhost default would silently block a real web origin). `productionConfigErrors()` is exported and pure, so it is unit-tested without booting anything — `tests/production-config.test.ts` (9 tests).
 - **Database safety.** 17 owner/hot-path indexes added to `schema.prisma` (owner+status/date on tasks, courses, goals, academic years, semesters; `userId` on refresh tokens; ordered children; sort keys on notes/resources/events/study sessions/grades/AI lists) and shipped as `prisma/migrations/20261007000000_add_owner_indexes/migration.sql`. Two real defects fixed along the way: `init_from_schema/migration.sql` was **UTF-16LE**, which made `migrate deploy` fail on any fresh database ("string contains embedded null"), and `_prisma_migrations` on both databases still listed the deleted Phase 0 baseline names. **Verified from an empty database**: create DB → `migrate deploy` → `migrate status` clean → drop; also clean on `studentos` and `studentos_test`. Gap #15 closed. `prisma migrate dev` still cannot run here (shadow DB unreachable, P1001), so migrations are hand-written and applied with `migrate deploy`.
@@ -698,7 +697,7 @@ Remaining work is optional polish, not phase work:
 - **Docs**: README (test counts, migration/deploy instructions, production run-book, `TRUST_PROXY`/`ENCRYPTION_KEY`/32-char secrets, "stale OpenAPI" line gone) and this file (status table, git log, CI exists, migration history, test/build table, gaps #11 and #15, next-work list).
 - **Gate:** API 422 tests / 29 files, web 227 tests / 18 files, `tsc` both apps 0, `prisma validate` valid, `migrate status` up to date, `next lint` and root `pnpm lint` clean, `next build` 0, API `tsc -p tsconfig.json` 0, `pnpm install --frozen-lockfile` 0.
 
-### 2026-10-07 — Phase 2: backend hardening for capstone review (docs, tests, production readiness, contract safety).
+### 2026-10-07 — Phase 2: backend hardening for capstone review (docs, tests, production readiness, contract safety)
 
 - **`docs/api/openapi.yaml` regenerated** (gap #2 resolved): real YAML, OpenAPI 3.1.1, **60 paths / 111 operations / 92 schemas / 759 `$ref`s, 0 broken**, verified against the 100 registered route operations (11 are the `/academics/years` alias plus the 5 public `/auth` + `/health` ops). Carries `bearerAuth`, shared 400/401/404/409/429 (+`Retry-After`)/500/502/503 responses, Zod-derived request constraints, `operationId`s, and the honest deviations (404-not-403 ownership, bare-array lists, `UPLOAD_STORAGE_UNAVAILABLE`, provider failures as 200 `success:false`, 1 MB body, in-memory pending actions).
 - **New `backend/tests/contract-safety.test.ts` (15 tests)** — the cross-module regression net: standard 401 envelope on 26 protected probes in every module; success envelope on 16 list endpoints (would have caught the "Request failed (200)" envelope bug); cursor page shape; validation boundaries (`limit=0`/`limit=101`, 65-char `ai-connections` cursor, unparseable date); no DB internals in 409/404 bodies; 404 no longer echoes the query string; `X-Request-Id` present and `X-Powered-By` absent; login does not reveal whether an email exists; ownership answers 404, never 403.
@@ -706,7 +705,7 @@ Remaining work is optional polish, not phase work:
 - **Contract:** `courses/routes.ts` `withEntity()` no longer spreads the entity onto the envelope root — `{success, data}` only, the last envelope anomaly besides `/health`.
 - **Gate:** API 411 tests / 28 files, web 227 tests / 18 files, `tsc` both apps 0, `prisma validate` valid, `next lint` and root `pnpm lint` clean, `next build` 0.
 
-### 2026-10-01 — AI chat UX rebuilt: optimistic messages, modern history, verified in a real browser.
+### 2026-10-01 — AI chat UX rebuilt: optimistic messages, modern history, verified in a real browser
 
 The `/ai` page was functional but had the defects a student notices first: the message you just sent was invisible until the reply came back, history was an undifferentiated list of generic titles, and a brand-new account could not start a conversation at all.
 
@@ -722,7 +721,7 @@ The `/ai` page was functional but had the defects a student notices first: the m
 
 **Retry no longer duplicates.** Both Retry entry points re-posted the failed text as a new message while the failed bubble stayed put, so the student's question appeared twice. `useSendMessage` gained `retryOf` and reuses the failed message's slot instead of appending.
 
-### 2026-09-30 — AI Agent Core closed out. 50 tools, reference resolution, and post-write verification.
+### 2026-09-30 — AI Agent Core closed out. 50 tools, reference resolution, and post-write verification
 
 The agent already read and analysed data and could propose writes, but three things were missing for a trustworthy `PROPOSE → CONFIRM → ACT` loop: the tool surface had holes (no updates for events, grades, resources or courses; no way to reach subtasks, tags, milestones, notifications or the academic structure), a write could only be aimed at a record by raw id, and a service returning `ok` was reported to the student as a completed change without ever being read back.
 
@@ -741,6 +740,7 @@ The agent already read and analysed data and could propose writes, but three thi
 **Verification (`tools/verify.ts`, new).** After each confirmed step, the changed record is re-read **through the same domain service that wrote it** and the approved fields are compared; 96 field mappings cover the 21 mutation tools, and `complete_task` is checked with an `expect` predicate because its outcome is a status it never receives as an argument. `ok && verified` is the only state the assistant may call a success; a write that returned `ok` but did not match on re-read is reported as unverified with the mismatch named. Outcomes are per action and never abort the batch, and `summarizeOutcomes()` is shared by the REST and chat paths so both describe the same outcome identically. The REST confirm endpoint returns `PARTIAL` unless every step is applied **and** verified.
 
 **Three defects found in the verifier by reviewing it after writing it, and fixed:**
+
 - `complete_task` mapped `status` in its field table but the tool takes **no** `status` argument, so the comparison loop skipped it and the action verified on its title alone — a task that was never completed would have been reported as done. Verifiers now take an optional `expect` predicate for an outcome the tool exists to produce.
 - 17 approved tool/field pairs were never re-read: task `description`/`type` (create and update), `focusRating` and `endedAt` (create and update), tag `color`, and `description` on goal, resource (create and update), event (create and update) and course, plus grade `recordedAt` (create and update). Each write verified on the strength of its other fields. All are now mapped: the 21 mutation tools carry 96 approved field mappings between them, and a test compares every WRITE tool's declared arguments against its verifier's fields so this cannot recur.
 - Timestamps were compared **to the day**, so an exam approved for 14:00 and stored at 09:00 on the same day verified. Date-only approvals still compare the day (the tool normalises `"2026-01-15"` to 09:00 local, and only the day was asked for); anything carrying a time now compares the exact instant.
@@ -753,29 +753,34 @@ The agent already read and analysed data and could propose writes, but three thi
 
 **Still not verified:** anything against a real provider (gap #29). Confirmations remain in-memory (gap #30).
 
-### 2026-09-29 — Phase 3 (Integration QA) begun. Gap #25 closed; 3 more runtime defects found by the browser.
+### 2026-09-29 — Phase 3 (Integration QA) begun. Gap #25 closed; 3 more runtime defects found by the browser
 
 The per-package suites were fully green and the AI Connections feature was still **unusable in a browser**. Running the two apps together and driving them with Chromium exposed four defects that no existing test covered. This is the payoff of Phase 3 and the reason gap #11 (no CI) matters: every one of these was invisible to `pnpm test`.
 
-**Environment / database (gap #25)**
+#### Environment / database (gap #25)
+
 - `prisma migrate deploy` is a **no-op** against the dev DB: both migrations sit in `_prisma_migrations` with `applied_steps_count = 0` (they were baselined with `resolve --applied`, gap #15), so Prisma believes the work is done. The dev DB had no `ai_connections` table.
 - `prisma migrate diff` was run first to prove the change was additive — one `CREATE TABLE`, one unique index, one FK, no `DROP` or `ALTER` — then `prisma db push` applied it to `studentos`. Table now has all 10 columns; `prisma.aiConnection.count()` succeeds; the table was left empty (the UI test fixtures were deleted afterwards).
 
 **Bug 1 — missing `ENCRYPTION_KEY` (gap #26)**
+
 - `POST /ai-connections` returned `500 INTERNAL_ERROR_DEV: ENCRYPTION_KEY environment variable is not set`. `vitest.config.ts` supplies the key, so all 261 tests were green.
 - Added a random key to the gitignored `backend/.env` and a documented blank to `.env.example`.
 - `config.encryptionKey` added and checked in `validateConfig()`, so a missing key is now a **boot** failure with the standard message. Verified by temporarily stripping the key from `.env` and confirming the throw, then restoring it. `encryption.ts` still reads `process.env.ENCRYPTION_KEY` directly — `config` exists purely so the value can be validated.
 
-**Bug 2 — the response envelope (gap #27) — the one that broke the UI**
+#### Bug 2 — the response envelope (gap #27) — the one that broke the UI
+
 - All 8 AI Connections success responses returned `{"data": …}` with **no `success` field**. `frontend/lib/api/client.ts:110-113` only unwraps a 2xx body when `success === true`, so the Settings panel rendered `Request failed (200)` plus a retry button on a completely successful response.
 - All 8 now send `{ success: true, data }`. The 404 on `GET /ai-connections/active` now throws `NotFoundError` instead of an ad-hoc `res.status(404).json({ error })` body, so it uses the shared error envelope.
 - **The tests could not have caught this:** they asserted `res.body.data` and never `res.body.success`. 8 regression tests now pin the envelope on every endpoint, including the error shape. API 261 → 269.
 - Audited every other module for the same class of bug — AI Connections was the only offender; all other domains already conformed.
 
-**Bug 3 — wrong API URL (gap #28)**
+#### Bug 3 — wrong API URL (gap #28)
+
 - `frontend/.env.local` set `NEXT_PUBLIC_API_URL=http://localhost:3000/api/v1`, i.e. the web server itself, and `next.config.mjs` defines no rewrite proxy. Every API call 404'd and login was impossible. `.env.local.example` already had the correct `:3001`.
 
-**Verification**
+#### Verification
+
 - API **269/269**, web **77/77**, `tsc --noEmit` clean in both apps, `next lint` clean, `pnpm build` 2/2, `prisma migrate status` up to date.
 - Browser E2E (Chromium, `pnpm dev`): login → Settings → empty state → create Ollama connection → row renders → persists across reload → activate → delete → empty state restored. No credential material present in the DOM.
 
@@ -783,19 +788,23 @@ The per-package suites were fully green and the AI Connections feature was still
 
 **Still unfixed.** Gaps #26 and #28 exist only in gitignored files, so a fresh clone still fails to boot and cannot log in. Closing gap #22 (`.env.example` gitignored) is now a prerequisite, not a nicety.
 
-### 2026-09-28 — Phase 2 closed out. 3 test failures fixed + the AI Connections settings UI.
+### 2026-09-28 — Phase 2 closed out. 3 test failures fixed + the AI Connections settings UI
 
-**Environment**
+#### Environment
+
 - `backend/.env` pointed at a PostgreSQL role `elyassql` that does not exist on this machine (only `postgres` does). Every API suite failed in `beforeAll`, so 261 tests reported as **skipped** and 0 actually ran. Both URLs now use the `postgres` role. New gap #24 records the failure mode.
 
-**Contract decisions (both were previously undecided; see gap #20)**
+#### Contract decisions (both were previously undecided; see gap #20)
+
 - *Ollama needs no key.* `credentials` became optional in the type and is required at runtime for every other provider. `isCredentialFreeProvider()` + `CREDENTIAL_FREE_PROVIDERS` live in `ai-connections/schema.ts`; the same rule is restated in `superRefine` in `CreateAiConnectionSchema`, `TestConnectionInputSchema` **and** the shared `createBodySchema` route validator, so a bad request is rejected at the edge with the usual 400 either way. `createConnection` stores an encrypted empty string because `credentialsEncrypted` is non-nullable; `parseProviderCredentials("")` already returns `{}`.
 - *One connection per provider is intended.* `@@unique([userId, provider])` stays. The "activates only one connection at a time" test now builds its two fixtures from **different** providers (openai + anthropic), which still proves that activating one deactivates the other.
 
-**Bug fix**
+#### Bug fix
+
 - `AiProviderNotConfiguredError` extended plain `Error`, so the documented 503 fell through `globalErrorHandler` as a 500 `INTERNAL_ERROR_DEV`. It now extends `ApiError` (503 `AI_PROVIDER_NOT_CONFIGURED`), and a sibling `AiProviderError` (502 `AI_PROVIDER_ERROR`) was added so provider failures are also controlled rather than 500s.
 
-**New — frontend AI Connections (the last unimplemented Phase 2 item)**
+#### New — frontend AI Connections (the last unimplemented Phase 2 item)
+
 - `features/ai-connections/ai-connections-api.ts` — transport only, via `api.*`.
 - `features/ai-connections/hooks.ts` — TanStack Query hooks under the `["ai-connections"]` key.
 - `features/ai-connections/connection-form.tsx` — create/edit dialog. Exports `connectionFormSchema` so it can be unit-tested without rendering, matching the `academic-forms` precedent. Sends a bare key string, which the API's `parseProviderCredentials` already accepts as the key itself.
@@ -804,22 +813,26 @@ The per-package suites were fully green and the AI Connections feature was still
 - `AiConnectionsPanel` is a **section on `/settings`**, not a nav item and not a separate page.
 - Keys are write-only by design: the API never returns them, so the edit form leaves the field blank and `toPayload` omits an empty `credentials` to preserve the stored key.
 
-**Tests**
+#### Tests
+
 - `frontend/tests/ai-connections.test.ts` — 9 new tests over the provider-label helpers and `connectionFormSchema` (per-provider key requirement, ollama without a key, endpoint requirement for ollama/custom, blank-as-absent).
 - `tests/ai-connections.test.ts` — the activate test's fixtures changed to two providers. No assertions were weakened.
 
 Verification (see §12 for the full table)
+
 - API **261/261**, web **77/77**, `tsc` clean in both apps, `pnpm build` 2/2, `next lint` clean.
 
-### 2026-09-27 — Structure cleanup (Phase 2 → pre-Phase-3). No behaviour changed.
+### 2026-09-27 — Structure cleanup (Phase 2 → pre-Phase-3). No behaviour changed
 
 Moved
+
 - `frontend/features/api-types.ts` → `frontend/types/api-types.ts`; 55 import sites rewritten `@/features/api-types` → `@/types/api-types`.
 - 11 colocated web tests + `src/test/setup.ts` → flat `frontend/tests/`; `vitest.config.ts` `include`/`setupFiles` and the `lint` script updated.
 - `backend/verify_phase1.sh` → `scripts/verify-prisma-baseline.sh` (absolute machine path replaced with a script-relative one).
 - `QA_FINAL_REPORT.md`, `frontend/FRONTEND_PROGRESS.md`, `Phase2-Audit.md` → `docs/audits/`; `backend/openapi.yaml` → `docs/api/`. Each archived doc got a one-line "Archived historical snapshot" banner.
 
 Deleted (each proven unreferenced or duplicated — see §13 for the full audit trail)
+
 - `backend/types/semesters.ts` — zero importers; duplicated types already derived from Zod.
 - `backend/src/schema/academics.ts` — 113-line duplicate Zod layer; the real validation is in `academic-years/schema.ts` and `semesters/schema.ts`. Its two live type exports moved into `academic-years/schema.ts`.
 - `apps/api/src/modules/ai-connections/index.ts` (old layout; deleted, no replacement) — orphan barrel; no other module has one, nothing imported it.
@@ -829,6 +842,7 @@ Deleted (each proven unreferenced or duplicated — see §13 for the full audit 
 - 11 empty directories: `apps/mobile/`, `packages/config/`, `packages/ui/`, `packages/shared/src/{types,utils,constants}/`, `docs/{architecture,database,decisions,product}/`, `.github/`.
 
 Config
+
 - `package.json`: removed the npm `workspaces` array (duplicate of `pnpm-workspace.yaml`); `start` now uses pnpm.
 - `packages/shared/package.json`: dropped the three dead export subpaths.
 - `turbo.json`: `test.inputs` now covers `frontend/{src,tests}/**`.
@@ -836,11 +850,13 @@ Config
 - `backend/src/routes/ai-connections.ts`: auth import aligned with the other 16 route files.
 
 Deliberately **not** done
+
 - No new `src/middleware/`, `src/utils/`, `types/`, `features/hooks/` or `schemas/` folder — nothing warranted them.
 - `src/routes/index.ts` kept as the single router aggregator.
 - Duplicate JWT implementations (gap #4), the 3 unused UI primitives, and the 3 unreferenced shared schemas left in place and documented rather than deleted.
 
 Verification (see §12 for the full table)
+
 - Web: 68/68 tests, `tsc --noEmit` clean, `next build` 20 routes, `next lint` clean.
 - API: 249/261 tests pass, 12 failures and 4 `tsc` errors — **all pre-existing**, proven by restoring the pre-cleanup files and reproducing them identically.
 - Prisma: schema valid; `migrate status` up to date with 2 migrations.
@@ -865,4 +881,4 @@ Could not be confirmed from the repository, so treat as unknown rather than assu
 - **Intended mobile client.** The OpenAPI description mentions "web and mobile clients", but only a web client exists in this monorepo. No mobile code, no API versioning/deprecation policy.
 - **Seed credentials beyond the demo user.** `prisma/seed.ts` creates `demo@studentos.dev` with password `StudentPass123!` (Alex Rivera) and at least one further user (Bob), but the full seeded roster and its credentials were not enumerated.
 - **Database contents of the local dev database** (`studentos` on port 5432) and whether the local PostgreSQL instance is meant to be shared or per-developer.
-- **Whether the AI provider was ever exercised against a real endpoint.** Superseded: a real OpenRouter completion was seen on the wire on 2026-10-01 (see [§12](#12-test--build-status-verified-2026-10-01)), though the free model was intermittently 429 and does not reliably call write tools (gap #33). Gemini, Anthropic, Ollama and the custom endpoint remain unverified against a live endpoint.
+- **Whether the AI provider was ever exercised against a real endpoint.** Superseded: a real OpenRouter completion was seen on the wire on 2026-10-01 (see [§12](#12-test--build-status-verified-2026-10-07)), though the free model was intermittently 429 and does not reliably call write tools (gap #33). Gemini, Anthropic, Ollama and the custom endpoint remain unverified against a live endpoint.
