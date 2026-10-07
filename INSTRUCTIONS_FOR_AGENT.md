@@ -27,7 +27,7 @@ git status --short
 git log --oneline -5
 ```
 
-The working tree is **currently dirty with substantial uncommitted work**. `git diff` before assuming any file is in its committed state, and never discard changes you did not make.
+The working tree is **currently clean** — the folder migration is committed as `18b4f3a` on `task/studentos-folder-migration` (the commit is **not pushed**). Run `git status --short` before assuming any file is in its committed state, and never discard changes you did not make.
 
 ### 2. Inspect only the relevant files
 

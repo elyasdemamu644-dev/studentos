@@ -64,8 +64,8 @@ Design intent, as evidenced by the code:
 | Field | Value |
 |---|---|
 | Phase | **Phase 3 (capstone) complete 2026-10-07.** All phases are closed: Phase 0 (regenerated migrations), Phase 1 (backend foundation), Phase 2 (OpenAPI + contract safety + production readiness), Phase 3 (production config guardrails, owner indexes, IDOR sweep, migration deploy verification, live smoke, docs refresh). |
-| Last committed checkpoint | `96c106e` — *fix: restore ESNext/Bundler module resolution after the Vercel merge* (on `main`, pushed to `origin/main`) |
-| Working tree | **Folder migration in progress, uncommitted** — untracked `backend/` + `frontend/`, unstaged deletions of the 285 `apps/**` files, modified root configs. Nothing staged, committed or pushed on this branch. |
+| Last committed checkpoint | `18b4f3a` — *refactor: reorganize StudentOS project structure* (on `task/studentos-folder-migration`, **not pushed**); `main` is still at `96c106e`, in sync with `origin/main` |
+| Working tree | **Clean.** The folder migration is committed as `18b4f3a` on this branch — 285 renames `apps/api`→`backend/`, `apps/web`→`frontend/`, 8 modified root files, 0 deletions. Nothing pushed yet. |
 | Tests | API **422/422 pass** (29 files), Web **227/227 pass** (18 files) — 0 failures, re-run 2026-10-07. |
 | Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-07. |
 | Lint | `next lint` **clean** (web only, `app`, `components`, `features`, `lib`, `types`, `tests`); root `pnpm lint` clean. No lint config exists for the API — `tsc` is its gate. |
@@ -76,17 +76,17 @@ Design intent, as evidenced by the code:
 
 ## 3. Git & checkpoint state
 
-Branch `task/studentos-folder-migration` (opened for the `apps/*` → `backend/` + `frontend/` folder migration; the migration itself is still uncommitted). Most recent commits (`git log --oneline`):
+Branch `task/studentos-folder-migration` (the `apps/*` → `backend/` + `frontend/` folder migration, committed as `18b4f3a`, **not yet pushed**). Most recent commits (`git log --oneline`):
 
 ```
+18b4f3a  refactor: reorganize StudentOS project structure
 96c106e  fix: restore ESNext/Bundler module resolution after the Vercel merge
-9cee0c2  Merge remote branch 'origin/main'
+9cee0c2  Merge remote-tracking branch 'origin/main'
 2577a8b  phase3: apply migrations in CI before the API tests
 7b44461  phase3: production config guardrails, owner indexes migration, IDOR sweep + config tests
-4f03cc6  phase2: regenerate full OpenAPI spec, contract-safety tests, production-readiness hardening
 ```
 
-`main` is **in sync with `origin/main`** — everything through `96c106e` has been pushed. The folder migration exists only in this branch's working tree (untracked `backend/` + `frontend/`, unstaged deletions of the 285 `apps/**` files, modified root configs); no `git add`, commit or push has happened for it. Gaps #22, #26 and #28 still live only in gitignored files (`backend/.env`, `frontend/.env.local`), so a fresh clone must create them itself — the README setup steps do exactly that.
+`main` is **in sync with `origin/main`** — everything through `96c106e` has been pushed. The folder migration is committed only on this branch (`18b4f3a`: 285 renames into `backend/` + `frontend/`, 8 modified root configs, 0 deletions) and has **not been pushed**; `main` still describes the pre-migration `apps/api` + `apps/web` layout. Gaps #22, #26 and #28 still live only in gitignored files (`backend/.env`, `frontend/.env.local`), so a fresh clone must create them itself — the README setup steps do exactly that.
 
 ---
 
@@ -218,7 +218,7 @@ Every branch logs the underlying error with a `req_*` request id and returns a *
 | ai | `GET/POST /ai/conversations`, `GET/DELETE /ai/conversations/:id`, `GET/POST /ai/conversations/:id/messages`, `GET/POST /ai/study-plans`, `GET/PATCH/DELETE /ai/study-plans/:id`, `GET /ai/study-plans/:id/entries`, `PATCH /ai/study-plans/:id/entries/:entryId` |
 | ai connections | `GET/POST /ai-connections`, `GET/PATCH/DELETE /ai-connections/:id`, `GET /ai-connections/active`, `POST /ai-connections/test` (ad-hoc, unsaved creds), `POST /ai-connections/:id/test` (saved, server-side creds), `POST /ai-connections/:id/activate` |
 
-`POST /notifications/generate` and `GET /courses/:id/summary` are recent additions in the uncommitted working tree.
+`POST /notifications/generate` and `GET /courses/:id/summary` are recent additions.
 
 **`GET /ai-connections/active` must be registered before `GET /ai-connections/:id`**, otherwise Express matches the literal `active` as an `:id` and 404s it. Same trap applies to any future literal-path route in a `/:id` router.
 
