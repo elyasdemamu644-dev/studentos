@@ -142,17 +142,52 @@ export const aiService = {
       // providers that have no native tool support.
       const context = await studentContextBuilder.toPrompt(userId);
 
-      const history = await prisma.aiMessage.findMany({
+      // Newest first: the window has to be the *latest* turns, and the ids are
+      // needed to recognise a retry of a question that is still unanswered.
+      const recent = await prisma.aiMessage.findMany({
         where: { conversationId },
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         take: 30,
-        select: { role: true, content: true },
+        select: { id: true, role: true, content: true },
       });
 
       const student = await prisma.user.findUnique({
         where: { id: userId },
         select: { firstName: true },
       });
+
+      // Persist the user message before invoking the provider. The question must
+      // survive provider failures: when the provider is unreachable or returns
+      // a non-2xx response, only the message row is stored (no reply), so the
+      // client can reconcile its transcript and the student never loses their
+      // input.
+      //
+      // A re-post of the exact question that is still waiting for an answer is
+      // a *retry* of that stored row (the previous attempt persisted it, then
+      // the provider failed), never a second copy of it.
+      const unanswered = recent[0];
+      const isRetry = Boolean(
+        unanswered && unanswered.role === "USER" && unanswered.content === input.content,
+      );
+
+      const userMessage = isRetry
+        ? await prisma.aiMessage.update({
+            where: { id: unanswered!.id },
+            data: { contextSnapshot: context },
+          })
+        : await prisma.aiMessage.create({
+            data: { conversationId, userId, role: "USER", content: input.content, contextSnapshot: context },
+          });
+      await touchConversation(conversationId);
+
+      // Chronological order, newest window only: `runAgent` replays the last
+      // few turns of what it is given, so handing it newest-first would replay
+      // the oldest messages in the window. A retried question is dropped here
+      // because it is the live turn, not history.
+      const history = recent
+        .filter((message) => !isRetry || message.id !== unanswered!.id)
+        .reverse()
+        .map((message) => ({ role: message.role, content: message.content }));
 
       const run = await runAgent({
         provider,
@@ -164,21 +199,16 @@ export const aiService = {
         context,
       });
 
-      // A write was requested but not approved: park the exact calls so the
-      // student can approve them with one click or one "create it".
       const pending = run.proposedActions.length
         ? storeProposal(userId, conversationId, run)
         : confirmationStore.getPending(userId, conversationId);
 
-      // Persist user message + assistant reply in a transaction.
-      const [userMessage, assistantMessage] = await prisma.$transaction([
-        prisma.aiMessage.create({
-          data: { conversationId, userId, role: "USER", content: input.content, contextSnapshot: context },
-        }),
-        prisma.aiMessage.create({
-          data: { conversationId, userId, role: "ASSISTANT", content: run.content },
-        }),
-      ]);
+      // Persist the assistant reply. A provider failure never reaches this
+      // line, so a failed request cannot leave a fake assistant message behind.
+      const assistantMessage = await prisma.aiMessage.create({
+        data: { conversationId, userId, role: "ASSISTANT", content: run.content },
+      });
+      await touchConversation(conversationId);
 
       return {
         message: mapMessage(userMessage),
@@ -200,6 +230,7 @@ export const aiService = {
     const message = await prisma.aiMessage.create({
       data: { conversationId, userId, role, content: input.content },
     });
+    await touchConversation(conversationId);
 
     return {
       message: mapMessage(message),
@@ -446,6 +477,20 @@ async function assertConversationOwnership(userId: string, conversationId: strin
     where: { id: conversationId, userId },
   });
   if (!conversation) throw new NotFoundError("Conversation not found");
+}
+
+/**
+ * Bump the conversation's recency when a message lands on it.
+ *
+ * Prisma does not touch a parent row when a child is created, and the history
+ * sidebar is ordered and date-grouped by `updatedAt` — without this a
+ * conversation the student is actively writing in never moves back to the top.
+ */
+async function touchConversation(conversationId: string): Promise<void> {
+  await prisma.aiConversation.update({
+    where: { id: conversationId },
+    data: { updatedAt: new Date() },
+  });
 }
 
 async function assertStudyPlanOwnership(userId: string, studyPlanId: string): Promise<void> {

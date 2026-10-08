@@ -2,7 +2,7 @@
 
 > **Snapshot:** 2026-09-29, after the first Phase 3 (Integration QA) browser pass. Every claim below was read from code or produced by running a command in this repo. Anything not verifiable is listed in [Unverified](#unverified).
 > **Scope:** this file is the onboarding document for AI agents. Human setup lives in [README.md](README.md); agent workflow rules live in [INSTRUCTIONS_FOR_AGENT.md](INSTRUCTIONS_FOR_AGENT.md).
-> **Latest AI work:** Phase 3 browser QA — Gap #25 closed and 3 runtime defects fixed — see [§17 Change log](#17-latest-ai-work--change-log).
+> **Latest AI work:** AI Assistant chat made persistent and context-aware — history window, retry dedupe, conversation recency and reload correctness — see [§17 Change log](#17-latest-ai-work--change-log).
 
 ---
 
@@ -65,9 +65,9 @@ Design intent, as evidenced by the code:
 | --- | --- |
 | Phase | **Phase 3 (capstone) complete 2026-10-07.** All phases are closed: Phase 0 (regenerated migrations), Phase 1 (backend foundation), Phase 2 (OpenAPI + contract safety + production readiness), Phase 3 (production config guardrails, owner indexes, IDOR sweep, migration deploy verification, live smoke, docs refresh). |
 | Last committed checkpoint | `18b4f3a` — *refactor: reorganize StudentOS project structure* (on `task/studentos-folder-migration`, **not pushed**); `main` is still at `96c106e`, in sync with `origin/main` |
-| Working tree | **Clean.** The folder migration is committed as `18b4f3a` on this branch — 285 renames `apps/api`→`backend/`, `apps/web`→`frontend/`, 8 modified root files, 0 deletions. Nothing pushed yet. |
-| Tests | API **422/422 pass** (29 files), Web **227/227 pass** (18 files) — 0 failures, re-run 2026-10-07. |
-| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-07. |
+| Working tree | **Uncommitted (intentionally).** The folder migration is committed as `18b4f3a`; the AI Assistant chat work (see §17) is a modified working tree of 5 files — `backend/src/services/ai/service.ts`, `backend/tests/ai-tools.test.ts`, `frontend/app/(dashboard)/ai/page.tsx`, `frontend/components/domain/ai-chat.tsx`, `frontend/tests/ai-chat-flow.test.tsx`. Nothing pushed yet. |
+| Tests | API **432/432 pass** (29 files), Web **230/230 pass** (18 files) — 0 failures, re-run 2026-10-08. |
+| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-08. |
 | Lint | `next lint` **clean** (web only, `app`, `components`, `features`, `lib`, `types`, `tests`); root `pnpm lint` clean. No lint config exists for the API — `tsc` is its gate. |
 | CI | **`.github/workflows/ci.yml` exists** — api job (postgres:16 service, `prisma migrate deploy` into an empty test DB, tests, `tsc`, build), web job, lint job. API path replayed locally: green. |
 | Overall | Green: suites, typecheck, lint, builds, `prisma validate`, `migrate status`, and a live HTTP smoke run. Docs describe the current state. |
@@ -507,10 +507,12 @@ pnpm dev
 
 ## 12. Test & build status (verified 2026-10-07)
 
+> Re-verified **2026-10-08** after the AI Assistant chat fixes ([§17](#17-latest-ai-work--change-log)): API 432 / web 230 green, `tsc` both apps clean, `next lint` clean, `next build` clean.
+
 | Suite | Command | Result | Time |
 | --- | --- | --- | --- |
-| API | `pnpm --filter @studentos/api test` | **29 files, 422 tests — 0 fail** | ~75 s |
-| Web | `pnpm --filter @studentos/web test` | **18 files, 227 tests — 0 fail** | ~17 s |
+| API | `pnpm --filter @studentos/api test` | **29 files, 432 tests — 0 fail** | ~70 s |
+| Web | `pnpm --filter @studentos/web test` | **18 files, 230 tests — 0 fail** | ~12 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
 | API build | `pnpm --filter @studentos/api build` | **pass** — `tsc` gate (`dist/` is not the runtime; `start` runs `tsx src/server.ts`) | ~8 s |
 | Web typecheck | `pnpm --filter @studentos/web exec tsc --noEmit` | **pass** (exit 0) | ~20 s |
@@ -555,7 +557,7 @@ Both suites are **flat**, next to the app they test, never colocated with source
 
 **API** (`backend/tests/`, 29 files + `helpers.ts` + `setup.ts`): `academics`, `ai`, `ai-connections`, `ai-provider-resolution`, `ai-tools`, `auth`, `contract-safety`, `course-summary`, `courses`, `cross-user`, `dashboard`, `dashboard-command-center`, `encryption-provider-ai-connections`, `error-envelope`, `events`, `goals`, `grades`, `health`, `integration`, `malformed-body`, `notes`, `notifications`, `production-config`, `resources`, `settings`, `study-sessions`, `subtasks`, `task-tags`, `tasks`.
 
-`ai-tools.test.ts` is the AI agent suite: registry registration and JSON-Schema conversion, argument handling and error safety, real-data scoping, the WRITE confirmation gate, the confirmation store, the agent loop (tool round-trip, round limit, **call and proposal budgets**, proposal-then-prose, provider fallback), provider tool-call support, the HTTP surface, natural references, post-write verification (including a check that **every field a write tool can change is re-read**), and verified batch outcomes.
+`ai-tools.test.ts` is the AI agent suite: registry registration and JSON-Schema conversion, argument handling and error safety, real-data scoping, the WRITE confirmation gate, the confirmation store, the agent loop (tool round-trip, round limit, **call and proposal budgets**, proposal-then-prose, provider fallback), provider tool-call support, the HTTP surface, natural references, post-write verification (including a check that **every field a write tool can change is re-read**), verified batch outcomes, and the **chat persistence surface** — question kept across a provider failure, retry reusing the stored row, the newest-history window, `updatedAt` recency, per-conversation transcript isolation, and the academic context snapshot (own data only, stored on the question).
 
 **Web** (`frontend/tests/`, 18 files + `setup.ts`): `academic-forms`, `ai-chat-flow` (tsx), `ai-chat-utils`, `ai-connections`, `ai-pending-action` (ts), `ai-transcript-scroll`, `ai-workspace`, `app-shell`, `calendar-page`, `errors`, `exam-utils`, `format`, `labels`, `notification-utils`, `task-form`, `theme-system`, `themes`, `utils`.
 
@@ -680,11 +682,23 @@ Remaining work is optional polish, not phase work:
 3. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
 4. **Implement or remove the parked features** — S3 uploads, notification delivery/notification scheduler, recurring tasks.
 5. **Fix the `.env.example` gitignore rule** so a fresh clone can copy it (gap #22), and decide the fate of the 3 unreferenced shared schemas (gap #21) and of `resolveUserConnection` (masked credential — `getActiveUserConnection` is the real one).
-6. **`AiProviderError` (502)** is declared but never thrown — wire provider HTTP failures to it or drop it.
+6. ~~**`AiProviderError` (502)** is declared but never thrown~~ — **resolved**: `provider.ts` throws it for a non-2xx upstream response and for an empty completion, and the chat persistence tests assert the 502 `AI_PROVIDER_ERROR` path (question kept, no reply stored).
 
 ---
 
 ## 17. Latest AI work / change log
+
+### 2026-10-08 — AI Assistant chat: history window, durable retry, recency, reload correctness
+
+The chat already had optimistic messaging, history grouping and confirmation. What it did not have was a *correct* conversation memory: long conversations forgot their recent turns, a retry could store the question twice, the sidebar's ordering went stale while you typed, and a page about to restore a conversation flashed its empty state.
+
+- **History window bug** (`backend/src/services/ai/service.ts`). The service fetched the newest 30 messages (`orderBy: "desc"`, `take: 30`) and passed that array straight to `runAgent`, whose `buildHistory` keeps only the **last 12** — i.e. the oldest 12 of the window. A long conversation therefore replayed its *oldest* turns. The window is now reversed into chronological order before `runAgent` (and the retried question is excluded — it is the live turn, not history). Pinned by "sends the most recent conversation history to the model".
+- **Retry no longer duplicates, now enforced server-side.** The user message is persisted *before* the provider runs (so a 502 never loses the question), which meant re-posting the same unanswered text created a second copy. The newest stored row is now reused when it is a `USER` row with identical content: it is updated (with a fresh context snapshot) instead of inserted, and its id comes back as `data.message.id`. The client-side `retryOf` slot reuse from 2026-10-01 is now matched by the server.
+- **`conversation.updatedAt` moves when a message lands.** Prisma does not touch a parent row on child create, so the `updatedAt`-ordered, date-grouped sidebar went stale while a student was actively writing. `touchConversation()` bumps it after the user message, after the assistant reply, and on the store-only path.
+- **Frontend loading / empty-state gating** (`frontend/app/(dashboard)/ai/page.tsx`). `messagesLoading` now separates "history list not settled" (`conversations.isPending || !restored`) from "this transcript not loaded yet", so a page about to restore a conversation no longer advertises an empty one. `MessageList` reports a load failure when *either* query failed, its retry refetches the right query, and the empty branch also renders the pending proposal and the send-failure banner. This also removed the stale-DOM click target the empty-state tests were hitting while the messages query toggled loading.
+- **Banner retry after the reconcile refetch.** The server's copy of a persisted-but-failed question carries no `failed` marker, so the banner's Retry had nothing to send. The page now remembers `failedText` alongside the error and reuses the matching cached slot's id.
+- **New tests:** 5 API (`keeps every conversation's transcript to itself`; context snapshot carries the student's own courses and never another student's; the snapshot survives on the stored row; the context is rebuilt from the authenticated student's own records; store-only messages carry no snapshot) and 2 web (opening a conversation fetches *its* transcript and drops the previous one; a reload lands back in the remembered conversation).
+- **Gate:** API 432 tests / 29 files, web 230 tests / 18 files, `tsc` both apps 0, `next lint` clean, `next build` 0.
 
 ### 2026-10-07 — Phase 3 (capstone): production safety, database safety, verification, docs
 

@@ -70,6 +70,11 @@ export default function AiPage() {
   const [newType, setNewType] = useState<ConversationType>("CHAT");
   const [unconfigured, setUnconfigured] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);
+  // The text of the send that failed. Kept apart from `sendError` because the
+  // transcript is reconciled against the server after a failure: the stored
+  // copy of the question comes back without its `failed` marker, so the banner
+  // would otherwise have nothing left to retry.
+  const [failedText, setFailedText] = useState<string | null>(null);
   const [liveActivity, setLiveActivity] = useState<AiToolActivity[]>([]);
   // Tool activity is returned with the reply but never persisted, so it is
   // only ever shown against the single message that produced it.
@@ -117,9 +122,18 @@ export default function AiPage() {
   const messageItems = useMemo(() => messages.data ?? [], [messages.data]);
   const proposal = pendingAction.data ?? null;
   const generating = sendMessage.isPending;
+  // The history list has to have answered before "no conversation here" means
+  // anything. Until it does, the panel shows the loading skeleton rather than
+  // the empty state — otherwise a page that is about to restore a conversation
+  // advertises an empty one, and the suggestions it flashes are dead on arrival.
+  const historyFailed = conversations.isError;
+  const historyLoading = !historyFailed && (conversations.isPending || !restored);
   // A disabled query reports `isPending` forever, which would pin the skeleton
-  // on screen when there is no conversation yet.
-  const messagesLoading = Boolean(selectedId) && messages.isFetching;
+  // on screen when there is no conversation yet — so this is "the selected
+  // conversation has no data yet", not "a refetch is in flight".
+  const messagesPending =
+    Boolean(selectedId) && messages.data === undefined && !messages.isError;
+  const messagesLoading = historyLoading || messagesPending;
 
   // Restore the conversation the student left open, falling back to the most
   // recent one.
@@ -139,6 +153,7 @@ export default function AiPage() {
     setSelectedId(id);
     setDraft("");
     setSendError(null);
+    setFailedText(null);
     setLiveActivity([]);
     setActivityRun(null);
   }, []);
@@ -146,6 +161,7 @@ export default function AiPage() {
   const startConversation = useCallback(
     (type: ConversationType = newType) => {
       setSendError(null);
+      setFailedText(null);
       void createConversation
         .mutateAsync({ type })
         .then((conversation) => {
@@ -177,6 +193,7 @@ export default function AiPage() {
       sendingRef.current = true;
       setDraft("");
       setSendError(null);
+      setFailedText(null);
       setLiveActivity([]);
       setActivityRun(null);
 
@@ -217,7 +234,10 @@ export default function AiPage() {
         .catch((error) => {
           if (controller.signal.aborted) return;
           if (isAiNotConfigured(error)) setUnconfigured(true);
-          else setSendError(error);
+          else {
+            setSendError(error);
+            setFailedText(text);
+          }
         })
         .finally(() => {
           sendingRef.current = false;
@@ -426,9 +446,14 @@ export default function AiPage() {
               conversationId={selectedId}
               messages={messageItems}
               isLoading={messagesLoading}
-              isError={messages.isError}
-              error={messages.error}
-              onRetryLoad={() => void messages.refetch()}
+              // A failing history load is a load failure too: without it the
+              // panel would present "no conversations" as an empty account.
+              isError={messages.data === undefined && (messages.isError || historyFailed)}
+              error={messages.isError ? messages.error : conversations.error}
+              onRetryLoad={() => {
+                if (messages.isError) void messages.refetch();
+                else void conversations.refetch();
+              }}
               generating={generating}
               liveActivity={liveActivity}
               activityRun={activityRun}
@@ -457,12 +482,17 @@ export default function AiPage() {
                   <MessageError
                     error={sendError}
                     onRetry={() => {
-                      // Retry the message that actually failed, in place. Falling
-                      // back to the last user message would append a second copy.
-                      const failed = [...messageItems]
+                      // Retry the question that actually failed, in place. The
+                      // transcript is reconciled against the server after a
+                      // failure, so the stored copy of it has lost its `failed`
+                      // marker — the remembered text is what still identifies
+                      // the turn. Its cache slot is reused when it is still
+                      // there, so the student's words stay on screen once.
+                      if (!failedText) return;
+                      const slot = [...messageItems]
                         .reverse()
-                        .find((m) => m.role === "USER" && m.failed);
-                      if (failed) send(failed.content, failed.id);
+                        .find((m) => m.role === "USER" && m.content === failedText);
+                      send(failedText, slot?.id);
                     }}
                   />
                 </div>

@@ -790,8 +790,17 @@ export function MessageList({
   empty,
   ...props
 }: MessageListProps & { empty: ReactNode }) {
+  // The children (a pending proposal, a send failure with its Retry) still
+  // belong on screen over the empty state: a question that failed before
+  // anything was stored leaves an empty transcript, and the student must still
+  // be able to read the error and retry it.
   if (!props.isLoading && !props.isError && messages.length === 0) {
-    return <div className="flex min-h-0 flex-1 flex-col">{empty}</div>;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {empty}
+        {props.children}
+      </div>
+    );
   }
   return <Transcript messages={messages} {...props} />;
 }

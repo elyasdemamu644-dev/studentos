@@ -1196,6 +1196,308 @@ describe("AI HTTP surface: tool activity, proposals and confirmations", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe("AI HTTP surface: persistence around a failing provider", () => {
+  beforeEach(async () => {
+    const a = await seedStudent("persistence", "STAT201", "Statistics");
+    userA = { token: a.token, id: a.id };
+    courseA = a.courseId;
+    useFakeConnection();
+  });
+
+  async function newConversation() {
+    const created = await authRequestJson("post", `${BASE}/ai/conversations`, userA.token, { title: "Durable" });
+    return created.body.data.id as string;
+  }
+
+  function failingFetch() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        json: async () => ({ error: { message: "upstream boom" } }),
+        text: async () => "upstream boom",
+      })),
+    );
+  }
+
+  it("keeps the student's message when the provider fails, storing no reply", async () => {
+    failingFetch();
+    const conversationId = await newConversation();
+
+    const res = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content: "Explain recursion",
+    });
+    expect(res.status).toBe(502);
+    expect(res.body.error?.code).toBe("AI_PROVIDER_ERROR");
+
+    // The question must survive the failure: the client reconciles its
+    // transcript against this list, and losing the row would silently drop
+    // what the student typed.
+    const stored = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+    );
+    expect(stored.body.data).toHaveLength(1);
+    expect(stored.body.data[0]).toMatchObject({ role: "USER", content: "Explain recursion" });
+  });
+
+  it("reuses the stored question on retry instead of duplicating it", async () => {
+    failingFetch();
+    const conversationId = await newConversation();
+    const content = "What is dynamic programming?";
+
+    await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content,
+    });
+    const afterFailure = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+    );
+    const storedId = afterFailure.body.data[0]?.id as string | undefined;
+    expect(storedId).toBeTruthy();
+
+    const script = scriptedFetch([textTurn("Break it into overlapping subproblems.")]);
+    vi.stubGlobal("fetch", script.mock);
+    const retry = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+      { content },
+    );
+    expect(retry.status).toBe(201);
+    // The retry re-sent the same text: it must answer into the stored
+    // question's slot, not raise a second copy of what the student typed.
+    expect(retry.body.data.message.id).toBe(storedId);
+
+    const stored = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+    );
+    expect(stored.body.data.map((m: { role: string }) => m.role)).toEqual(["USER", "ASSISTANT"]);
+    expect(stored.body.data[0].content).toBe(content);
+  });
+
+  it("sends the most recent conversation history to the model", async () => {
+    const conversationId = await newConversation();
+
+    for (let i = 1; i <= 40; i += 1) {
+      await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+        content: `History message ${i}`,
+        generateReply: false,
+      });
+    }
+
+    const script = scriptedFetch([textTurn("An answer grounded in the recent turns.")]);
+    vi.stubGlobal("fetch", script.mock);
+    const res = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+      { content: "Fresh question" },
+    );
+    expect(res.status).toBe(201);
+
+    const sent = script.bodies[0].messages as Array<{ role: string; content: string }>;
+    const transcript = sent.map((m) => String(m.content ?? "")).join("\n");
+    // The window must be the newest turns, not the first ones: a long
+    // conversation that cannot see its own recent history is broken.
+    expect(transcript).toContain("History message 40");
+    expect(transcript).not.toContain("History message 1");
+    // The live question is the current turn, never also buried in history.
+    expect(sent.filter((m) => m.content === "Fresh question")).toHaveLength(1);
+  });
+
+  it("marks the conversation recent when a message lands", async () => {
+    const conversationId = await newConversation();
+    const before = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${conversationId}`,
+      userA.token,
+    );
+    const beforeAt = Date.parse(before.body.data.updatedAt);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content: "Still chatting",
+      generateReply: false,
+    });
+
+    const after = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${conversationId}`,
+      userA.token,
+    );
+    // The sidebar orders and date-groups by this field, so a conversation the
+    // student is actively writing in must rank as recent.
+    expect(Date.parse(after.body.data.updatedAt)).toBeGreaterThan(beforeAt);
+  });
+
+  it("lists the student's question before the reply", async () => {
+    const conversationId = await newConversation();
+    const script = scriptedFetch([textTurn("Answered.")]);
+    vi.stubGlobal("fetch", script.mock);
+
+    const res = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+      { content: "Order me" },
+    );
+    expect(res.status).toBe(201);
+
+    const stored = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+    );
+    expect(stored.body.data.map((m: { role: string }) => m.role)).toEqual(["USER", "ASSISTANT"]);
+    const [userRow, assistantRow] = stored.body.data;
+    expect(Date.parse(userRow.createdAt)).toBeLessThanOrEqual(Date.parse(assistantRow.createdAt));
+  });
+
+  it("keeps every conversation's transcript to itself", async () => {
+    const first = await newConversation();
+    const second = await newConversation();
+
+    await authRequestJson("post", `${BASE}/ai/conversations/${first}/messages`, userA.token, {
+      content: "Only in the first chat",
+      generateReply: false,
+    });
+    await authRequestJson("post", `${BASE}/ai/conversations/${second}/messages`, userA.token, {
+      content: "Only in the second chat",
+      generateReply: false,
+    });
+
+    const firstList = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${first}/messages`,
+      userA.token,
+    );
+    const secondList = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${second}/messages`,
+      userA.token,
+    );
+
+    expect(firstList.body.data.map((m: { content: string }) => m.content)).toEqual([
+      "Only in the first chat",
+    ]);
+    expect(secondList.body.data.map((m: { content: string }) => m.content)).toEqual([
+      "Only in the second chat",
+    ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The question is stored with a snapshot of the student's own StudentOS data,
+// so a reload (or a later turn) can still see what grounded the answer — and
+// one student's data must never appear in another's snapshot.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Academic context on the stored question", () => {
+  beforeEach(async () => {
+    const a = await seedStudent("context-a", "STAT201", "Statistics");
+    userA = { token: a.token, id: a.id };
+    courseA = a.courseId;
+    const b = await seedStudent("context-b", "CHEM110", "General Chemistry");
+    userB = { token: b.token, id: b.id };
+    courseB = b.courseId;
+    useFakeConnection();
+  });
+
+  async function newConversation() {
+    const created = await authRequestJson("post", `${BASE}/ai/conversations`, userA.token, { title: "Grounding" });
+    return created.body.data.id as string;
+  }
+
+  it("records the student's own courses as the context, never another student's", async () => {
+    const script = scriptedFetch([textTurn("You are taking Statistics.")]);
+    vi.stubGlobal("fetch", script.mock);
+    const conversationId = await newConversation();
+
+    const res = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+      { content: "What am I taking this term?" },
+    );
+    expect(res.status).toBe(201);
+
+    const snapshot = res.body.data.message.contextSnapshot as string | null;
+    expect(snapshot).toBeTruthy();
+    expect(snapshot).toContain("Statistics");
+    expect(snapshot).toContain("STAT201");
+    // The other student seeded in this test has a course of their own: it must
+    // not leak into this account's snapshot.
+    expect(snapshot).not.toContain("General Chemistry");
+    expect(snapshot).not.toContain("CHEM110");
+  });
+
+  it("keeps the snapshot on the stored row so a reload still sees it", async () => {
+    const script = scriptedFetch([textTurn("Grounded.")]);
+    vi.stubGlobal("fetch", script.mock);
+    const conversationId = await newConversation();
+
+    await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content: "Ground me",
+    });
+
+    const stored = await authRequestJson(
+      "get",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+    );
+    expect(stored.body.data[0].contextSnapshot).toContain("Statistics");
+    // Only the question carries context: an assistant reply is generated, not
+    // grounded from a fresh read of the student's data.
+    expect(stored.body.data[1].contextSnapshot).toBeNull();
+  });
+
+  it("builds the context from the authenticated student's own records", async () => {
+    await authRequestJson("post", `${BASE}/tasks`, userA.token, {
+      title: "Finish the statistics lab report",
+      courseId: courseA,
+    });
+
+    const script = scriptedFetch([textTurn("Your lab report is due.")]);
+    vi.stubGlobal("fetch", script.mock);
+    const conversationId = await newConversation();
+
+    const res = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+      { content: "What is still open?" },
+    );
+
+    const snapshot = res.body.data.message.contextSnapshot as string;
+    expect(snapshot).toContain("Finish the statistics lab report");
+    // Nothing hardcoded: the snapshot is this account's live data, and a task
+    // that belongs to nobody else cannot appear in it.
+    expect(snapshot).not.toContain("General Chemistry");
+  });
+
+  it("stores no context snapshot for a store-only message", async () => {
+    const conversationId = await newConversation();
+
+    const res = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/messages`,
+      userA.token,
+      { content: "Just persist this", generateReply: false },
+    );
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.message.contextSnapshot).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe("Natural references", () => {
   beforeEach(async () => {
     const a = await seedStudent("resolve-a", "PSYC300", "Cognitive Psychology");

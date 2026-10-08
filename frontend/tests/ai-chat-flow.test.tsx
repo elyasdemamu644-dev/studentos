@@ -928,3 +928,256 @@ describe("first prompt with no existing conversations", () => {
     expect(sends).toHaveLength(1);
   });
 });
+
+// ── Retrying after the transcript reconciled ─────────────
+// A failed send is reconciled against the server, which (having persisted the
+// question before the provider ran) returns the stored copy — with no `failed`
+// marker. The banner's retry must still find that turn and send into its slot
+// instead of doing nothing or appending a second copy.
+
+describe("banner retry after the reconcile refetch", () => {
+  const fetchMock = vi.fn();
+  const QUESTION_PROMPT = "Prepare me for my next exam.";
+  const REPLY_TEXT = "Three revision sessions.";
+
+  const storedUser = {
+    id: "stored-user",
+    conversationId: CONVERSATION.id,
+    role: "USER",
+    content: QUESTION_PROMPT,
+    createdAt: "2026-09-30T08:00:01.000Z",
+  };
+  const storedReply = {
+    id: "stored-reply",
+    conversationId: CONVERSATION.id,
+    role: "ASSISTANT",
+    content: REPLY_TEXT,
+    createdAt: "2026-09-30T08:00:02.000Z",
+  };
+
+  let serverMessages: unknown[] = [];
+  let postCount = 0;
+
+  function env(data: unknown, success = true, status = 200) {
+    const json = success
+      ? { success: true, data }
+      : { success: false, error: { code: "AI_PROVIDER_ERROR", message: String(data) } };
+    return { ok: success, status, json: async () => json } as unknown as Response;
+  }
+
+  beforeEach(() => {
+    serverMessages = [];
+    postCount = 0;
+    setTokens("test-access-token", "test-refresh-token");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = "http://localhost:3001/api/v1";
+      if (url === `${base}/ai/conversations?limit=100`) {
+        return env({ items: [CONVERSATION], hasMore: false, nextCursor: null });
+      }
+      if (url === `${base}/ai/conversations/${CONVERSATION.id}` && method === "PATCH") {
+        return env(CONVERSATION);
+      }
+      if (url.includes(`/ai/conversations/${CONVERSATION.id}/messages`)) {
+        if (method === "POST") {
+          postCount += 1;
+          if (postCount === 1) {
+            // The server stores the question, then the provider fails.
+            serverMessages.push(storedUser);
+            return env("The provider is unavailable", false, 502);
+          }
+          serverMessages.push(storedReply);
+          return env({ message: storedUser, reply: storedReply, toolActivity: [], pendingAction: null }, true, 201);
+        }
+        return env(serverMessages);
+      }
+      if (url.includes(`/ai/conversations/${CONVERSATION.id}/pending-action`)) {
+        return env({ pendingAction: null });
+      }
+      throw new Error("no mock for " + method + " " + url);
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("retries the stored copy of the failed question instead of doing nothing", async () => {
+    const { default: AiPage } = await import("@/app/(dashboard)/ai/page");
+    const { client } = renderWithQuery(<AiPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("What can StudentOS help you accomplish?")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /Prepare for an exam/i }));
+
+    try {
+      await waitFor(() => {
+        expect(postCount).toBe(1);
+      });
+    } catch (error) {
+      console.log(
+        "FETCH CALLS",
+        JSON.stringify(
+          fetchMock.mock.calls.map(([input, init]) => [
+            (init?.method ?? "GET").toUpperCase(),
+            String(input),
+          ]),
+          null,
+          2,
+        ),
+      );
+      throw error;
+    }
+    // The failed send is reported, and the reconcile refetch has replaced the
+    // optimistic bubble with the stored copy (which carries no `failed` flag).
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/Something went wrong/i);
+    });
+    await waitFor(() => {
+      const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+      expect(cached?.[0]?.id).toBe("stored-user");
+      expect(cached?.[0]?.failed).toBeUndefined();
+    });
+    expect(postCount).toBe(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(REPLY_TEXT)).toBeInTheDocument();
+    });
+
+    // One POST per attempt, both carrying the same question, and exactly one
+    // copy of it on screen — the retry reused the stored message's slot.
+    expect(postCount).toBe(2);
+    const posts = fetchMock.mock.calls.filter(([input, init]) => {
+      const method = ((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+      return method === "POST" && String(input).includes("/messages");
+    });
+    expect(posts.map(([, init]) => JSON.parse((init as RequestInit).body as string).content)).toEqual([
+      QUESTION_PROMPT,
+      QUESTION_PROMPT,
+    ]);
+    expect(screen.getAllByText(QUESTION_PROMPT)).toHaveLength(1);
+  });
+});
+
+// ── Switching and reloading ─────────────
+// Each conversation keeps its own transcript: opening one fetches *its*
+// messages and drops the other's off screen, and a reload lands back in the
+// conversation the student left open instead of the newest one.
+
+describe("switching and reloading conversations", () => {
+  const fetchMock = vi.fn();
+
+  const FIRST: Conversation = {
+    id: "conversation-first",
+    title: "Database exam",
+    type: "CHAT",
+    createdAt: "2026-09-28T08:00:00.000Z",
+    updatedAt: "2026-09-28T08:00:00.000Z",
+    preview: null,
+  };
+  const SECOND: Conversation = {
+    id: "conversation-second",
+    title: "Academic progress",
+    type: "CHAT",
+    createdAt: "2026-09-30T08:00:00.000Z",
+    updatedAt: "2026-09-30T09:00:00.000Z",
+    preview: null,
+  };
+
+  const transcripts: Record<string, unknown[]> = {
+    [FIRST.id]: [
+      message({ id: "first-1", conversationId: FIRST.id, role: "USER", content: "Alpha transcript line." }),
+    ],
+    [SECOND.id]: [
+      message({ id: "second-1", conversationId: SECOND.id, role: "USER", content: "Beta transcript line." }),
+    ],
+  };
+
+  function env(data: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => ({ success: true, data }),
+    } as unknown as Response;
+  }
+
+  function messageGets() {
+    return fetchMock.mock.calls.filter(([input]) => String(input).includes("/messages"));
+  }
+
+  beforeEach(() => {
+    setTokens("test-access-token", "test-refresh-token");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = "http://localhost:3001/api/v1";
+      if (url === `${base}/ai/conversations?limit=100`) {
+        return env({ items: [FIRST, SECOND], hasMore: false, nextCursor: null });
+      }
+      for (const conversation of [FIRST, SECOND]) {
+        if (url === `${base}/ai/conversations/${conversation.id}/messages`) {
+          return env(transcripts[conversation.id]);
+        }
+        if (url === `${base}/ai/conversations/${conversation.id}/pending-action`) {
+          return env({ pendingAction: null });
+        }
+      }
+      throw new Error("no mock for " + method + " " + url);
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("loads the opened conversation's transcript and drops the previous one", async () => {
+    const { default: AiPage } = await import("@/app/(dashboard)/ai/page");
+    renderWithQuery(<AiPage />);
+
+    // With no stored selection the list's first conversation opens.
+    await waitFor(() => {
+      expect(screen.getByText("Alpha transcript line.")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /^Academic progress/ }));
+    await waitFor(() => {
+      expect(screen.getByText("Beta transcript line.")).toBeInTheDocument();
+    });
+    // The other conversation's messages are gone, not stacked underneath.
+    expect(screen.queryByText("Alpha transcript line.")).not.toBeInTheDocument();
+
+    // The switch asked the server for the second conversation's messages.
+    expect(
+      messageGets().some(([input]) => String(input).includes(SECOND.id)),
+    ).toBe(true);
+  });
+
+  it("lands back in the remembered conversation after a reload", async () => {
+    window.localStorage.setItem("studentos.ai.activeConversation", SECOND.id);
+
+    const { default: AiPage } = await import("@/app/(dashboard)/ai/page");
+    renderWithQuery(<AiPage />);
+
+    // The remembered conversation is the second in the list, and it wins over
+    // the fallback the list would otherwise open.
+    await waitFor(() => {
+      expect(screen.getByText("Beta transcript line.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Alpha transcript line.")).not.toBeInTheDocument();
+    expect(
+      messageGets().some(([input]) => String(input).includes(SECOND.id)),
+    ).toBe(true);
+  });
+});
