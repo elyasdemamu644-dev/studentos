@@ -276,7 +276,22 @@ export class OpenAiAdapter implements AiProviderAdapter {
           throw new Error(`HTTP ${res.status}: ${text}`);
         }
 
-        const json = (await res.json()) as ChatCompletionResponse;
+        const json = (await res.json()) as ChatCompletionResponse & {
+          error?: { message?: string } | string;
+        };
+        // OpenRouter answers **HTTP 200** with an in-body `error` and no
+        // `choices` when a route fails upstream — e.g. a `:free` model whose
+        // provider is overloaded. Returning that body unchanged made the
+        // caller crash on `response.choices[0]` and showed the student
+        // "Cannot read properties of undefined" instead of the real reason.
+        if (json.error) {
+          const message =
+            typeof json.error === "string" ? json.error : json.error.message;
+          throw new Error(message || "Provider returned an error");
+        }
+        if (!Array.isArray(json.choices)) {
+          throw new Error("Provider response contained no choices");
+        }
         return json;
       },
     };
@@ -812,7 +827,7 @@ export class AiProvider {
         messages,
       };
       const response = await client.chatCompletions(chatRequest);
-      const content = response.choices[0]?.message?.content;
+      const content = response.choices?.[0]?.message?.content;
       if (!content) throw new AiProviderError("Empty response from AI provider");
       return { content };
     } catch (err) {
@@ -858,8 +873,9 @@ export class AiProvider {
         ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
       });
 
-      const choice = response.choices[0];
-      const toolCalls = choice?.message?.tool_calls ?? [];
+      const choice = response.choices?.[0];
+      if (!choice) throw new AiProviderError("AI provider returned no choices");
+      const toolCalls = choice.message?.tool_calls ?? [];
 
       return {
         content: choice?.message?.content ?? null,

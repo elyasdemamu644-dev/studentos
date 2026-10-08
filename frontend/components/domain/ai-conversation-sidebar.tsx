@@ -245,7 +245,12 @@ export function AiConversationSidebar({
         {creating ? "Starting…" : "New chat"}
       </Button>
       <div
-        className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1"
+        // Padding is symmetric on purpose: the list below carries `-mx-1`, so
+        // it overhangs this scrollport by 4px on both sides. With only `pr-1`
+        // the right overhang landed in the padding while the left one was
+        // clipped by the scroll container — every row's left edge was visibly
+        // cut and the boxes read as uneven.
+        className="mt-3 min-h-0 flex-1 overflow-y-auto px-1"
         tabIndex={0}
         role="region"
         aria-label="Conversation history list"

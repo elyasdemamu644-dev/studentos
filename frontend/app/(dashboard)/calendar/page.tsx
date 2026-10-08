@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   addMonths,
   format,
@@ -39,6 +40,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useCalendarEvents, useDeleteEvent } from "@/features/events/hooks";
+import { getEvent } from "@/features/events/events-api";
 import { buildCalendar, mapEventsToCalendarDays, toDayKey } from "@/features/events/calendar-utils";
 import { EventFormDialog } from "@/features/events/event-form";
 import { EVENT_TYPE_LABELS } from "@/lib/labels";
@@ -130,6 +132,31 @@ export default function CalendarPage() {
     router.replace(`/calendar?${params.toString()}`, { scroll: false });
   }, [anchor, syncedMonth, router, searchParams]);
 
+  // "Jump here" links (`/calendar?eventId=…`) come from the dashboard and the
+  // command palette. The event is fetched directly — the calendar query only
+  // covers the visible month — then the month is anchored and its day opened.
+  const jumpEventId = searchParams.get("eventId");
+  const jumpEvent = useQuery({
+    queryKey: ["events", "jump", jumpEventId],
+    queryFn: () => getEvent(jumpEventId as string),
+    enabled: Boolean(jumpEventId),
+    staleTime: 60_000,
+  });
+  const jumpedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const event = jumpEvent.data;
+    if (!event || jumpedRef.current === event.id) return;
+    jumpedRef.current = event.id;
+    const start = new Date(event.startAt);
+    setAnchor(startOfMonth(start));
+    setSelectedDay(start);
+    setFocusedKey(toDayKey(start));
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("eventId");
+    const qs = params.toString();
+    router.replace(qs ? `/calendar?${qs}` : "/calendar", { scroll: false });
+  }, [jumpEvent.data, router, searchParams]);
+
   // Keep the focused cell inside the grid as the user pages through months.
   useEffect(() => {
     if (!cells.some((day) => toDayKey(day) === focusedKey)) {
@@ -152,6 +179,17 @@ export default function CalendarPage() {
     setFormOpen(true);
     setSelectedDay(null);
   }, []);
+
+  // Quick action "Add calendar event" lands on `/calendar?new=1`: open the
+  // form for today, then drop the param so Back/refresh doesn't reopen it.
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("new");
+    const qs = params.toString();
+    router.replace(qs ? `/calendar?${qs}` : "/calendar", { scroll: false });
+    openAdd(new Date());
+  }, [searchParams, router, openAdd]);
 
   const moveMonth = useCallback((delta: number) => {
     setAnchor((current) => (delta < 0 ? subMonths(current, 1) : addMonths(current, 1)));

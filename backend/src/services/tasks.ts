@@ -57,9 +57,11 @@ export const tasksService = {
     if (dueAfter) where.dueDate = { ...((where.dueDate as object) || {}), gte: new Date(dueAfter) };
 
     if (search) {
+      // `insensitive`: the search box and the command palette both type in
+      // lowercase, and Postgres `contains` is case-sensitive by default.
       where.OR = [
-        { title: { contains: search } },
-        { description: { contains: search } },
+        { title: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
       ];
     }
 

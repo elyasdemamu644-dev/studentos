@@ -16,8 +16,8 @@ export const notesService = {
     if (courseId) where.courseId = courseId;
     if (search) {
       where.OR = [
-        { title: { contains: search } },
-        { content: { contains: search } },
+        { title: { contains: search, mode: "insensitive" } },
+        { content: { contains: search, mode: "insensitive" } },
       ];
     }
 

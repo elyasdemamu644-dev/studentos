@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ExternalLink,
@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { FilterBar, SearchField, SelectFilter } from "@/components/ui/filter-bar";
 import { Surface } from "@/components/ui/surface";
 import { useCourses } from "@/features/courses/hooks";
-import { useDeleteResource, useResources } from "@/features/resources/hooks";
+import { useDeleteResource, useResource, useResources } from "@/features/resources/hooks";
 import { ResourceFormDialog } from "@/features/resources/resource-form";
 import type { ResourceRecord, ResourceType } from "@/types/api-types";
 import { RESOURCE_TYPE_LABELS } from "@/lib/labels";
@@ -47,17 +47,50 @@ export default function ResourcesPage() {
   const [courseFilter, setCourseFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<ResourceType | "">("");
 
+  /** Drop one query param and keep the rest (course filter, etc.). */
+  const stripParam = useCallback(
+    (key: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete(key);
+      const qs = params.toString();
+      router.replace(qs ? `/resources?${qs}` : "/resources", { scroll: false });
+    },
+    [router, searchParams],
+  );
+
   useEffect(() => {
     const courseParam = searchParams.get("course");
     if (courseParam) {
       setCourseFilter(courseParam);
-      router.replace("/resources");
+      stripParam("course");
     }
-  }, [searchParams, router]);
+  }, [searchParams, stripParam]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ResourceRecord | undefined>(undefined);
   const [deleting, setDeleting] = useState<ResourceRecord | null>(null);
+
+  // Deep links from the command palette: `/resources?resource=<id>` opens
+  // that resource's editor. A stale id is dropped instead of spinning.
+  const resourceIdParam = searchParams.get("resource");
+  const resourceQuery = useResource(resourceIdParam ?? undefined);
+  const openedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!resourceIdParam) {
+      openedRef.current = null;
+      return;
+    }
+    if (resourceQuery.isError) {
+      stripParam("resource");
+      return;
+    }
+    const resource = resourceQuery.data;
+    if (!resource || openedRef.current === resourceIdParam) return;
+    openedRef.current = resourceIdParam;
+    setEditing(resource);
+    setFormOpen(true);
+    stripParam("resource");
+  }, [resourceIdParam, resourceQuery.data, resourceQuery.isError, stripParam]);
 
   const resources = useResources({
     search: search || undefined,

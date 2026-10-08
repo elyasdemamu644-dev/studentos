@@ -89,6 +89,13 @@ describe("Notes Module", () => {
       expect(searchRes.body.data.items.length).toBeGreaterThan(0);
       expect(searchRes.body.data.items[0].title).toBe("DB notes");
 
+      // The search box and the command palette type lowercase; the filter has
+      // to match regardless of the case the text was written in.
+      const lowerRes = await authRequestJson("get", `${BASE}/notes?search=normalization`, token);
+      expect(lowerRes.status).toBe(200);
+      expect(lowerRes.body.data.items.length).toBeGreaterThan(0);
+      expect(lowerRes.body.data.items[0].title).toBe("DB notes");
+
       const courseRes = await authRequestJson("get", `${BASE}/notes?courseId=${courseId}`, token);
       expect(courseRes.status).toBe(200);
       expect(courseRes.body.data.items).toHaveLength(1);

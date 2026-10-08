@@ -6,6 +6,7 @@ import { CalendarRange, ChevronDown, GraduationCap, Pencil, Plus, Trash2 } from 
 
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
+import { ErrorState } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -106,6 +107,14 @@ export default function AcademicsPage() {
 
       {isPending ? (
         <ListSkeleton rows={3} />
+      ) : years.isError || semesters.isError ? (
+        <ErrorState
+          error={years.error ?? semesters.error}
+          retry={() => {
+            void years.refetch();
+            void semesters.refetch();
+          }}
+        />
       ) : orderedYears.length === 0 ? (
         <EmptyState
           icon={GraduationCap}

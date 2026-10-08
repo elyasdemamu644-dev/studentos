@@ -14,6 +14,7 @@ import {
   MapPin,
   Paperclip,
   Pencil,
+  Sparkles,
   StickyNote,
   Target,
   Timer,
@@ -86,6 +87,9 @@ export default function CourseDetailPage() {
   const noteItems = notes.data?.items ?? [];
   const upcoming = roll.events.upcoming;
   const nextExam = roll.nextExam;
+  // Hand the course straight to the assistant — the AI page prefills its
+  // composer from ?prompt= and the panel shows StudentOS context alongside.
+  const askPrompt = `Help me study ${data.name}${data.code ? ` (${data.code})` : ""}. What are the key topics, and what should I focus on in my next study session?`;
 
   const toggleTask = (taskId: string, done: boolean) => {
     if (done) {
@@ -132,6 +136,11 @@ export default function CourseDetailPage() {
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/ai?prompt=${encodeURIComponent(askPrompt)}`}>
+                <Sparkles className="mr-1.5 h-4 w-4" aria-hidden /> Ask AI
+              </Link>
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
               <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit
             </Button>
@@ -272,6 +281,8 @@ export default function CourseDetailPage() {
           </div>
           {tasks.isPending ? (
             <ListSkeleton rows={3} />
+          ) : tasks.isError ? (
+            <ErrorState error={tasks.error} retry={() => tasks.refetch()} />
           ) : openTasks.length === 0 ? (
             <EmptyState
               icon={ListTodo}
@@ -313,6 +324,8 @@ export default function CourseDetailPage() {
           </div>
           {notes.isPending ? (
             <ListSkeleton rows={2} />
+          ) : notes.isError ? (
+            <ErrorState error={notes.error} retry={() => notes.refetch()} />
           ) : noteItems.length === 0 ? (
             <EmptyState icon={StickyNote} title="No notes yet" className="py-6" />
           ) : (

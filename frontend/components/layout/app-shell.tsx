@@ -15,6 +15,7 @@ import {
   ListTodo,
   LogOut,
   MoreHorizontal,
+  Search,
   Settings,
   Sparkles,
   StickyNote,
@@ -40,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { CommandPaletteProvider, useCommandPalette } from "@/components/layout/command-palette";
 
 /**
  * Grouped so the sidebar reads as a product, not a flat list of 13 routes.
@@ -439,11 +441,15 @@ function MobileNav() {
 
 function MobileHeader() {
   const { user } = useAuth();
+  const { open: openPalette } = useCommandPalette();
   const initials = `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase() || "S";
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur lg:hidden">
       <Brand />
       <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon-sm" aria-label="Search" onClick={openPalette}>
+          <Search className="h-4 w-4" aria-hidden />
+        </Button>
         <NotificationBell />
         <ThemeModeToggle compact />
         {user && (
@@ -459,8 +465,28 @@ function MobileHeader() {
 }
 
 function DesktopTopBar() {
+  const { open: openPalette } = useCommandPalette();
+  // SSR renders before `navigator` exists, so the shortcut label flips after
+  // mount instead of guessing during hydration.
+  const [isMac, setIsMac] = useState(false);
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
+  }, []);
   return (
     <header className="sticky top-0 z-20 hidden h-14 shrink-0 items-center justify-end gap-2 border-b border-border bg-background/90 px-6 backdrop-blur lg:flex">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={openPalette}
+        aria-label="Search and quick actions"
+        className="h-8 gap-2 px-2.5 text-muted-foreground"
+      >
+        <Search className="h-3.5 w-3.5" aria-hidden />
+        <span>Search</span>
+        <kbd className="rounded border border-border bg-background px-1 py-0.5 font-mono text-[10px] font-medium">
+          {isMac ? "⌘K" : "Ctrl K"}
+        </kbd>
+      </Button>
       <NotificationBell />
       <ThemeModeToggle compact />
     </header>
@@ -500,41 +526,43 @@ export function AppShell({
   const workspace = isWorkspaceRoute(pathname ?? "");
 
   return (
-    <div className={cn(workspace ? "h-dvh overflow-hidden" : "min-h-dvh")}>
-      {/* 14 persistent nav links sit before <main>, so every page needed this. */}
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow-pop"
-      >
-        Skip to content
-      </a>
-      <Sidebar />
-      <MobileNav />
-      <div className={cn("lg:pl-sidebar", workspace && "flex h-full min-h-0 flex-col overflow-hidden")}>
-        <DesktopTopBar />
-        <MobileHeader />
-        <NotificationBootstrap />
-        <main
-          id="main-content"
-          tabIndex={-1}
-          // Two mutually exclusive strings rather than one list of overrides:
-          // `max-w-content` and `max-w-none` belong to the same Tailwind scale,
-          // and `cn` does not collapse an unknown value against a known one —
-          // both would reach the DOM and the stylesheet's own ordering would
-          // decide the winner. Stating a variant (`lg:py-0`) in an override
-          // list has the same problem for a different reason.
-          className={cn(
-            workspace
-              ? "mx-0 flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden px-0 py-0 focus:outline-none lg:py-0"
-              : "mx-auto w-full max-w-content px-[var(--page-pad)] py-6 focus:outline-none lg:py-8",
-            className,
-          )}
+    <CommandPaletteProvider pages={NAV_ITEMS}>
+      <div className={cn(workspace ? "h-dvh overflow-hidden" : "min-h-dvh")}>
+        {/* 14 persistent nav links sit before <main>, so every page needed this. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow-pop"
         >
-          {children}
-        </main>
-        {/* Bottom padding so mobile bottom-nav never covers content. */}
-        <div className={cn("h-16 lg:hidden", workspace && "shrink-0")} aria-hidden />
+          Skip to content
+        </a>
+        <Sidebar />
+        <MobileNav />
+        <div className={cn("lg:pl-sidebar", workspace && "flex h-full min-h-0 flex-col overflow-hidden")}>
+          <DesktopTopBar />
+          <MobileHeader />
+          <NotificationBootstrap />
+          <main
+            id="main-content"
+            tabIndex={-1}
+            // Two mutually exclusive strings rather than one list of overrides:
+            // `max-w-content` and `max-w-none` belong to the same Tailwind scale,
+            // and `cn` does not collapse an unknown value against a known one —
+            // both would reach the DOM and the stylesheet's own ordering would
+            // decide the winner. Stating a variant (`lg:py-0`) in an override
+            // list has the same problem for a different reason.
+            className={cn(
+              workspace
+                ? "mx-0 flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden px-0 py-0 focus:outline-none lg:py-0"
+                : "mx-auto w-full max-w-content px-[var(--page-pad)] py-6 focus:outline-none lg:py-8",
+              className,
+            )}
+          >
+            {children}
+          </main>
+          {/* Bottom padding so mobile bottom-nav never covers content. */}
+          <div className={cn("h-16 lg:hidden", workspace && "shrink-0")} aria-hidden />
+        </div>
       </div>
-    </div>
+    </CommandPaletteProvider>
   );
 }

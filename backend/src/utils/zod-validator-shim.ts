@@ -16,9 +16,11 @@ function toSchema(schema: ZodSchema<unknown> | Record<string, unknown>): ZodSche
  * stripped, coerced types). On failure the raw ZodError is passed to
  * `next()` so the global error handler can respond 400.
  *
- * Note: Express 5 exposes `req.query` as a getter-only property on the
- * prototype, so a plain assignment throws; the index-assignment falls back
- * to `defineProperty` to shadow it per instance.
+ * The write-back must define an own property: Express 5 exposes `req.query`
+ * as a getter-only property on the request prototype, and assigning to an
+ * accessor with no setter is a *silent no-op* (it does not throw), so the
+ * parsed values would be discarded and raw query strings — `limit=5` — would
+ * reach Prisma as `take: "51"`.
  */
 export function zValidator(
   target: "body" | "query" | "params" | "headers",
@@ -29,15 +31,12 @@ export function zValidator(
     const source = (req as unknown as Record<string, unknown>)[target];
     const result = zodSchema.safeParse(source ?? {});
     if (result.success) {
-      try {
-        (req as unknown as Record<string, unknown>)[target] = result.data;
-      } catch {
-        Object.defineProperty(req, target, {
-          value: result.data,
-          configurable: true,
-          writable: true,
-        });
-      }
+      Object.defineProperty(req, target, {
+        value: result.data,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
       next();
       return;
     }

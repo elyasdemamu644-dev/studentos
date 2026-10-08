@@ -151,6 +151,36 @@ describe("API contract safety", () => {
     expect(Array.isArray(years.body.data)).toBe(true);
   });
 
+  it("applies a valid pagination limit instead of discarding it", async () => {
+    // Regression: `zValidator` wrote the parsed query back with a plain
+    // assignment, which on Express 5's getter-only `req.query` is a *silent
+    // no-op* — the validated values were lost, `limit=2` reached Prisma as
+    // the string `"21"` (`"2" + 1`), and every paginated list answered 500.
+    // The AI history panel always asks for `?limit=100`, so it was the
+    // visible casualty: the chat worked, the conversation list did not.
+    for (let i = 0; i < 3; i += 1) {
+      await request(app)
+        .post(`${BASE}/ai/conversations`)
+        .set(auth(accessToken))
+        .send({ title: `Paged conversation ${i}` })
+        .expect(201);
+    }
+
+    const page = await request(app)
+      .get(`${BASE}/ai/conversations?limit=2`)
+      .set(auth(accessToken))
+      .expect(200);
+
+    expect(page.body.success).toBe(true);
+    expect(page.body.data.items).toHaveLength(2);
+    expect(page.body.data.hasMore).toBe(true);
+
+    for (const path of ["/tasks", "/notes", "/events", "/ai/study-plans"]) {
+      const res = await request(app).get(`${BASE}${path}?limit=2`).set(auth(accessToken));
+      expect(res.status, `GET ${path}?limit=2`).toBe(200);
+    }
+  });
+
   it("does not duplicate entity fields at the top level of a course response", async () => {
     const created = await request(app)
       .post(`${BASE}/courses`)

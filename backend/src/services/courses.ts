@@ -42,8 +42,8 @@ export const coursesService = {
 
     if (query?.search) {
       where.OR = [
-        { name: { contains: query.search } },
-        { code: { contains: query.search } },
+        { name: { contains: query.search, mode: "insensitive" } },
+        { code: { contains: query.search, mode: "insensitive" } },
       ];
     }
 

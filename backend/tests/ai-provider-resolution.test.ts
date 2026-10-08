@@ -212,6 +212,72 @@ describe("AiProvider.chat provider-error sanitization", () => {
     expect((err as AiProviderError).message).not.toContain(key);
   });
 
+  // OpenRouter answers **HTTP 200** with an in-body `error` and no `choices`
+  // when a route fails upstream (reproduced live with a `:free` model whose
+  // provider was overloaded). That body must surface as the provider's own
+  // reason, never as a TypeError from `response.choices[0]`.
+  it("surfaces an in-body 200 error payload instead of crashing on choices", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        json: async () => ({
+          id: "gen-1791469283",
+          error: {
+            message: "Upstream error from Nvidia: Service temporarily overloaded",
+            code: 503,
+            metadata: { error_type: "provider_overloaded" },
+          },
+        }),
+      }),
+    );
+
+    const provider = new AiProvider(
+      resolveAiProvider("openrouter"),
+      { apiKey: "sk-or-test-openrouter-key-12345" },
+      "https://openrouter.test.local"
+    );
+
+    const err = await provider
+      .chat({ messages: [{ role: "user", content: "hi" }] })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AiProviderError);
+    expect((err as AiProviderError).statusCode).toBe(502);
+    expect((err as AiProviderError).message).toContain("Service temporarily overloaded");
+    expect((err as AiProviderError).message).not.toContain("Cannot read properties");
+  });
+
+  it("reports a 200 response with neither error nor choices as unusable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        json: async () => ({ id: "gen-2" }),
+      }),
+    );
+
+    const provider = new AiProvider(
+      resolveAiProvider("openrouter"),
+      { apiKey: "sk-or-test-openrouter-key-12345" },
+      "https://openrouter.test.local"
+    );
+
+    const err = await provider
+      .chat({ messages: [{ role: "user", content: "hi" }] })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AiProviderError);
+    expect((err as AiProviderError).statusCode).toBe(502);
+    expect((err as AiProviderError).message).toContain("no choices");
+  });
+
   it("still returns the content on a successful provider call", async () => {
     const fetchMock = stubFetch();
     const provider = new AiProvider(

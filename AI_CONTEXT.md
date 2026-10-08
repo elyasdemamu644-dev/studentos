@@ -65,8 +65,8 @@ Design intent, as evidenced by the code:
 | --- | --- |
 | Phase | **Phase 3 (capstone) complete 2026-10-07.** All phases are closed: Phase 0 (regenerated migrations), Phase 1 (backend foundation), Phase 2 (OpenAPI + contract safety + production readiness), Phase 3 (production config guardrails, owner indexes, IDOR sweep, migration deploy verification, live smoke, docs refresh). |
 | Last committed checkpoint | `18b4f3a` — *refactor: reorganize StudentOS project structure* (on `task/studentos-folder-migration`, **not pushed**); `main` is still at `96c106e`, in sync with `origin/main` |
-| Working tree | **Uncommitted (intentionally).** The folder migration is committed as `18b4f3a`; the AI Assistant chat work (see §17) is a modified working tree of 5 files — `backend/src/services/ai/service.ts`, `backend/tests/ai-tools.test.ts`, `frontend/app/(dashboard)/ai/page.tsx`, `frontend/components/domain/ai-chat.tsx`, `frontend/tests/ai-chat-flow.test.tsx`. Nothing pushed yet. |
-| Tests | API **432/432 pass** (29 files), Web **230/230 pass** (18 files) — 0 failures, re-run 2026-10-08. |
+| Working tree | **Uncommitted (intentionally).** The folder migration is committed as `18b4f3a`; the AI Assistant chat fixes + the frontend product upgrade (see §17) are a modified working tree — 11 backend files (`provider.ts`, `service.ts`, `zod-validator-shim.ts`, the 4 searchable services, 3 test files) and 15 frontend files (pages for dashboard/calendar/tasks/resources/academics/courses/study/notes/ai, `app-shell.tsx`, `ai-conversation-sidebar.tsx`, `features/resources|tasks/hooks.ts`) plus 3 new files: `components/layout/command-palette.tsx`, `tests/command-palette.test.tsx`, `tests/task-deep-link.test.tsx`. Nothing pushed yet. |
+| Tests | API **435/435 pass** (29 files), Web **236/236 pass** (20 files) — 0 failures, re-run 2026-10-08. |
 | Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-08. |
 | Lint | `next lint` **clean** (web only, `app`, `components`, `features`, `lib`, `types`, `tests`); root `pnpm lint` clean. No lint config exists for the API — `tsc` is its gate. |
 | CI | **`.github/workflows/ci.yml` exists** — api job (postgres:16 service, `prisma migrate deploy` into an empty test DB, tests, `tsc`, build), web job, lint job. API path replayed locally: green. |
@@ -507,12 +507,12 @@ pnpm dev
 
 ## 12. Test & build status (verified 2026-10-07)
 
-> Re-verified **2026-10-08** after the AI Assistant chat fixes ([§17](#17-latest-ai-work--change-log)): API 432 / web 230 green, `tsc` both apps clean, `next lint` clean, `next build` clean.
+> Re-verified **2026-10-08** after the AI Assistant chat fixes **and the frontend product upgrade** ([§17](#17-latest-ai-work--change-log)): API 435 / web 236 green, `tsc` both apps clean, `next lint` clean, `next build` clean, 12 dashboard routes all HTTP 200 on the running app.
 
 | Suite | Command | Result | Time |
 | --- | --- | --- | --- |
-| API | `pnpm --filter @studentos/api test` | **29 files, 432 tests — 0 fail** | ~70 s |
-| Web | `pnpm --filter @studentos/web test` | **18 files, 230 tests — 0 fail** | ~12 s |
+| API | `pnpm --filter @studentos/api test` | **29 files, 435 tests — 0 fail** | ~70 s |
+| Web | `pnpm --filter @studentos/web test` | **20 files, 236 tests — 0 fail** | ~13 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
 | API build | `pnpm --filter @studentos/api build` | **pass** — `tsc` gate (`dist/` is not the runtime; `start` runs `tsx src/server.ts`) | ~8 s |
 | Web typecheck | `pnpm --filter @studentos/web exec tsc --noEmit` | **pass** (exit 0) | ~20 s |
@@ -688,6 +688,42 @@ Remaining work is optional polish, not phase work:
 
 ## 17. Latest AI work / change log
 
+### 2026-10-08 — Frontend product upgrade: command palette, deep links, real search, error states
+
+Execution of the "StudentOS Frontend Product Upgrade" brief (P0 broken features → P1 product features → gates), built only from existing hooks/endpoints/components — no new framework, directory or design-system element.
+
+**Command palette (P1).**
+- **New `components/layout/command-palette.tsx`.** `CommandPaletteProvider` owns the ⌘K/Ctrl+K listener and renders a `CommandPaletteDialog` **only while open** (keeps every other screen's test free of a QueryClient). The combobox/listbox follows WAI-ARIA: arrow/Home/End/Enter keys, highlighted option, `scrollIntoView`, footer shortcut hints, "Searching…" / retry / empty rows.
+- **Real server search**, debounced 250 ms, `limit: 5`, only on ≥2 characters: four `useQuery` calls (`["palette", domain, term]`) hitting the existing `search` params of `listTasks` / `listCourses` / `listNotes` / `listResources`. Goals and exams have no search endpoint, so they are deliberately excluded rather than faked client-side.
+- **Result routing** to the pages that can actually open the record: `/tasks?task=`, `/courses/{id}`, `/notes?note=`, `/resources?resource=`.
+- **Quick actions** (always visible, also filtering on the term): *Ask AI about "term"* → `/ai?prompt=…`, Add task / note / goal / course, Add calendar event → `/calendar?new=1`, Start study session — plus a *Go to* group built from the shell's own `NAV_ITEMS` (passed as a prop so the palette never imports the shell and creates a cycle).
+- **Triggers wired into the shell** (`components/layout/app-shell.tsx`): a top-bar `Search` button with a `<kbd>⌘K</kbd>` label (the platform prefix is read from `userAgent` in a post-mount effect to avoid a hydration mismatch) and a ghost icon button in the mobile header.
+
+**Deep links (P0/P1) — every palette entry lands somewhere that acts.**
+- `/calendar?eventId=<id>` now really opens that event: an inline `useQuery(["events","jump",id], getEvent)` (enabled only while the param exists) anchors the month, selects the day, focuses the event and opens the day dialog, then strips the param with `router.replace`. `/calendar?new=1` opens the add-event dialog (new).
+- `/tasks?task=<id>` opens that task's editor and strips the param, preserving any other params (`stripParam`); a dead id strips silently instead of spinning forever.
+- `/resources?resource=<id>` deep-links to a record via a new `useResource(id)` hook in `features/resources/hooks.ts`.
+- `/ai?prompt=<text>` prefills the composer and strips the param. It deliberately reads `window.location.search` in a mount effect rather than `useSearchParams` — the `next/navigation` mock in the test suite exports no `useSearchParams`, and pulling it in would force a Suspense boundary; two test suites caught this and the fix is what keeps `/ai` green.
+
+**P0 broken features (audit findings).**
+- **Dashboard 404:** note links went to `/notes/<id>`, a route that does not exist — now `/notes?note=<id>` (the page's own selector).
+- **Academics:** a years/semesters failure rendered a blank area — now an `ErrorState` with both refetches.
+- **Course detail:** tasks and notes failures showed stale empty lists — now `ErrorState` branches; the header gained an **Ask AI** button that opens `/ai?prompt=` with a course-specific question (existing endpoint, no new logic).
+- **Study:** the three stat cards silently showed `0` when today's sessions failed — they now show *Unavailable* with a hint (`statsDown`).
+- **Notes editor:** a failed note load gave no feedback — now an `ErrorAlert` with *Reload note*.
+
+**Dashboard improvement.** A semester-progress panel (existing `Progress` component) between the stats grid and Quick actions: term name, `% through · N days left`, date range — computed only when the stored dates parse to a valid range, omitted otherwise (never invented data).
+
+**Backend change (documented, as the brief requires).** The four searchable services (`tasks.ts`, `courses.ts`, `notes.ts`, `resources.ts`) added `mode: "insensitive"` to every `contains` filter. Live-reproduced defect first: `search=eigenval` → 0 hits while `Eigenval` → 1, i.e. search was case-sensitive and silently missed results; after the fix `eigenval` → 1, `ALGEBRA` → 1, `xyz` → 0. `backend/tests/notes.test.ts` gained a lowercase-search assertion. No other backend behaviour changed.
+
+**New tests (web 230 → 236).** `tests/command-palette.test.tsx` (4): Ctrl+K opens / Escape closes, quick actions are visible, the term is debounced into a single `listTasks({search:"eigen",limit:5})` and Enter routes to `/tasks?task=task-1`, the Ask-AI entry routes to `/ai?prompt=indexing`. `tests/task-deep-link.test.tsx` (2): `?task=` opens the editor and strips the param; a dead id strips the param (keeping the others) and never opens a dialog.
+
+**Concurrency note.** A second AI session working in this repo left `backend/src/services/ai/tools/action-tools.ts` referencing 14 delete/bulk tools whose definitions did not exist anywhere (its WIP file `_new_write_tools.ts` had been removed) — every one of the 29 API suites failed and `tsc` was red. Its patch was saved to `Temp\opencode\action-tools-wip.patch` and the file was restored to the last green state; `service.ts` kept its (additive, compiling) `addEntry`/`deleteEntry` methods.
+
+**Gate after the upgrade:** API 435 tests / 29 files, `tsc` API 0 errors; web 236 tests / 20 files, `tsc` 0, `next lint` clean ("No ESLint warnings or errors"), `next build` clean (19 routes); 12 dashboard routes (`/dashboard`, `/tasks`, `/calendar`, `/notes`, `/academics`, `/courses`, `/resources`, `/study`, `/goals`, `/ai`, `/exams`, `/notifications`) all HTTP 200 on the running dev server.
+
+**"It runs but I can't see it working" (2026-10-08) — the dev stack, not the code.** Every dashboard route hung forever on the "Loading your workspace…" spinner. Root cause found with a real headless-Chrome CDP session: `GET /_next/static/chunks/app/(dashboard)/dashboard/page.js` answered **404**, so the page bundle never loaded and `useAuth` never resolved. The machine had **5 × `turbo run dev`, 6 × `tsx watch` and 2 × `next dev`** processes (the oldest started 05:53, before today's edits) all over one `.next` directory — HTML referencing chunks the competing writers no longer had. Fix: killed every StudentOS dev process, deleted `frontend/.next`, started **one** `pnpm dev`. Re-verified in real Chrome (`Temp\opencode\browser-verify.cjs`, screenshots `01-dashboard`…`04-task-editor.png`): **7/7 checks pass** — dashboard renders past the spinner, app shell present, Ctrl+K opens the palette, quick actions + Ask AI present, typing searches the server (`CDP deep` → the created task, selected row `▶`), Enter routes to `/tasks` and opens **Edit task** for it (the page strips `?task=` after opening — by design). Only remaining console noise is a pre-existing `favicon.ico` 404 (no favicon has ever existed in the repo).
+
 ### 2026-10-08 — AI Assistant chat: history window, durable retry, recency, reload correctness
 
 The chat already had optimistic messaging, history grouping and confirmation. What it did not have was a *correct* conversation memory: long conversations forgot their recent turns, a retry could store the question twice, the sidebar's ordering went stale while you typed, and a page about to restore a conversation flashed its empty state.
@@ -698,7 +734,31 @@ The chat already had optimistic messaging, history grouping and confirmation. Wh
 - **Frontend loading / empty-state gating** (`frontend/app/(dashboard)/ai/page.tsx`). `messagesLoading` now separates "history list not settled" (`conversations.isPending || !restored`) from "this transcript not loaded yet", so a page about to restore a conversation no longer advertises an empty one. `MessageList` reports a load failure when *either* query failed, its retry refetches the right query, and the empty branch also renders the pending proposal and the send-failure banner. This also removed the stale-DOM click target the empty-state tests were hitting while the messages query toggled loading.
 - **Banner retry after the reconcile refetch.** The server's copy of a persisted-but-failed question carries no `failed` marker, so the banner's Retry had nothing to send. The page now remembers `failedText` alongside the error and reuses the matching cached slot's id.
 - **New tests:** 5 API (`keeps every conversation's transcript to itself`; context snapshot carries the student's own courses and never another student's; the snapshot survives on the stored row; the context is rebuilt from the authenticated student's own records; store-only messages carry no snapshot) and 2 web (opening a conversation fetches *its* transcript and drops the previous one; a reload lands back in the remembered conversation).
-- **Gate:** API 432 tests / 29 files, web 230 tests / 18 files, `tsc` both apps 0, `next lint` clean, `next build` 0.
+- **Gate:** API 435 tests / 29 files, web 230 tests / 18 files, `tsc` both apps 0, `next lint` clean, `next build` 0.
+
+**Found afterwards, in the running app (2026-10-08): every paginated list answered 500, so the AI history panel never loaded.**
+
+- **Root cause** (`backend/src/utils/zod-validator-shim.ts`). The success path wrote the parsed query back with a plain assignment. Express 5 exposes `req.query` as a **getter-only property on the prototype**, and assigning to an accessor with no setter is a *silent no-op* — it does not throw — so the shim's `catch`-to-`defineProperty` fallback was dead code. The validated, coerced values were discarded: `?limit=100` reached the service as the string `"100"`, `take: limit + 1` became the string `"101"`, and Prisma threw — a 500 `INTERNAL_ERROR`. Omitting `limit` worked (the service default is a real number), which is why the failure looked selective: `/ai/conversations` 200, `/ai/conversations?limit=100` 500. Reproduced live against the dev API on notes, events, courses, grades, resources, goals, study-sessions, notifications and both AI lists.
+- **The AI history was the visible casualty.** The page always requests `?limit=100`; the query failed, so `selectedId` was never restored, the sidebar showed its error/empty state and old conversations could not be opened — while sending still worked (an empty-state prompt creates its own conversation). Chat fine, history dead.
+- **Fix:** `Object.defineProperty(req, target, …)` always — an own data property shadows the prototype getter, and it is correct for `body`, `params` and `headers` too. Verified live: `?limit=100` 200, `?limit=101` still 400, 5 conversations with `?limit=2` returns the 2 newest with `hasMore: true`.
+- **Regression test:** `contract-safety.test.ts` → "applies a valid pagination limit instead of discarding it" (creates 3 conversations, asserts `limit=2` bounds the page; plus `?limit=2` probes on tasks/notes/events/study-plans). The old suite only ever asserted the **rejection** paths (`limit=0`, `limit=101` → 400), which is why 432 green tests never noticed.
+- **Gate after the fix:** API 435 tests / 29 files, web 230 tests / 18 files, `tsc` both apps 0, `next lint` clean.
+
+**Found on the next live check (2026-10-08): a send answered 502 with a cryptic TypeError.**
+
+- **Root cause** (`backend/src/services/ai/provider.ts`). OpenRouter replies **HTTP 200** with an in-body `error` and **no `choices`** when a route fails upstream — reproduced with `nvidia/nemotron-3-ultra-550b-a55b:free`: `{"error":{"message":"Upstream error from Nvidia: Service temporarily overloaded","code":503,…}}`. `OpenAiAdapter.chatCompletions` returned any 200 body unchecked, so `response.choices[0]` threw `Cannot read properties of undefined (reading '0')`, which the controlled-502 wrapper surfaced verbatim to the student.
+- **Fix:** the adapter now throws the provider's own message when `json.error` is present and rejects a body with no `choices`; `chat()` and `chatWithTools()` additionally read `response.choices?.[0]` and fail with `AI provider returned no choices` instead of indexing blindly. The message stays redacted by the existing `sanitizeMessage` path, so the 502 now says *what* the provider reported (e.g. "Service temporarily overloaded") rather than a JS error.
+- **Regression tests:** `ai-provider-resolution.test.ts` → "surfaces an in-body 200 error payload instead of crashing on choices" and "reports a 200 response with neither error nor choices as unusable" (both assert 502 + provider text + no `Cannot read properties`). The existing `failingFetch()` helper only ever mocked `ok: false`, which is why the suite missed the 200-with-error shape.
+- **Live verification after the fix:** register → create conversation → list `?limit=100` (200, items present) → send a message → real grounded reply (`You have **no tasks** in StudentOS right now.`) stored with `contextSnapshot`, transcript reloads as `USER, ASSISTANT`, `?limit=1` bounds the page.
+- **Gate:** API 435 tests / 29 files, web 230 tests / 18 files, `tsc` both apps 0, `next lint` clean.
+
+**Frontend fixes (2026-10-08): the cut history boxes and the parallel dashboard upgrade.**
+
+- **Chat History boxes cut on the left** (`components/domain/ai-conversation-sidebar.tsx`). The list carries `-mx-1`, so every row overhangs its scrollport by 4px on each side; the container only had `pr-1`, which absorbed the right overhang and **clipped the left one** — the rows read as uneven boxes. Changed to `px-1` (symmetric). Applies to the desktop column and the History drawer (same component).
+- **Dashboard upgrade repaired rather than reverted** (`app/(dashboard)/dashboard/page.tsx`). The parallel upgrade left it unbuildable once (missing closing tag, imports deleted while still referenced) and then shipped functional defects: dead quick actions (`/notes?new=1`, `/study?new=1` are ignored by those pages — now `/notes?note=new` and `/study`), a duplicate "Quick task", a nested padded box inside a padded box in `ActivityRow`, `hover:bg-black/5` (invisible in dark themes), a Resources section with no link, a nonsense "Duration" term line, and no `?? 0` on `byStatus.COMPLETED`.
+- **Restored functionality the rewrite had dropped:** an **Overdue** section, an **Exams** section (`/exams`), a **Courses** section with real per-course task progress, unread-notification and overdue chips, and the **AI Study Assistant** block (kept separate from Analytics). Quick actions now cover Add task / Add note / Add goal / Add course / Start study / Calendar / Ask AI, every one landing somewhere that acts.
+- **Quick completion is real:** Overdue and What's next rows have a check button wired to `useCompleteTask`, and every task mutation now also invalidates `["dashboard"]` (`features/tasks/hooks.ts`), so the stat cards move without a reload. Page refresh calls `refetch()` instead of `window.location.reload()`.
+- **Gate:** `tsc` 0, `next lint` clean, web 230/230, `next build` 20 routes clean.
 
 ### 2026-10-07 — Phase 3 (capstone): production safety, database safety, verification, docs
 

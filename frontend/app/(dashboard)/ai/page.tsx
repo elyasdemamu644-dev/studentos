@@ -67,6 +67,20 @@ export default function AiPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
   const [draft, setDraft] = useState("");
+
+  // Deep links (`/ai?prompt=…`) from the course page, the dashboard and the
+  // command palette land with the question already in the composer. The URL is
+  // read and rewritten directly: only the query changes, the route does not,
+  // and the param is stripped so a refresh doesn't stomp what the user typed.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prompt = params.get("prompt");
+    if (!prompt) return;
+    setDraft((current) => current || prompt);
+    params.delete("prompt");
+    const qs = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  }, []);
   const [newType, setNewType] = useState<ConversationType>("CHAT");
   const [unconfigured, setUnconfigured] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);

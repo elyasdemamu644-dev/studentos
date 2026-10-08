@@ -26,6 +26,7 @@ export function useCreateTask() {
     mutationFn: (input: api.CreateTaskInput) => api.createTask(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       toast.success("Task created");
     },
     onError: () => toast.error("Could not create the task"),
@@ -38,6 +39,7 @@ export function useUpdateTask() {
     mutationFn: ({ id, input }: { id: string; input: api.UpdateTaskInput }) => api.updateTask(id, input),
     onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       toast.success("Task updated");
       void task;
     },
@@ -51,6 +53,7 @@ export function useCompleteTask() {
     mutationFn: (id: string) => api.completeTask(id),
     onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       toast.success(`"${task.title}" completed`);
     },
     onError: () => toast.error("Could not complete the task"),
@@ -63,6 +66,7 @@ export function useDeleteTask() {
     mutationFn: (id: string) => api.deleteTask(id),
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.removeQueries({ queryKey: ["tasks", id] });
       toast.success("Task deleted");
     },
@@ -87,6 +91,7 @@ export function useCreateSubtask(taskId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tasks", taskId, "subtasks"] });
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: () => toast.error("Could not add the subtask"),
   });

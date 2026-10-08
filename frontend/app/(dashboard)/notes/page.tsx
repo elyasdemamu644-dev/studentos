@@ -6,7 +6,7 @@ import { FilePlus2, StickyNote, Trash2, UserRound } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
-import { ErrorState } from "@/components/states";
+import { ErrorAlert, ErrorState } from "@/components/states";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { FilterBar, SearchField, SelectFilter } from "@/components/ui/filter-bar";
 import { Input } from "@/components/ui/input";
@@ -240,6 +240,16 @@ export default function NotesPage() {
             />
           ) : (
             <div className="flex min-h-[65vh] flex-col gap-4">
+              {/* A note that failed to load must say so — the editor below is
+                  still rendered from the empty draft, which reads as "your
+                  note lost its content". */}
+              {noteQuery.isError && (
+                <ErrorAlert
+                  error={noteQuery.error}
+                  retry={() => void noteQuery.refetch()}
+                  retryLabel="Reload note"
+                />
+              )}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   {noteQuery.isPending ? (

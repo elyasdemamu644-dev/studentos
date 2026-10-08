@@ -416,6 +416,46 @@ export const aiService = {
     return entries.map(mapStudyPlanEntry);
   },
 
+  /** Add one entry to a study plan. */
+  async addEntry(userId: string, studyPlanId: string, input: { dayNumber: number; title: string; description?: string | null; durationMinutes: number; taskId?: string | null; courseId?: string | null }) {
+    await assertStudyPlanOwnership(userId, studyPlanId);
+
+    // Find the next free dayNumber that doesn't collide with existing entries.
+    const existing = await prisma.aiStudyPlanEntry.findMany({
+      where: { studyPlanId },
+      select: { dayNumber: true },
+    });
+    const usedDays = new Set(existing.map((e) => e.dayNumber));
+    let dayNumber = input.dayNumber;
+    while (usedDays.has(dayNumber)) dayNumber += 1;
+
+    const entry = await prisma.aiStudyPlanEntry.create({
+      data: {
+        studyPlanId,
+        dayNumber,
+        title: input.title,
+        description: input.description,
+        durationMinutes: input.durationMinutes,
+        ...(input.taskId ? { taskId: input.taskId } : {}),
+        ...(input.courseId ? { courseId: input.courseId } : {}),
+      },
+    });
+    return mapStudyPlanEntry(entry);
+  },
+
+  /** Delete one entry from a study plan. */
+  async deleteEntry(userId: string, studyPlanId: string, entryId: string) {
+    await assertStudyPlanOwnership(userId, studyPlanId);
+
+    const existing = await prisma.aiStudyPlanEntry.findFirst({
+      where: { id: entryId, studyPlanId },
+    });
+    if (!existing) throw new NotFoundError("Study plan entry not found");
+
+    await prisma.aiStudyPlanEntry.delete({ where: { id: entryId } });
+    return { deleted: true };
+  },
+
   /** Update a single study-plan entry (e.g. mark complete). */
   async updateStudyPlanEntry(
     userId: string,

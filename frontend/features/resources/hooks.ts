@@ -11,6 +11,14 @@ export function useResources(params: api.ResourceListParams = {}) {
   });
 }
 
+export function useResource(id: string | undefined) {
+  return useQuery({
+    queryKey: ["resources", id],
+    queryFn: () => api.getResource(id!),
+    enabled: Boolean(id),
+  });
+}
+
 export function useCreateResource() {
   const qc = useQueryClient();
   return useMutation({

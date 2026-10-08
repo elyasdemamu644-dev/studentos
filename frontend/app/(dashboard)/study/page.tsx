@@ -165,6 +165,9 @@ export default function StudyPage() {
   const summary = todaySessions.data?.summary;
   const sessionItems = todaySessions.data?.items ?? [];
   const counted = summary && summary.count > 0 ? summary.totalMinutes / summary.count : 0;
+  // A failed fetch used to render as literal zeros ("Studied today: 0m"),
+  // which is a claim, not a gap. Show the gap instead.
+  const statsDown = todaySessions.isError;
   const breadcrumbItems = useAcademicBreadcrumb(courseId, "Study");
 
   return (
@@ -180,19 +183,19 @@ export default function StudyPage() {
         <StatCard
           icon={Flame}
           label="Studied today"
-          value={formatMinutes(summary?.totalMinutes)}
+          value={statsDown ? "Unavailable" : formatMinutes(summary?.totalMinutes)}
           tone="primary"
         />
         <StatCard
           icon={Timer}
           label="Sessions today"
-          value={summary?.count ?? 0}
-          hint={summary?.count ? "Logged" : "None yet"}
+          value={statsDown ? "Unavailable" : summary?.count ?? 0}
+          hint={statsDown ? "Couldn't load today's sessions" : summary?.count ? "Logged" : "None yet"}
         />
         <StatCard
           icon={Flame}
           label="Avg. session"
-          value={summary && summary.count > 0 ? formatMinutes(Math.round(counted)) : "—"}
+          value={statsDown ? "Unavailable" : summary && summary.count > 0 ? formatMinutes(Math.round(counted)) : "—"}
           tone="success"
         />
       </div>

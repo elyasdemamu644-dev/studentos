@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ListTodo, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
@@ -21,6 +21,7 @@ import {
 import {
   useCompleteTask,
   useDeleteTask,
+  useTask,
   useTasks,
   useUpdateTask,
 } from "@/features/tasks/hooks";
@@ -58,13 +59,47 @@ export default function TasksPage() {
     return () => clearTimeout(t);
   }, [search]);
 
+  /** Drop one query param and keep the rest, so Back doesn't reopen dialogs. */
+  const stripParam = useCallback(
+    (key: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete(key);
+      const qs = params.toString();
+      router.replace(qs ? `/tasks?${qs}` : "/tasks", { scroll: false });
+    },
+    [router, searchParams],
+  );
+
   useEffect(() => {
     if (searchParams.get("new") === "1") {
       setEditing(undefined);
       setFormOpen(true);
-      router.replace("/tasks");
+      stripParam("new");
     }
-  }, [searchParams, router]);
+  }, [searchParams, stripParam]);
+
+  // Deep links from the command palette: `/tasks?task=<id>` opens that task's
+  // editor. A stale id (deleted elsewhere) is dropped rather than spinning.
+  const taskIdParam = searchParams.get("task");
+  const taskQuery = useTask(taskIdParam ?? undefined);
+  const openedTaskRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!taskIdParam) {
+      openedTaskRef.current = null;
+      return;
+    }
+    if (taskQuery.isError) {
+      openedTaskRef.current = null;
+      stripParam("task");
+      return;
+    }
+    const task = taskQuery.data;
+    if (!task || openedTaskRef.current === taskIdParam) return;
+    openedTaskRef.current = taskIdParam;
+    setEditing(task);
+    setFormOpen(true);
+    stripParam("task");
+  }, [taskIdParam, taskQuery.data, taskQuery.isError, stripParam]);
 
   const tasks = useTasks({
     status: view === "ALL" || view === "COMPLETED" ? undefined : view,
