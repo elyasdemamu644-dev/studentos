@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip } from "@/components/panel";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -27,6 +28,7 @@ import { ResourceFormDialog } from "@/features/resources/resource-form";
 import type { ResourceRecord, ResourceType } from "@/types/api-types";
 import { RESOURCE_TYPE_LABELS } from "@/lib/labels";
 import { relativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 const TYPE_FILTERS: Array<ResourceType | ""> = [
   "",
@@ -38,6 +40,17 @@ const TYPE_FILTERS: Array<ResourceType | ""> = [
   "DOCUMENT",
   "OTHER",
 ];
+
+/** Static tone classes per resource type so the icon chip reads as a type badge. */
+const TYPE_TONE: Record<ResourceType, string> = {
+  LINK: "bg-primary/10 text-primary",
+  PDF: "bg-danger/10 text-danger",
+  SLIDES: "bg-warning/15 text-warning",
+  VIDEO: "bg-success/10 text-success",
+  AUDIO: "bg-primary/10 text-primary",
+  DOCUMENT: "bg-muted text-muted-foreground",
+  OTHER: "bg-muted text-muted-foreground",
+};
 
 export default function ResourcesPage() {
   const router = useRouter();
@@ -106,8 +119,18 @@ export default function ResourcesPage() {
     return (id: string) => map.get(id) ?? "Unknown course";
   }, [courses.data]);
 
-  const items = resources.data?.items ?? [];
+  const items = useMemo(() => resources.data?.items ?? [], [resources.data]);
   const hasFilters = Boolean(search || courseFilter || typeFilter);
+
+  const stats = useMemo(() => {
+    let links = 0;
+    let linked = 0;
+    for (const r of items) {
+      if (r.resourceType === "LINK") links += 1;
+      if (r.courseId) linked += 1;
+    }
+    return { links, linked };
+  }, [items]);
 
   const openCreate = () => {
     setEditing(undefined);
@@ -131,6 +154,21 @@ export default function ResourcesPage() {
         kicker="Library"
         title="Resources"
         description="Lecture slides, readings, recordings and links for your courses."
+        chips={
+          resources.data ? (
+            <>
+              <Chip tone="primary" icon={FolderOpen}>
+                {items.length} saved
+              </Chip>
+              <Chip tone="neutral" icon={Link2}>
+                {stats.links} links
+              </Chip>
+              <Chip tone="success" icon={FileText}>
+                {stats.linked} with course
+              </Chip>
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={openCreate}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> Add resource
@@ -199,7 +237,12 @@ export default function ResourcesPage() {
               <Surface className="flex h-full flex-col p-4 transition-all hover:border-primary/30 hover:shadow-pop">
                 <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <span
+                    className={cn(
+                      "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                      TYPE_TONE[resource.resourceType] ?? "bg-muted text-muted-foreground",
+                    )}
+                  >
                     {resource.resourceType === "LINK" ? (
                       <Link2 className="h-4 w-4" aria-hidden />
                     ) : (

@@ -1,9 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, BellOff, Check, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  Bell,
+  BellOff,
+  Check,
+  Clock,
+  GraduationCap,
+  RefreshCw,
+  Target,
+  Timer,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip, type Tone } from "@/components/panel";
+import { IconChip } from "@/components/ui/surface";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Button, LoadingButton } from "@/components/ui/button";
@@ -22,10 +36,21 @@ import {
   serverStatusForFilter,
   type NotificationFilter,
 } from "@/features/notifications/notification-utils";
-import type { AppNotification } from "@/types/api-types";
+import type { AppNotification, NotificationType } from "@/types/api-types";
 import { NOTIFICATION_TYPE_LABELS } from "@/lib/labels";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+/** Icon + colour per notification kind, so urgency reads at a glance. */
+const TYPE_META: Record<NotificationType, { icon: LucideIcon; tone: Tone }> = {
+  OVERDUE_TASK: { icon: AlertTriangle, tone: "danger" },
+  ASSIGNMENT_DUE: { icon: Clock, tone: "warning" },
+  EXAM_REMINDER: { icon: GraduationCap, tone: "warning" },
+  STUDY_REMINDER: { icon: Timer, tone: "primary" },
+  STUDY_PLAN_REMINDER: { icon: Timer, tone: "primary" },
+  GOAL_REMINDER: { icon: Target, tone: "success" },
+  GENERAL: { icon: Bell, tone: "neutral" },
+};
 
 export default function NotificationsPage() {
   const [filter, setFilter] = useState<NotificationFilter>("all");
@@ -52,6 +77,18 @@ export default function NotificationsPage() {
         kicker="Inbox"
         title="Notifications"
         description="Reminders for upcoming exams, due and overdue tasks, and goal deadlines."
+        chips={
+          notifications.data ? (
+            <>
+              {unreadCount > 0 && (
+                <Chip tone="primary" icon={Bell}>
+                  {unreadCount} unread
+                </Chip>
+              )}
+              <Chip tone="neutral">{items.length} shown</Chip>
+            </>
+          ) : undefined
+        }
         actions={
           <>
             <LoadingButton
@@ -123,12 +160,10 @@ export default function NotificationsPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        "h-2 w-2 shrink-0 rounded-full",
-                        notification.status === "UNREAD" ? "bg-primary" : "bg-transparent",
-                      )}
-                      aria-hidden
+                    <IconChip
+                      icon={TYPE_META[notification.type]?.icon ?? Bell}
+                      tone={TYPE_META[notification.type]?.tone ?? "neutral"}
+                      className="h-7 w-7 [&_svg]:h-3.5 [&_svg]:w-3.5"
                     />
                     <p
                       className={cn(
@@ -142,10 +177,17 @@ export default function NotificationsPage() {
                       {NOTIFICATION_TYPE_LABELS[notification.type] ?? notification.type}
                     </Badge>
                   </div>
-                  <p className="mt-1 pl-4 text-sm text-muted-foreground">
+                  <p className="mt-1 pl-1 text-sm text-muted-foreground">
                     {notification.message}
                   </p>
-                  <p className="mt-1.5 pl-4 text-xs text-muted-foreground">
+                  <p className="mt-1.5 flex items-center gap-1.5 pl-1 text-xs text-muted-foreground">
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 shrink-0 rounded-full",
+                        notification.status === "UNREAD" ? "bg-primary" : "bg-muted-foreground/40",
+                      )}
+                      aria-hidden
+                    />
                     {relativeTime(notification.createdAt)}
                     {notification.status === "READ" && notification.readAt && (
                       <> · read {relativeTime(notification.readAt)}</>

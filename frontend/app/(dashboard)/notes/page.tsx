@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FilePlus2, StickyNote, Trash2, UserRound } from "lucide-react";
+import { BookOpen, FilePlus2, StickyNote, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip } from "@/components/panel";
+import { CourseSwatch } from "@/components/domain/course-swatch";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorAlert, ErrorState } from "@/components/states";
 import { Button, LoadingButton } from "@/components/ui/button";
@@ -149,6 +151,11 @@ export default function NotesPage() {
     b.updatedAt.localeCompare(a.updatedAt),
   );
 
+  const linkedNotes = useMemo(
+    () => sortedNotes.filter((n) => n.course !== null && n.course !== undefined).length,
+    [sortedNotes],
+  );
+
   const breadcrumbItems = useAcademicBreadcrumb(courseFilter || null, "Notes");
 
   return (
@@ -158,6 +165,20 @@ export default function NotesPage() {
         kicker="Knowledge"
         title="Notes"
         description="Capture study notes and course material."
+        chips={
+          notes.data ? (
+            <>
+              <Chip tone="primary" icon={StickyNote}>
+                {sortedNotes.length} notes
+              </Chip>
+              {linkedNotes > 0 && (
+                <Chip tone="neutral" icon={BookOpen}>
+                  {linkedNotes} linked to courses
+                </Chip>
+              )}
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={startNew}>
             <FilePlus2 className="mr-1.5 h-4 w-4" aria-hidden /> New note
@@ -206,17 +227,19 @@ export default function NotesPage() {
                     className={cn(
                       "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
                       selectedId === note.id
-                        ? "border-primary/50 bg-primary/5"
-                        : "border-border bg-card hover:border-primary/30",
+                        ? "border-primary/50 bg-primary/5 shadow-sm"
+                        : "border-border bg-card hover:border-primary/30 hover:bg-muted/40",
                     )}
                   >
                     <span className="block truncate text-sm font-medium">{note.title}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {relativeTime(note.updatedAt)}
+                    <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="shrink-0">{relativeTime(note.updatedAt)}</span>
                       {note.course && (
-                        <span className="ml-2 inline-flex items-center gap-1">
-                          <UserRound className="h-3 w-3" aria-hidden /> {note.course.name}
-                        </span>
+                        <>
+                          <span aria-hidden>·</span>
+                          <CourseSwatch id={note.course.id} className="h-3 w-3 shrink-0 rounded-sm" />
+                          <span className="truncate">{note.course.name}</span>
+                        </>
                       )}
                     </span>
                   </button>

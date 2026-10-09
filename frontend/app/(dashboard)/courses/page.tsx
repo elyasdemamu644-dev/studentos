@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, Plus } from "lucide-react";
+import { Award, BookOpen, Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip } from "@/components/panel";
 import { EmptyState, GridSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { CourseCard } from "@/components/domain/course-card";
@@ -47,12 +48,32 @@ export default function CoursesPage() {
 
   const hasFilters = Boolean(debouncedSearch || status || semesterId);
 
+  const stats = useMemo(() => {
+    const all = courses.data ?? [];
+    return {
+      active: all.filter((c) => c.status === "ACTIVE").length,
+      completed: all.filter((c) => c.status === "COMPLETED").length,
+    };
+  }, [courses.data]);
+
   return (
     <div>
       <PageHeader
         kicker="Academics"
         title="Courses"
         description="Your enrolled courses and study material, all in one place."
+        chips={
+          courses.data ? (
+            <>
+              <Chip tone="primary" icon={BookOpen}>
+                {stats.active} active
+              </Chip>
+              <Chip tone="success" icon={Award}>
+                {stats.completed} completed
+              </Chip>
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={() => setOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> Add course

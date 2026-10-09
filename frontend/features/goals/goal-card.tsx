@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { LoadingButton } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/surface";
+import { Chip } from "@/components/panel";
 import { DialogShell } from "@/features/tasks/task-form";
 import type { Goal, GoalMilestone } from "@/types/api-types";
 import { MILESTONE_STATUS_LABELS } from "@/lib/labels";
@@ -36,6 +38,8 @@ export function GoalCard({ goal, onEdit }: { goal: Goal; onEdit: (goal: Goal) =>
     (a, b) => a.position - b.position,
   );
   const completedMilestones = items.filter((m) => m.status === "COMPLETED").length;
+  const deadlineOverdue =
+    goal.status === "ACTIVE" && goal.deadline !== null && new Date(goal.deadline).getTime() < Date.now();
 
   const toggleMilestone = (milestone: GoalMilestone) => {
     void updateMilestone.mutateAsync({
@@ -66,11 +70,27 @@ export function GoalCard({ goal, onEdit }: { goal: Goal; onEdit: (goal: Goal) =>
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-medium">{goal.title}</p>
-          {goal.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{goal.description}</p>}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <IconChip
+            icon={Target}
+            tone={
+              goal.status === "COMPLETED"
+                ? "success"
+                : goal.status === "CANCELLED"
+                  ? "neutral"
+                  : "primary"
+            }
+          />
+          <div className="min-w-0">
+            <p className="truncate font-medium">{goal.title}</p>
+            {goal.description && (
+              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{goal.description}</p>
+            )}
+          </div>
         </div>
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{goal.progress}%</span>
+        <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">
+          {goal.progress}%
+        </span>
       </div>
 
       <Progress
@@ -86,12 +106,25 @@ export function GoalCard({ goal, onEdit }: { goal: Goal; onEdit: (goal: Goal) =>
           {completedMilestones}/{items.length} milestones
         </span>
         {goal.deadline && (
-          <span className="inline-flex items-center gap-1">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1",
+              deadlineOverdue && "font-medium text-danger",
+            )}
+          >
             <CalendarClock className="h-3.5 w-3.5" aria-hidden />
+            {deadlineOverdue ? "Overdue · " : "Due "}
             {formatDate(goal.deadline)}
           </span>
         )}
-        <span className="capitalize">{goal.status.toLowerCase()}</span>
+        <Chip
+          tone={
+            goal.status === "COMPLETED" ? "success" : goal.status === "CANCELLED" ? "neutral" : "primary"
+          }
+          className="ml-auto"
+        >
+          {goal.status === "ACTIVE" ? "Active" : goal.status === "COMPLETED" ? "Completed" : "Cancelled"}
+        </Chip>
       </div>
 
       <ul className="mt-4 space-y-1.5" aria-label="Milestones">

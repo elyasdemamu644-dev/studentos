@@ -5,6 +5,7 @@ import { differenceInSeconds, format } from "date-fns";
 import { Flame, Play, Square, Timer, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip } from "@/components/panel";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
@@ -177,6 +178,18 @@ export default function StudyPage() {
         kicker="Focus"
         title="Study"
         description="Run a focused study session and log your progress."
+        chips={
+          todaySessions.data ? (
+            <>
+              <Chip tone="primary" icon={Flame}>
+                {formatMinutes(summary?.totalMinutes)} studied today
+              </Chip>
+              <Chip tone="neutral" icon={Timer}>
+                {summary?.count ?? 0} session{(summary?.count ?? 0) !== 1 ? "s" : ""}
+              </Chip>
+            </>
+          ) : undefined
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -201,7 +214,20 @@ export default function StudyPage() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section className="surface-panel p-6">
+        <section
+          className={cn(
+            "surface-panel p-6 transition-colors",
+            active && "border-primary/40",
+          )}
+          style={
+            active
+              ? {
+                  backgroundImage:
+                    "linear-gradient(140deg, hsl(var(--primary) / 0.12), transparent 65%)",
+                }
+              : undefined
+          }
+        >
           <h2 className="sr-only">{active ? "Active focus session" : "Start a focus session"}</h2>
           {active ? (
             <div className="text-center">
@@ -320,7 +346,7 @@ export default function StudyPage() {
           ) : (
             <ul className="max-h-[420px] space-y-2.5 overflow-y-auto pr-1">
               {sessionItems.map((session) => (
-                <li key={session.id} className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2.5">
+                <li key={session.id} className="flex items-center gap-3 rounded-lg border border-primary/30 bg-muted/50 px-3 py-2.5">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
                       {session.topic ?? session.course?.name ?? "Focused study"}

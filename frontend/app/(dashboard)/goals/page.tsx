@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Target } from "lucide-react";
+import { Award, Plus, Target, TrendingUp } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip } from "@/components/panel";
 import { EmptyState, GridSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,17 @@ export default function GoalsPage() {
 
   const goals = useGoals({ status: filter === "ALL" ? undefined : filter, limit: 100 });
 
+  const stats = useMemo(() => {
+    const all = goals.data?.items ?? [];
+    const active = all.filter((g) => g.status === "ACTIVE");
+    const completed = all.filter((g) => g.status === "COMPLETED");
+    const avg =
+      active.length > 0
+        ? Math.round(active.reduce((sum, g) => sum + g.progress, 0) / active.length)
+        : 0;
+    return { active: active.length, completed: completed.length, avg };
+  }, [goals.data]);
+
   const openCreate = () => {
     setEditing(undefined);
     setFormOpen(true);
@@ -52,6 +64,23 @@ export default function GoalsPage() {
         kicker="Ambition"
         title="Goals"
         description="Track the milestones that move the needle."
+        chips={
+          goals.data ? (
+            <>
+              <Chip tone="primary" icon={Target}>
+                {stats.active} active
+              </Chip>
+              {stats.active > 0 && (
+                <Chip tone="neutral" icon={TrendingUp}>
+                  {stats.avg}% avg progress
+                </Chip>
+              )}
+              <Chip tone="success" icon={Award}>
+                {stats.completed} completed
+              </Chip>
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={openCreate}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> New goal

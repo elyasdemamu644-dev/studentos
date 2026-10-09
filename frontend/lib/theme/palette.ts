@@ -110,7 +110,7 @@ export function palette(seed: PaletteSeed): Palette {
     "danger-foreground": dangerPair.ink,
 
     border,
-    "border-strong": isLight ? darken(border, 0.03) : lighten(border, 0.05),
+    "border-strong": isLight ? darken(border, 0.07) : lighten(border, 0.1),
     input: isLight ? darken(border, 0.015) : lighten(border, 0.03),
     ring: primaryPair.background,
 

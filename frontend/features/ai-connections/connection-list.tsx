@@ -116,7 +116,7 @@ export function AiConnectionsPanel() {
       ) : connections.isError ? (
         <ErrorState error={connections.error} retry={() => connections.refetch()} />
       ) : items.length === 0 ? (
-        <p className="rounded-lg bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground">
+        <p className="rounded-lg border border-primary/30 bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground">
           No AI connections yet. Add one to power the assistant.
         </p>
       ) : (

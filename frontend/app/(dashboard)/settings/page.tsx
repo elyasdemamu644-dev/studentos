@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BellRing, Check, Eye, Palette, RotateCcw, UserRound } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip, Panel } from "@/components/panel";
 import { ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Button } from "@/components/ui/button";
@@ -60,13 +61,22 @@ export default function SettingsPage() {
         kicker="Preferences"
         title="Settings"
         description="Profile, appearance, AI connections, notifications and app preferences."
+        chips={
+          <>
+            <Chip tone="neutral" icon={Palette}>
+              {theme.mode} mode
+            </Chip>
+            {(notifications.data?.unreadCount ?? 0) > 0 && (
+              <Chip tone="primary" icon={BellRing}>
+                {notifications.data?.unreadCount} unread
+              </Chip>
+            )}
+          </>
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="surface-panel p-5">
-          <h2 className="mb-4 flex items-center gap-2 font-semibold">
-            <UserRound className="h-4 w-4 text-primary" aria-hidden /> Profile
-          </h2>
+        <Panel title="Profile" icon={UserRound} tone="neutral" collapsible={false}>
           <div className="flex items-center gap-4">
             <Avatar className="h-14 w-14">
               <AvatarFallback className="text-base">{initials}</AvatarFallback>
@@ -78,13 +88,14 @@ export default function SettingsPage() {
               <p className="truncate text-sm text-muted-foreground">{user?.email}</p>
             </div>
           </div>
-        </section>
+        </Panel>
 
-        <section className="surface-panel p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-semibold">
-              <BellRing className="h-4 w-4 text-primary" aria-hidden /> Notifications
-            </h2>
+        <Panel
+          title="Notifications"
+          icon={BellRing}
+          tone="primary"
+          collapsible={false}
+          actions={
             <Button
               variant="outline"
               size="sm"
@@ -93,13 +104,14 @@ export default function SettingsPage() {
             >
               <Eye className="mr-1.5 h-4 w-4" aria-hidden /> Mark all read
             </Button>
-          </div>
+          }
+        >
           {notifications.isPending ? (
             <ListSkeleton rows={3} />
           ) : notifications.isError ? (
             <ErrorState error={notifications.error} retry={() => notifications.refetch()} />
           ) : notifItems.length === 0 ? (
-            <p className="rounded-lg bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground">
+            <p className="rounded-lg border border-primary/25 bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground">
               {notifications.data?.unreadCount
                 ? `${notifications.data.unreadCount} unread notifications`
                 : "You're all caught up"}
@@ -107,7 +119,7 @@ export default function SettingsPage() {
           ) : (
             <ul className="space-y-2">
               {notifItems.slice(0, 8).map((notification) => (
-                <li key={notification.id} className="flex items-start justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2.5">
+                <li key={notification.id} className="flex items-start justify-between gap-3 rounded-lg border border-primary/25 bg-muted/40 px-3 py-2.5">
                   <div className="min-w-0">
                     <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                       {notification.title}
@@ -123,18 +135,20 @@ export default function SettingsPage() {
               ))}
             </ul>
           )}
-        </section>
+        </Panel>
       </div>
 
-      <section className="surface-panel p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-semibold">
-            <Palette className="h-4 w-4 text-primary" aria-hidden /> Appearance
-          </h2>
+      <Panel
+        title="Appearance"
+        icon={Palette}
+        tone="primary"
+        collapsible={false}
+        actions={
           <Button variant="ghost" size="sm" onClick={() => theme.reset()}>
             <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden /> Reset
           </Button>
-        </div>
+        }
+      >
 
         <div className="space-y-6">
           <div>
@@ -154,14 +168,11 @@ export default function SettingsPage() {
             <ThemeSelector />
           </div>
         </div>
-      </section>
+      </Panel>
 
       <AiConnectionsPanel />
 
-      <section className="surface-panel p-5">
-        <h2 className="mb-1 flex items-center gap-2 font-semibold">
-          <Check className="h-4 w-4 text-primary" aria-hidden /> Preferences
-        </h2>
+      <Panel title="Preferences" icon={Check} tone="success" collapsible={false}>
         <p className="mb-4 text-sm text-muted-foreground">
           These settings are synced to your account across devices.
         </p>
@@ -186,11 +197,11 @@ export default function SettingsPage() {
                     aria-label={pref.label}
                   />
                 </li>
-              );
-            })}
+            );
+          })}
           </ul>
         )}
-      </section>
+      </Panel>
 
       <Separator className="mb-2" />
       <p className="text-xs text-muted-foreground">

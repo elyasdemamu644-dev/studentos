@@ -1,8 +1,9 @@
-import { CalendarClock, Link2 } from "lucide-react";
+import { CalendarClock, Check, Link2 } from "lucide-react";
 import type { Task } from "@/types/api-types";
 import { dueLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PriorityBadge } from "./priority-badge";
+import { CourseSwatch } from "./course-swatch";
 
 export function TaskCard({
   task,
@@ -15,6 +16,7 @@ export function TaskCard({
 }) {
   const due = dueLabel(task.dueDate, task.status);
   const done = task.status === "COMPLETED";
+  const late = due.tone === "overdue";
 
   return (
     <div
@@ -28,8 +30,9 @@ export function TaskCard({
         }
       }}
       className={cn(
-        "flex items-start gap-3 surface-panel p-4 transition-all group",
-        onClick && "cursor-pointer hover:border-primary/40 hover:shadow-card",
+        "surface-panel group flex items-start gap-3 p-4 transition-all",
+        onClick && "cursor-pointer hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-pop",
+        late && !done && "border-danger/25 bg-danger/[0.04]",
         done && "opacity-70",
       )}
     >
@@ -43,15 +46,12 @@ export function TaskCard({
         disabled={!onToggle}
         className={cn(
           "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-          done ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 hover:border-primary",
+          done
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-muted-foreground/50 hover:border-primary hover:text-primary",
         )}
       >
-        <span
-          className="text-[10px] text-current"
-          aria-hidden
-        >
-          {done ? "âœ“" : ""}
-        </span>
+        {done && <Check className="h-3 w-3" strokeWidth={3} aria-hidden />}
       </button>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
@@ -61,12 +61,12 @@ export function TaskCard({
         {task.description && (
           <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{task.description}</p>
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
           {task.dueDate && (
             <span
               className={cn(
                 "inline-flex items-center gap-1",
-                due.tone === "overdue" && "font-medium text-danger",
+                late && "font-medium text-danger",
                 due.tone === "soon" && "font-medium text-warning",
                 due.tone === "done" && "text-success",
               )}
@@ -76,9 +76,15 @@ export function TaskCard({
             </span>
           )}
           {task.course && (
-            <span className="inline-flex items-center gap-1 truncate">
-              <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              {task.course.name}
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <CourseSwatch id={task.course.id} className="h-4 w-4 shrink-0 rounded-sm" />
+              <span className="truncate">{task.course.code ?? task.course.name}</span>
+            </span>
+          )}
+          {!task.dueDate && !task.course && (
+            <span className="inline-flex items-center gap-1">
+              <Link2 className="h-3.5 w-3.5" aria-hidden />
+              Unlinked
             </span>
           )}
         </div>

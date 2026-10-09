@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, Clock, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, CheckCircle2, Clock, MapPin, Pencil, Plus, Timer, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip, Panel } from "@/components/panel";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
@@ -11,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FilterBar, SelectFilter } from "@/components/ui/filter-bar";
-import { Surface } from "@/components/ui/surface";
 import { useEvents, useDeleteEvent } from "@/features/events/hooks";
 import { EventFormDialog } from "@/features/events/event-form";
 import { countCoursesWithExams, countdownLabel, partitionExams } from "@/features/events/exam-utils";
@@ -52,7 +52,7 @@ export default function ExamsPage() {
     const countdown = countdownLabel(exam.startAt);
     return (
       <li key={exam.id} className="flex">
-        <Surface className="flex w-full flex-wrap items-start justify-between gap-3 p-4">
+        <div className="flex w-full flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-background/50 p-4 transition-colors hover:border-primary/30">
           <div className="flex min-w-0 flex-1 items-start gap-3">
           <span
             className={cn(
@@ -128,7 +128,7 @@ export default function ExamsPage() {
             <Trash2 className="h-4 w-4" aria-hidden />
           </Button>
         </div>
-        </Surface>
+        </div>
       </li>
     );
   };
@@ -139,6 +139,32 @@ export default function ExamsPage() {
         kicker="Assessment"
         title="Exams"
         description="Every exam you have scheduled, with a countdown to the next one."
+        chips={
+          exams.data ? (
+            <>
+              <Chip tone="primary" icon={CalendarClock}>
+                {upcoming.length} upcoming
+              </Chip>
+              {next && (
+                <Chip
+                  tone={
+                    countdownLabel(next.startAt).tone === "danger"
+                      ? "danger"
+                      : countdownLabel(next.startAt).tone === "warning"
+                        ? "warning"
+                        : "primary"
+                  }
+                  icon={Timer}
+                >
+                  {countdownLabel(next.startAt).label}
+                </Chip>
+              )}
+              <Chip tone="success" icon={CheckCircle2}>
+                {past.length} done
+              </Chip>
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={openCreate}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> Add exam
@@ -208,17 +234,27 @@ export default function ExamsPage() {
           </div>
 
           {upcoming.length > 0 && (
-            <section>
-              <h2 className="mb-3 font-semibold">Upcoming</h2>
+            <Panel
+              title="Upcoming"
+              icon={CalendarClock}
+              tone="primary"
+              collapsible={false}
+              actions={<Chip tone="primary">{upcoming.length}</Chip>}
+            >
               <ul className="space-y-2.5">{upcoming.map(renderExam)}</ul>
-            </section>
+            </Panel>
           )}
 
           {past.length > 0 && (
-            <section>
-              <h2 className="mb-3 font-semibold text-muted-foreground">Past</h2>
-              <ul className="space-y-2.5 opacity-75">{past.map(renderExam)}</ul>
-            </section>
+            <Panel
+              title="Past"
+              icon={CheckCircle2}
+              tone="success"
+              defaultOpen={false}
+              actions={<Chip tone="neutral">{past.length}</Chip>}
+            >
+              <ul className="space-y-2.5">{past.map(renderExam)}</ul>
+            </Panel>
           )}
         </div>
       )}

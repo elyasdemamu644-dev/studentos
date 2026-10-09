@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, User } from "lucide-react";
 import Link from "next/link";
 import type { Course } from "@/types/api-types";
 import { CourseSwatch } from "@/components/domain/course-swatch";
@@ -9,18 +9,27 @@ export function CourseCard({ course, children }: { course: Course; children?: Re
   return (
     <Link
       href={`/courses/${course.id}`}
-      className="group block surface-panel p-5 transition-all hover:-translate-y-0.5 hover:shadow-pop"
+      className="group block surface-panel p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-pop"
     >
       <div className="flex items-start justify-between gap-3">
-        <CourseSwatch id={course.id} className="inline-block h-2.5 w-10 rounded-full" />
-        <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
+        <CourseSwatch id={course.id} className="h-11 w-11 shrink-0 rounded-lg" />
+        <ArrowUpRight
+          className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+          aria-hidden
+        />
       </div>
       <h3 className="mt-3 truncate font-semibold">{course.name}</h3>
-      <p className="mt-0.5 text-sm text-muted-foreground">
+      <p className="mt-0.5 truncate text-sm text-muted-foreground">
         {course.code ?? "—"}
         {course.credits ? ` · ${course.credits} credits` : ""}
       </p>
-      <div className="mt-3 flex items-center gap-2">
+      {course.instructor && (
+        <p className="mt-1 flex items-center gap-1 truncate text-xs text-muted-foreground">
+          <User className="h-3 w-3 shrink-0" aria-hidden />
+          <span className="truncate">{course.instructor}</span>
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <span
           className={cn(
             "rounded-full px-2 py-0.5 text-xs font-medium capitalize",

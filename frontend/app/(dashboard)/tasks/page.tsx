@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ListTodo, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ListTodo, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip, Panel } from "@/components/panel";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { TaskCard } from "@/components/domain/task-card";
@@ -127,6 +128,23 @@ export default function TasksPage() {
 
   const hasFilters = Boolean(debouncedSearch || priority || type || courseId || view !== "ALL");
 
+  const stats = useMemo(() => {
+    const all = tasks.data?.items ?? [];
+    let open = 0;
+    let overdue = 0;
+    let done = 0;
+    const now = Date.now();
+    for (const t of all) {
+      if (t.status === "COMPLETED" || t.status === "CANCELLED") {
+        done += 1;
+        continue;
+      }
+      open += 1;
+      if (t.dueDate && new Date(t.dueDate).getTime() < now) overdue += 1;
+    }
+    return { open, overdue, done };
+  }, [tasks.data]);
+
   const openForm = (task?: Task) => {
     setEditing(task);
     setFormOpen(true);
@@ -193,6 +211,23 @@ export default function TasksPage() {
         kicker="Workload"
         title="Tasks"
         description="Track assignments, homework and study prep."
+        chips={
+          tasks.data ? (
+            <>
+              <Chip tone="primary" icon={ListTodo}>
+                {stats.open} open
+              </Chip>
+              {stats.overdue > 0 && (
+                <Chip tone="danger" icon={AlertTriangle}>
+                  {stats.overdue} overdue
+                </Chip>
+              )}
+              <Chip tone="success" icon={CheckCircle2}>
+                {stats.done} done
+              </Chip>
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={() => openForm()}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> New task
@@ -269,26 +304,40 @@ export default function TasksPage() {
       ) : tasks.isError ? (
         <ErrorState error={tasks.error} retry={() => tasks.refetch()} />
       ) : tasks.data && tasks.data.items.length > 0 ? (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {items.single ? (
-            renderList(items.open, false)
+            <Panel
+              title={VIEWS.find((v) => v.value === view)?.label ?? "Tasks"}
+              icon={ListTodo}
+              tone="neutral"
+              collapsible={false}
+              actions={<Chip tone="neutral">{items.open.length + items.done.length}</Chip>}
+            >
+              {renderList(items.open, view === "COMPLETED")}
+            </Panel>
           ) : (
             <>
               {items.open.length > 0 && (
-                <section>
-                  <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Open · {items.open.length}
-                  </h2>
+                <Panel
+                  title="Open"
+                  icon={ListTodo}
+                  tone="primary"
+                  collapsible={false}
+                  actions={<Chip tone="primary">{items.open.length}</Chip>}
+                >
                   {renderList(items.open, false)}
-                </section>
+                </Panel>
               )}
               {items.done.length > 0 && (
-                <section>
-                  <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Done · {items.done.length}
-                  </h2>
+                <Panel
+                  title="Done"
+                  icon={CheckCircle2}
+                  tone="success"
+                  defaultOpen={false}
+                  actions={<Chip tone="success">{items.done.length}</Chip>}
+                >
                   {renderList(items.done, true)}
-                </section>
+                </Panel>
               )}
             </>
           )}

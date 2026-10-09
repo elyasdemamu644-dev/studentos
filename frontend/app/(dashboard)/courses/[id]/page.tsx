@@ -25,7 +25,9 @@ import {
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
+import { CourseSwatch } from "@/components/domain/course-swatch";
 import { TaskCard } from "@/components/domain/task-card";
+import { Panel } from "@/components/panel";
 import { Button, LoadingButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -108,52 +110,67 @@ export default function CourseDetailPage() {
             <ArrowLeft className="mr-1 h-4 w-4" aria-hidden /> All courses
           </Link>
         </Button>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-xs font-medium capitalize",
-                  data.status === "ACTIVE" && "bg-success/10 text-success",
-                  data.status === "COMPLETED" && "bg-primary/10 text-primary",
-                  data.status === "DROPPED" && "bg-muted text-muted-foreground",
+        <header
+          className="surface-panel relative overflow-hidden p-5 sm:p-6"
+          style={{
+            backgroundImage:
+              "linear-gradient(120deg, hsl(var(--primary) / 0.12), hsl(var(--accent) / 0.07) 45%, transparent 75%)",
+          }}
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-primary/10 blur-3xl"
+          />
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 gap-4">
+              <CourseSwatch id={data.id} className="h-14 w-14 shrink-0 rounded-xl" />
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "rounded-full px-2.5 py-0.5 text-xs font-medium capitalize",
+                      data.status === "ACTIVE" && "bg-success/10 text-success",
+                      data.status === "COMPLETED" && "bg-primary/10 text-primary",
+                      data.status === "DROPPED" && "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {data.status.toLowerCase()}
+                  </span>
+                  {data.semester && <Badge variant="secondary">{data.semester.name}</Badge>}
+                  {data.credits != null && <Badge variant="muted">{data.credits} credits</Badge>}
+                  {data.code && <Badge variant="outline">{data.code}</Badge>}
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight">{data.name}</h1>
+                {data.instructor && (
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <UserRound className="h-3.5 w-3.5" aria-hidden /> {data.instructor}
+                  </p>
                 )}
-              >
-                {data.status.toLowerCase()}
-              </span>
-              {data.semester && <Badge variant="secondary">{data.semester.name}</Badge>}
-              {data.credits != null && <Badge variant="muted">{data.credits} credits</Badge>}
-              {data.code && <Badge variant="outline">{data.code}</Badge>}
+                {data.description && (
+                  <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{data.description}</p>
+                )}
+              </div>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">{data.name}</h1>
-            {data.instructor && (
-              <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <UserRound className="h-3.5 w-3.5" aria-hidden /> {data.instructor}
-              </p>
-            )}
-            {data.description && (
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{data.description}</p>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/ai?prompt=${encodeURIComponent(askPrompt)}`}>
+                  <Sparkles className="mr-1.5 h-4 w-4" aria-hidden /> Ask AI
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-danger hover:text-danger"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Delete
+              </Button>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/ai?prompt=${encodeURIComponent(askPrompt)}`}>
-                <Sparkles className="mr-1.5 h-4 w-4" aria-hidden /> Ask AI
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-              <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-danger hover:text-danger"
-              onClick={() => setDeleteOpen(true)}
-            >
-              <Trash2 className="mr-1.5 h-4 w-4" aria-hidden /> Delete
-            </Button>
-          </div>
-        </div>
+        </header>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -199,33 +216,34 @@ export default function CourseDetailPage() {
       </div>
 
       {roll.tasks.total > 0 && roll.tasks.progress !== null && (
-        <section className="surface-panel p-5">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-medium">Task progress</span>
-            <span className="text-muted-foreground">
-              {roll.tasks.completed} of {roll.tasks.total} complete · {roll.tasks.progress}%
+        <Panel
+          title="Task progress"
+          icon={ListTodo}
+          tone={roll.tasks.overdue > 0 ? "danger" : roll.tasks.progress === 100 ? "success" : "primary"}
+          collapsible={false}
+          actions={
+            <span className="text-sm text-muted-foreground">
+              {roll.tasks.completed} of {roll.tasks.total} · {roll.tasks.progress}%
             </span>
-          </div>
+          }
+        >
           <Progress
             label="Course task progress"
             value={roll.tasks.progress}
             valueText={`${roll.tasks.completed} of ${roll.tasks.total} tasks complete`}
           />
-        </section>
+        </Panel>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="surface-panel p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-semibold">
-              <CalendarClock className="h-4 w-4 text-primary" aria-hidden /> Upcoming
-            </h2>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/calendar">
-                Open calendar <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-              </Link>
-            </Button>
-          </div>
+        <Panel
+          title="Upcoming"
+          icon={CalendarClock}
+          tone="primary"
+          href="/calendar"
+          linkLabel="Open calendar"
+          collapsible={false}
+        >
           {upcoming.length === 0 ? (
             <EmptyState
               icon={CalendarClock}
@@ -238,7 +256,7 @@ export default function CourseDetailPage() {
               {upcoming.slice(0, 6).map((event) => (
                 <li
                   key={event.id}
-                  className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2"
+                  className="flex items-center gap-3 rounded-lg border border-primary/30 bg-muted/50 px-3 py-2"
                 >
                   <span
                     className={cn(
@@ -266,19 +284,16 @@ export default function CourseDetailPage() {
               ))}
             </ul>
           )}
-        </section>
+        </Panel>
 
-        <section className="surface-panel p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-semibold">
-              <ListTodo className="h-4 w-4 text-primary" aria-hidden /> Open tasks
-            </h2>
-            <Button asChild variant="ghost" size="sm">
-              <Link href={`/tasks?course=${id}`}>
-                All tasks <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-              </Link>
-            </Button>
-          </div>
+        <Panel
+          title="Open tasks"
+          icon={ListTodo}
+          tone={openTasks.length > 0 ? "warning" : "success"}
+          href={`/tasks?course=${id}`}
+          linkLabel="All tasks"
+          collapsible={false}
+        >
           {tasks.isPending ? (
             <ListSkeleton rows={3} />
           ) : tasks.isError ? (
@@ -307,21 +322,18 @@ export default function CourseDetailPage() {
               {completedTasks.length} completed task{completedTasks.length !== 1 ? "s" : ""} hidden
             </p>
           )}
-        </section>
+        </Panel>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="surface-panel p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-semibold">
-              <StickyNote className="h-4 w-4 text-primary" aria-hidden /> Notes
-            </h2>
-            <Button asChild variant="ghost" size="sm">
-              <Link href={`/notes?course=${id}`}>
-                All notes <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-              </Link>
-            </Button>
-          </div>
+        <Panel
+          title="Notes"
+          icon={StickyNote}
+          tone="neutral"
+          href={`/notes?course=${id}`}
+          linkLabel="All notes"
+          collapsible={false}
+        >
           {notes.isPending ? (
             <ListSkeleton rows={2} />
           ) : notes.isError ? (
@@ -345,19 +357,16 @@ export default function CourseDetailPage() {
               ))}
             </ul>
           )}
-        </section>
+        </Panel>
 
-        <section className="surface-panel p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-semibold">
-              <FileText className="h-4 w-4 text-primary" aria-hidden /> Recent grades
-            </h2>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/analytics">
-                Analytics <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-              </Link>
-            </Button>
-          </div>
+        <Panel
+          title="Recent grades"
+          icon={FileText}
+          tone="success"
+          href="/analytics"
+          linkLabel="Analytics"
+          collapsible={false}
+        >
           {roll.grades.recent.length === 0 ? (
             <EmptyState
               icon={FileText}
@@ -370,7 +379,7 @@ export default function CourseDetailPage() {
               {roll.grades.recent.slice(0, 6).map((grade) => (
                 <li
                   key={grade.id}
-                  className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm"
+                  className="flex items-center justify-between rounded-lg border border-success/30 bg-muted/50 px-3 py-2 text-sm"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {grade.title}
@@ -386,14 +395,18 @@ export default function CourseDetailPage() {
               ))}
             </ul>
           )}
-        </section>
+        </Panel>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="surface-panel p-5">
-          <h2 className="mb-4 flex items-center gap-2 font-semibold">
-            <Paperclip className="h-4 w-4 text-primary" aria-hidden /> Resources
-          </h2>
+        <Panel
+          title="Resources"
+          icon={Paperclip}
+          tone="primary"
+          href={`/resources?course=${id}`}
+          linkLabel="Browse"
+          collapsible={false}
+        >
           <div className="flex items-center gap-4">
             <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Library className="h-6 w-6" aria-hidden />
@@ -411,12 +424,16 @@ export default function CourseDetailPage() {
               <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
             </Link>
           </Button>
-        </section>
+        </Panel>
 
-        <section className="surface-panel p-5">
-          <h2 className="mb-4 flex items-center gap-2 font-semibold">
-            <Target className="h-4 w-4 text-primary" aria-hidden /> Related goals
-          </h2>
+        <Panel
+          title="Related goals"
+          icon={Target}
+          tone="success"
+          href="/goals"
+          linkLabel="Open goals"
+          collapsible={false}
+        >
           {roll.goals.relatedActive === 0 ? (
             <EmptyState
               icon={Target}
@@ -425,20 +442,12 @@ export default function CourseDetailPage() {
               className="py-6"
             />
           ) : (
-            <>
-              <p className="text-sm text-muted-foreground">
-                {roll.goals.relatedActive} active goal
-                {roll.goals.relatedActive === 1 ? "" : "s"} matched to this course by name.
-              </p>
-              <Button asChild variant="outline" size="sm" className="mt-4">
-                <Link href="/goals">
-                  Open goals
-                  <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-                </Link>
-              </Button>
-            </>
+            <p className="text-sm text-muted-foreground">
+              {roll.goals.relatedActive} active goal
+              {roll.goals.relatedActive === 1 ? "" : "s"} matched to this course by name.
+            </p>
           )}
-        </section>
+        </Panel>
       </div>
 
       <CourseFormDialog open={editOpen} onOpenChange={setEditOpen} course={data} />

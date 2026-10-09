@@ -32,7 +32,7 @@ export function StatCard({
   className?: string;
 }) {
   const body = (
-    <>
+    <div className="flex h-full flex-col">
       <div className="flex items-start justify-between gap-3">
         <span className={cn("flex h-9 w-9 items-center justify-center rounded-lg", TONES[tone])} aria-hidden>
           <Icon className="h-4 w-4" />
@@ -41,8 +41,8 @@ export function StatCard({
       </div>
       <p className="mt-4 text-2xl font-bold tabular-nums tracking-tight">{value}</p>
       <p className="mt-1 text-sm text-muted-foreground">{label}</p>
-      {hint && <div className="mt-2 text-xs text-muted-foreground">{hint}</div>}
-    </>
+      {hint && <div className="mt-auto pt-2 text-xs text-muted-foreground">{hint}</div>}
+    </div>
   );
 
   if (href) {

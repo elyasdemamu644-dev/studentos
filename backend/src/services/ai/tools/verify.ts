@@ -8,6 +8,7 @@ import { resourcesService } from "@/services/resources";
 import { eventsService } from "@/services/events";
 import { gradesService } from "@/services/grades";
 import { coursesService } from "@/services/courses";
+import { aiService } from "@/services/ai/service";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Post-write verification
@@ -222,6 +223,90 @@ const VERIFIERS: Record<string, Verifier> = {
     read: async (userId, id) => await coursesService.getById(userId, id) as unknown as Record<string, unknown>,
     fields: { name: "name", code: "code", description: "description", credits: "credits", status: "status", semesterId: "semesterId", instructor: "instructor" },
     report: ["code", "name", "credits", "status"],
+  },
+
+  // ── Deletes ─────────────────────────────────────────────────────────────
+  //
+  // A delete verifies by the *opposite* of every other verifier: the record
+  // must NOT come back. `expect` reports a mismatch when the row still exists,
+  // so a delete that silently failed is reported as unverified rather than as
+  // a success. The domain services throw NotFoundError for a missing row, so
+  // `read` swallows it and returns null instead of aborting the verification.
+  delete_task: {
+    read: async (userId, id) => {
+      try {
+        return await tasksService.getById(userId, id) as unknown as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    },
+    fields: {},
+    expect: (record) => (record ? "the task still exists" : null),
+    report: [],
+  },
+  delete_note: {
+    read: async (userId, id) => {
+      try {
+        return await notesService.getById(userId, id) as unknown as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    },
+    fields: {},
+    expect: (record) => (record ? "the note still exists" : null),
+    report: [],
+  },
+  delete_study_session: {
+    read: async (userId, id) => {
+      try {
+        return await studySessionsService.getById(userId, id) as unknown as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    },
+    fields: {},
+    expect: (record) => (record ? "the study session still exists" : null),
+    report: [],
+  },
+
+  // ── Study plans ─────────────────────────────────────────────────────────
+  //
+  // `entries` is an array, so it is compared by `expect` rather than by the
+  // field map: the check is that every approved entry is present with its
+  // approved title, duration and description, which a plain key→key map
+  // cannot express.
+  create_study_plan: {
+    read: async (userId, id) => (await aiService.getStudyPlan(userId, id)) as unknown as Record<string, unknown>,
+    fields: { title: "title", examDate: "examDate", courseId: "courseId" },
+    expect: (record) => {
+      const entries = Array.isArray(record.entries) ? (record.entries as Array<Record<string, unknown>>) : [];
+      return entries.length > 0 ? null : "the plan has no entries";
+    },
+    report: ["title", "examDate"],
+  },
+  add_study_plan_entry: {
+    // The new entry's id is not the id the tool returns, so the plan is
+    // re-read and the entry is found inside it.
+    read: async (userId, id, args) => {
+      const plan = (await aiService.getStudyPlan(userId, id)) as unknown as {
+        entries: Array<Record<string, unknown>>;
+      };
+      const wanted = args.entryTitle;
+      const found = plan.entries.find((entry) => entry.title === wanted);
+      // Fall back to the last entry so a retitled entry is still re-read.
+      return found ?? plan.entries[plan.entries.length - 1] ?? null;
+    },
+    fields: { dayNumber: "dayNumber", durationMinutes: "durationMinutes" },
+    expect: (record) => (record ? null : "the entry was not found on the plan"),
+    report: ["title", "dayNumber", "durationMinutes"],
+  },
+  bulk_update_task_status: {
+    // A bulk write has no single record, so the id in the payload is not a
+    // record id and `read` is never reached by the record-id contract.
+    read: async () => null,
+    fields: {},
+    expect: () => null,
+    report: [],
   },
 };
 

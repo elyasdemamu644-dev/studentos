@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
@@ -10,11 +10,17 @@ import {
   CalendarClock,
   CalendarDays,
   GraduationCap,
+  History,
+  Keyboard,
   LayoutDashboard,
   Library,
   ListTodo,
   LogOut,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pin,
+  PinOff,
   Search,
   Settings,
   Sparkles,
@@ -26,12 +32,28 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { ThemeModeToggle } from "@/components/theme-toggle";
+import {
+  loadPinnedNav,
+  loadRecentNav,
+  loadSidebarCollapsed,
+  persistPinnedNav,
+  persistSidebarCollapsed,
+  pushRecentNav,
+} from "@/lib/ui-preferences";
+import { ThemeMenu } from "@/components/layout/theme-menu";
+import { QuickCreateMenu } from "@/components/layout/quick-create-menu";
+import { FocusTimer } from "@/components/layout/focus-timer";
+import {
+  navShortcutFor,
+  ShortcutsHelpDialog,
+  useShellShortcuts,
+} from "@/components/layout/keyboard-shortcuts";
 import { NotificationBell } from "@/components/domain/notification-bell";
 import { useAuth } from "@/features/auth/auth-provider";
 import { useGenerateNotifications } from "@/features/notifications/hooks";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,6 +107,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 ];
 
 const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
+const NAV_BY_HREF = new Map(NAV_ITEMS.map((item) => [item.href, item]));
 
 /**
  * The five items shown directly in the mobile bottom bar, picked by href so
@@ -106,6 +129,17 @@ export function isNavActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/** Longest nav destination matching the current pathname, for recent tracking. */
+function matchNavHref(pathname: string): string | undefined {
+  let best: string | undefined;
+  for (const item of NAV_ITEMS) {
+    if (isNavActive(pathname, item.href) && (!best || item.href.length > best.length)) {
+      best = item.href;
+    }
+  }
+  return best;
+}
+
 /**
  * Routes that are workspaces rather than pages.
  *
@@ -124,12 +158,17 @@ export function isWorkspaceRoute(pathname: string): boolean {
 }
 
 const AI_HREF = "/ai";
+const COLLAPSED_SIDEBAR_PAD = "lg:pl-20";
 
 function NavItemLink({
   href,
   label,
   icon: Icon,
   active,
+  collapsed,
+  pinned,
+  showPin = true,
+  onTogglePin,
   onNavigate,
   className,
 }: {
@@ -137,28 +176,42 @@ function NavItemLink({
   label: string;
   icon: typeof ListTodo;
   active: boolean;
+  collapsed?: boolean;
+  pinned?: boolean;
+  showPin?: boolean;
+  onTogglePin?: (href: string) => void;
   onNavigate?: () => void;
   className?: string;
 }) {
-  return (
+  const isAi = href === AI_HREF && !active;
+  const hint = showPin ? navShortcutFor(href) : undefined;
+
+  const link = (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
       className={cn(
-        "group relative flex items-center gap-3 rounded-nav px-3 py-2 text-sm font-medium transition-colors",
+        "group relative flex items-center gap-3 rounded-nav text-sm font-medium transition-colors",
+        collapsed ? "justify-center px-0 py-2.5" : "px-3 py-2",
+        !collapsed && showPin && "pr-9",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-        href === AI_HREF && !active && "text-primary",
+        isAi && "text-primary",
         className,
       )}
     >
       <Icon
-        className={cn("h-4 w-4 shrink-0", href === AI_HREF && !active && "text-primary")}
+        className={cn("h-4 w-4 shrink-0", isAi && "text-primary")}
         aria-hidden
       />
-      <span className="truncate">{label}</span>
+      {!collapsed && <span className="truncate">{label}</span>}
+      {!collapsed && hint && (
+        <span className="ml-auto font-mono text-[10px] tracking-wide text-muted-foreground/50 transition-opacity group-hover:opacity-0 data-[pinned=true]:opacity-0" data-pinned={pinned}>
+          {hint}
+        </span>
+      )}
       {active && (
         <span
           className="absolute inset-y-[15%] left-0 rounded-full bg-primary"
@@ -168,53 +221,170 @@ function NavItemLink({
       )}
     </Link>
   );
+
+  const row = (
+    <div className="group/nav relative">
+      {link}
+      {!collapsed && showPin && onTogglePin && (
+        <button
+          type="button"
+          onClick={() => onTogglePin(href)}
+          aria-label={pinned ? `Unpin ${label}` : `Pin ${label}`}
+          aria-pressed={pinned}
+          className={cn(
+            "absolute inset-y-0 right-1.5 my-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity",
+            "hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "group-hover/nav:opacity-100",
+            pinned && "opacity-100 text-primary",
+          )}
+        >
+          {pinned ? <PinOff className="h-3.5 w-3.5" aria-hidden /> : <Pin className="h-3.5 w-3.5" aria-hidden />}
+        </button>
+      )}
+    </div>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{row}</TooltipTrigger>
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return row;
 }
 
-function NavLinks({ className, onNavigate }: { className?: string; onNavigate?: () => void }) {
-  const pathname = usePathname();
+function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
+  if (collapsed) return null;
   return (
-    <nav className={className} aria-label="Primary">
-      <ul className="space-y-5">
-        {NAV_GROUPS.map((group) => (
-          <li key={group.label}>
-            <p
-              className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70"
-              style={{ letterSpacing: "var(--tracking-heading)" }}
-            >
-              {group.label}
-            </p>
-            <ul className="space-y-0.5">
-              {group.items.map((item) => (
-                <li key={item.href}>
-                  <NavItemLink
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={isNavActive(pathname, item.href)}
-                    onNavigate={onNavigate}
-                  />
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
+    <p
+      className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70"
+      style={{ letterSpacing: "var(--tracking-heading)" }}
+    >
+      {children}
+    </p>
+  );
+}
+
+function NavLinks({
+  collapsed,
+  pinned,
+  recent,
+  onTogglePin,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  pinned: string[];
+  recent: string[];
+  onTogglePin: (href: string) => void;
+  onNavigate?: () => void;
+}) {
+  const pathname = usePathname();
+
+  const pinnedItems = pinned.map((href) => NAV_BY_HREF.get(href)).filter(Boolean) as NavItem[];
+  const recentItems = recent
+    .filter((href) => !pinned.includes(href))
+    .map((href) => NAV_BY_HREF.get(href))
+    .filter(Boolean) as NavItem[];
+
+  return (
+    <nav className="flex flex-col gap-4" aria-label="Primary">
+      {pinnedItems.length > 0 && (
+        <div>
+          <SectionLabel collapsed={collapsed}>
+            <span className="inline-flex items-center gap-1">
+              <Pin className="h-3 w-3" aria-hidden /> Pinned
+            </span>
+          </SectionLabel>
+          <ul className="space-y-0.5">
+            {pinnedItems.map((item) => (
+              <li key={`pin-${item.href}`}>
+                <NavItemLink
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={isNavActive(pathname, item.href)}
+                  collapsed={collapsed}
+                  pinned
+                  onTogglePin={onTogglePin}
+                  onNavigate={onNavigate}
+                />
+              </li>
+            ))}
+          </ul>
+          {!collapsed && <Separator className="mt-3 bg-sidebar-border" />}
+        </div>
+      )}
+
+      {NAV_GROUPS.map((group) => (
+        <div key={group.label}>
+          <SectionLabel collapsed={collapsed}>{group.label}</SectionLabel>
+          <ul className="space-y-0.5">
+            {group.items.map((item) => (
+              <li key={item.href}>
+                <NavItemLink
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={isNavActive(pathname, item.href)}
+                  collapsed={collapsed}
+                  pinned={pinned.includes(item.href)}
+                  onTogglePin={onTogglePin}
+                  onNavigate={onNavigate}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      {recentItems.length > 0 && (
+        <div>
+          {!collapsed && <Separator className="mb-3 bg-sidebar-border" />}
+          <SectionLabel collapsed={collapsed}>
+            <span className="inline-flex items-center gap-1">
+              <History className="h-3 w-3" aria-hidden /> Recent
+            </span>
+          </SectionLabel>
+          <ul className="space-y-0.5">
+            {recentItems.map((item) => (
+              <li key={`recent-${item.href}`}>
+                <NavItemLink
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={isNavActive(pathname, item.href)}
+                  collapsed={collapsed}
+                  showPin={false}
+                  onNavigate={onNavigate}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </nav>
   );
 }
 
-function Brand() {
+function Brand({ collapsed = false }: { collapsed?: boolean }) {
   return (
-    <Link href="/dashboard" className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-card">
+    <Link
+      href="/dashboard"
+      className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label="StudentOS home"
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-card">
         S
       </span>
-      <span className="font-display-strong text-base">StudentOS</span>
+      {!collapsed && <span className="font-display-strong text-base">StudentOS</span>}
     </Link>
   );
 }
 
-function UserMenu() {
+function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { user, logout } = useAuth();
   if (!user) return null;
   const initials = `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() || "S";
@@ -223,17 +393,22 @@ function UserMenu() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex items-center gap-3 rounded-lg text-left text-sm transition-colors hover:bg-sidebar-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "justify-center p-1.5" : "w-full px-3 py-2",
+          )}
         >
-          <Avatar className="h-8 w-8">
+          <Avatar className="h-8 w-8 shrink-0">
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
-          <span className="hidden min-w-0 flex-1 lg:block">
-            <span className="block truncate font-medium">
-              {user.firstName} {user.lastName}
+          {!collapsed && (
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">
+                {user.firstName} {user.lastName}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">{user.email}</span>
             </span>
-            <span className="block truncate text-xs text-muted-foreground">{user.email}</span>
-          </span>
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-56">
@@ -256,20 +431,120 @@ function UserMenu() {
   );
 }
 
-function Sidebar() {
+function CollapseButton({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  const button = (
+    <Button
+      variant="ghost"
+      size={collapsed ? "icon" : "sm"}
+      onClick={onToggle}
+      aria-label={label}
+      title={`${label}  [`}
+      className={cn("text-muted-foreground", collapsed ? "" : "w-full justify-start gap-3")}
+    >
+      {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden /> : <PanelLeftClose className="h-4 w-4" aria-hidden />}
+      {!collapsed && (
+        <>
+          <span>Collapse</span>
+          <kbd className="ml-auto rounded border border-sidebar-border px-1 font-mono text-[10px] text-muted-foreground">
+            [
+          </kbd>
+        </>
+      )}
+    </Button>
+  );
+
+  if (!collapsed) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ShortcutsButton({ collapsed, onOpen }: { collapsed: boolean; onOpen: () => void }) {
+  const button = (
+    <Button
+      variant="ghost"
+      size={collapsed ? "icon" : "sm"}
+      onClick={onOpen}
+      aria-label="Keyboard shortcuts"
+      title="Keyboard shortcuts  ?"
+      className={cn("text-muted-foreground", collapsed ? "" : "w-full justify-start gap-3")}
+    >
+      <Keyboard className="h-4 w-4" aria-hidden />
+      {!collapsed && (
+        <>
+          <span>Shortcuts</span>
+          <kbd className="ml-auto rounded border border-sidebar-border px-1 font-mono text-[10px] text-muted-foreground">
+            ?
+          </kbd>
+        </>
+      )}
+    </Button>
+  );
+
+  if (!collapsed) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="right">Keyboard shortcuts</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function Sidebar({
+  collapsed,
+  onToggleCollapsed,
+  pinned,
+  recent,
+  onTogglePin,
+  onOpenHelp,
+}: {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  pinned: string[];
+  recent: string[];
+  onTogglePin: (href: string) => void;
+  onOpenHelp: () => void;
+}) {
   return (
     <aside
-      className="fixed inset-y-0 left-0 z-30 hidden w-sidebar flex-col border-r border-sidebar-border bg-sidebar lg:flex"
+      className={cn(
+        "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 lg:flex",
+        collapsed ? "w-20" : "w-sidebar",
+      )}
     >
-      <div className="flex h-14 shrink-0 items-center px-5">
-        <Brand />
+      <div className={cn("flex h-14 shrink-0 items-center", collapsed ? "justify-center px-2" : "px-5")}>
+        <Brand collapsed={collapsed} />
       </div>
       <Separator className="bg-sidebar-border" />
-      <div className="flex flex-1 flex-col justify-between overflow-y-auto p-[var(--nav-inset)]">
-        <NavLinks />
-        <div className="mt-6 space-y-3">
-          <ThemeModeToggle compact />
-          <UserMenu />
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          collapsed ? "px-2 pb-3 pt-3" : "p-[var(--nav-inset)]",
+        )}
+      >
+        <div className={cn("min-h-0 flex-1 overflow-y-auto shell-scroll", !collapsed && "-mr-1 pr-1")}>
+          <NavLinks
+            collapsed={collapsed}
+            pinned={pinned}
+            recent={recent}
+            onTogglePin={onTogglePin}
+          />
+        </div>
+        <div
+          className={cn(
+            "shrink-0 border-t border-sidebar-border",
+            collapsed ? "mt-2 flex flex-col items-center gap-1 pt-2" : "mt-3 space-y-1 pt-2",
+          )}
+        >
+          <ShortcutsButton collapsed={collapsed} onOpen={onOpenHelp} />
+          <CollapseButton collapsed={collapsed} onToggle={onToggleCollapsed} />
+          <div className={cn(collapsed ? "pt-1" : "pt-2")}>
+            <UserMenu collapsed={collapsed} />
+          </div>
         </div>
       </div>
     </aside>
@@ -441,19 +716,16 @@ function MobileNav() {
 
 function MobileHeader() {
   const { user } = useAuth();
-  const { open: openPalette } = useCommandPalette();
   const initials = `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase() || "S";
   return (
-    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur lg:hidden">
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/90 px-3 backdrop-blur lg:hidden">
       <Brand />
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon-sm" aria-label="Search" onClick={openPalette}>
-          <Search className="h-4 w-4" aria-hidden />
-        </Button>
+      <div className="flex items-center gap-0.5">
+        <QuickCreateMenu collapsedLabel />
         <NotificationBell />
-        <ThemeModeToggle compact />
+        <ThemeMenu />
         {user && (
-          <Link href="/settings" aria-label="Profile settings" className="rounded-full">
+          <Link href="/settings" aria-label="Profile settings" className="ml-0.5 rounded-full">
             <Avatar className="h-8 w-8">
               <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
@@ -461,6 +733,27 @@ function MobileHeader() {
         )}
       </div>
     </header>
+  );
+}
+
+function PageTitle() {
+  const pathname = usePathname() ?? "";
+  const match = matchNavHref(pathname);
+  const item = match ? NAV_BY_HREF.get(match) : undefined;
+  const group = NAV_GROUPS.find((g) => g.items.some((i) => i.href === match));
+  if (!item) return null;
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <item.icon className="h-4 w-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold leading-tight">{item.label}</p>
+        {group && (
+          <p className="truncate text-[11px] leading-tight text-muted-foreground">{group.label}</p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -473,22 +766,28 @@ function DesktopTopBar() {
     setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
   }, []);
   return (
-    <header className="sticky top-0 z-20 hidden h-14 shrink-0 items-center justify-end gap-2 border-b border-border bg-background/90 px-6 backdrop-blur lg:flex">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={openPalette}
-        aria-label="Search and quick actions"
-        className="h-8 gap-2 px-2.5 text-muted-foreground"
-      >
-        <Search className="h-3.5 w-3.5" aria-hidden />
-        <span>Search</span>
-        <kbd className="rounded border border-border bg-background px-1 py-0.5 font-mono text-[10px] font-medium">
-          {isMac ? "⌘K" : "Ctrl K"}
-        </kbd>
-      </Button>
-      <NotificationBell />
-      <ThemeModeToggle compact />
+    <header className="sticky top-0 z-20 hidden h-14 shrink-0 items-center gap-3 border-b border-border bg-background/85 px-6 backdrop-blur lg:flex">
+      <PageTitle />
+      <div className="ml-auto flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={openPalette}
+          aria-label="Search and quick actions"
+          className="h-8 w-40 justify-start gap-2 px-2.5 text-muted-foreground xl:w-56"
+        >
+          <Search className="h-3.5 w-3.5" aria-hidden />
+          <span>Search…</span>
+          <kbd className="ml-auto rounded border border-border bg-background px-1 py-0.5 font-mono text-[10px] font-medium">
+            {isMac ? "⌘K" : "Ctrl K"}
+          </kbd>
+        </Button>
+        <FocusTimer />
+        <NotificationBell />
+        <ThemeMenu />
+        <Separator orientation="vertical" className="mx-0.5 h-6" />
+        <QuickCreateMenu />
+      </div>
     </header>
   );
 }
@@ -515,6 +814,27 @@ function NotificationBootstrap() {
   return null;
 }
 
+/** Lives inside the palette provider so it can open the palette via shortcut. */
+function ShellShortcuts({
+  onToggleSidebar,
+  onOpenHelp,
+  helpOpen,
+  onHelpOpenChange,
+}: {
+  onToggleSidebar: () => void;
+  onOpenHelp: () => void;
+  helpOpen: boolean;
+  onHelpOpenChange: (open: boolean) => void;
+}) {
+  const { open } = useCommandPalette();
+  useShellShortcuts({
+    onToggleSidebar,
+    onOpenHelp,
+    onOpenPalette: open,
+  });
+  return <ShortcutsHelpDialog open={helpOpen} onOpenChange={onHelpOpenChange} />;
+}
+
 export function AppShell({
   children,
   className,
@@ -525,8 +845,57 @@ export function AppShell({
   const pathname = usePathname();
   const workspace = isWorkspaceRoute(pathname ?? "");
 
+  const [collapsed, setCollapsed] = useState(false);
+  const [pinned, setPinned] = useState<string[]>([]);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // Preferences are stored client-side, so they are applied after mount rather
+  // than during SSR to keep the hydrated markup identical to the server's.
+  useEffect(() => {
+    setCollapsed(loadSidebarCollapsed());
+    setPinned(loadPinnedNav());
+    setRecent(loadRecentNav());
+  }, []);
+
+  // Record the current destination in the Recent list.
+  useEffect(() => {
+    const href = matchNavHref(pathname ?? "");
+    if (!href) return;
+    setRecent((prev) => (prev[0] === href ? prev : pushRecentNav(href, prev)));
+  }, [pathname]);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      persistSidebarCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const togglePin = useCallback((href: string) => {
+    setPinned((prev) => {
+      const next = prev.includes(href) ? prev.filter((value) => value !== href) : [...prev, href];
+      persistPinnedNav(next);
+      return next;
+    });
+  }, []);
+
+  const openHelp = useCallback(() => setHelpOpen(true), []);
+
+  const sidebarPad = useMemo(
+    () => (collapsed ? COLLAPSED_SIDEBAR_PAD : "lg:pl-sidebar"),
+    [collapsed],
+  );
+
   return (
     <CommandPaletteProvider pages={NAV_ITEMS}>
+      <ShellShortcuts
+        onToggleSidebar={toggleCollapsed}
+        onOpenHelp={openHelp}
+        helpOpen={helpOpen}
+        onHelpOpenChange={setHelpOpen}
+      />
       <div className={cn(workspace ? "h-dvh overflow-hidden" : "min-h-dvh")}>
         {/* 14 persistent nav links sit before <main>, so every page needed this. */}
         <a
@@ -535,9 +904,22 @@ export function AppShell({
         >
           Skip to content
         </a>
-        <Sidebar />
+        <Sidebar
+          collapsed={collapsed}
+          onToggleCollapsed={toggleCollapsed}
+          pinned={pinned}
+          recent={recent}
+          onTogglePin={togglePin}
+          onOpenHelp={openHelp}
+        />
         <MobileNav />
-        <div className={cn("lg:pl-sidebar", workspace && "flex h-full min-h-0 flex-col overflow-hidden")}>
+        <div
+          className={cn(
+            sidebarPad,
+            "transition-[padding-left] duration-200",
+            workspace && "flex h-full min-h-0 flex-col overflow-hidden",
+          )}
+        >
           <DesktopTopBar />
           <MobileHeader />
           <NotificationBootstrap />

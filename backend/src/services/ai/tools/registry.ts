@@ -4,6 +4,7 @@ import { readTools } from "./read-tools";
 import { analyzeTools } from "./analyze-tools";
 import { actionTools } from "./action-tools";
 import { confirmPendingActionsTool } from "./confirm-tool";
+import { deleteTaskTool, deleteNoteTool, deleteStudySessionTool, createStudyPlanTool, addStudyPlanEntryTool, pushDailyAgendaTool, bulkUpdateTaskStatusTool } from "./missing-tools";
 import { EntityResolutionError } from "./resolver";
 import { zodToJsonSchema } from "./json-schema";
 import type {
@@ -51,7 +52,19 @@ export function registerTool(tool: AiToolDefinition): AiToolDefinition {
   return tool;
 }
 
-for (const tool of [...readTools, ...analyzeTools, ...actionTools, confirmPendingActionsTool]) {
+for (const tool of [
+  ...readTools,
+  ...analyzeTools,
+  ...actionTools,
+  confirmPendingActionsTool,
+  deleteTaskTool,
+  deleteNoteTool,
+  deleteStudySessionTool,
+  createStudyPlanTool,
+  addStudyPlanEntryTool,
+  pushDailyAgendaTool,
+  bulkUpdateTaskStatusTool,
+]) {
   registerTool(tool);
 }
 

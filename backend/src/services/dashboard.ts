@@ -178,11 +178,29 @@ export const dashboardService = {
 
     const courseRef = { select: { id: true, code: true, name: true } } as const;
 
+    // Only the six courses the dashboard actually renders. Every course-scoped
+    // query below is bounded to them, so a student with years of history never
+    // makes the command center load their whole academic record to show a
+    // summary. Totals come from a groupBy, not from materialising every row.
+    const recentCourses = await prisma.course.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: { id: true, code: true, name: true, status: true },
+    });
+    const recentCourseIds = recentCourses.map((c) => c.id);
+
     const [
       academicYears,
       semesters,
-      allCourses,
-      allTasks,
+      courseStatusGroups,
+      taskStatusGroups,
+      taskPriorityGroups,
+      courseTaskGroups,
+      overdueCount,
+      dueTodayCount,
+      overdueTasks,
+      upcomingTasks,
       todayEvents,
       upcomingEvents,
       upcomingExams,
@@ -192,7 +210,7 @@ export const dashboardService = {
       activeGoals,
       recentNotes,
       recentGrades,
-      scoredGrades,
+      courseGrades,
       resourceTotal,
       unreadNotifications,
       recentNotifications,
@@ -213,18 +231,52 @@ export const dashboardService = {
         orderBy: { startDate: "desc" },
         select: { id: true, name: true, academicYearId: true, startDate: true, endDate: true, status: true },
       }),
-      prisma.course.findMany({
+      prisma.course.groupBy({
+        by: ["status"],
         where: { userId },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, code: true, name: true, status: true, createdAt: true },
+        _count: { _all: true },
+      }),
+      prisma.task.groupBy({
+        by: ["status"],
+        where: { userId },
+        _count: { _all: true },
+      }),
+      prisma.task.groupBy({
+        by: ["priority"],
+        where: { userId },
+        _count: { _all: true },
+      }),
+      prisma.task.groupBy({
+        by: ["courseId", "status"],
+        where: { userId, courseId: { not: null } },
+        _count: { _all: true },
+      }),
+      prisma.task.count({
+        where: { userId, status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { lt: startOfToday } },
+      }),
+      prisma.task.count({
+        where: {
+          userId,
+          status: { in: ["TODO", "IN_PROGRESS"] },
+          dueDate: { gte: startOfToday, lt: startOfTomorrow },
+        },
       }),
       prisma.task.findMany({
-        where: { userId },
-        select: { id: true, title: true, courseId: true, status: true, priority: true, dueDate: true, updatedAt: true },
+        where: { userId, status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { lt: startOfToday } },
+        orderBy: { dueDate: "asc" },
+        take: 8,
+        select: { id: true, title: true, dueDate: true, priority: true, status: true, course: courseRef },
+      }),
+      prisma.task.findMany({
+        where: { userId, status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { gte: startOfToday } },
+        orderBy: { dueDate: "asc" },
+        take: 8,
+        select: { id: true, title: true, dueDate: true, priority: true, status: true, course: courseRef },
       }),
       prisma.event.findMany({
         where: { userId, startAt: { gte: startOfToday, lt: startOfTomorrow } },
         orderBy: { startAt: "asc" },
+        take: 8,
         select: { id: true, title: true, type: true, startAt: true, endAt: true, location: true, course: courseRef },
       }),
       prisma.event.findMany({
@@ -279,7 +331,12 @@ export const dashboardService = {
         select: { id: true, title: true, score: true, maxScore: true, type: true, recordedAt: true, course: courseRef },
       }),
       prisma.grade.findMany({
-        where: { userId, score: { not: null }, maxScore: { gt: 0 } },
+        where: {
+          userId,
+          courseId: { in: recentCourseIds },
+          score: { not: null },
+          maxScore: { gt: 0 },
+        },
         select: { courseId: true, score: true, maxScore: true, weight: true },
       }),
       prisma.resource.count({ where: { userId } }),
@@ -339,38 +396,39 @@ export const dashboardService = {
 
     // ── Tasks ──────────────────────────────────────────────
     const byStatus: Record<string, number> = {};
-    const byPriority: Record<string, number> = {};
-    for (const t of allTasks) {
-      byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
-      byPriority[t.priority] = (byPriority[t.priority] ?? 0) + 1;
+    let taskTotal = 0;
+    for (const group of taskStatusGroups) {
+      byStatus[group.status] = group._count._all;
+      taskTotal += group._count._all;
     }
 
-    const openTasks = allTasks.filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
-    const overdueTasks = openTasks.filter((t) => t.dueDate !== null && t.dueDate < startOfToday);
-    const dueTodayTasks = openTasks.filter(
-      (t) => t.dueDate !== null && t.dueDate >= startOfToday && t.dueDate < startOfTomorrow,
-    );
-
-    // Sort by due date (nulls last) so the soonest deadline leads.
-    const byDueDate = (a: (typeof openTasks)[number], b: (typeof openTasks)[number]) => {
-      if (a.dueDate === null) return 1;
-      if (b.dueDate === null) return -1;
-      return a.dueDate.getTime() - b.dueDate.getTime();
-    };
+    const byPriority: Record<string, number> = {};
+    for (const group of taskPriorityGroups) {
+      byPriority[group.priority] = group._count._all;
+    }
 
     // ── Course aggregates ──────────────────────────────────
     const tasksByCourse = new Map<string, { total: number; completed: number }>();
-    for (const t of allTasks) {
-      if (!t.courseId) continue;
-      const entry = tasksByCourse.get(t.courseId) ?? { total: 0, completed: 0 };
-      entry.total += 1;
-      if (t.status === "COMPLETED") entry.completed += 1;
-      tasksByCourse.set(t.courseId, entry);
+    for (const group of courseTaskGroups) {
+      if (!group.courseId) continue;
+      const entry = tasksByCourse.get(group.courseId) ?? { total: 0, completed: 0 };
+      entry.total += group._count._all;
+      if (group.status === "COMPLETED") entry.completed += group._count._all;
+      tasksByCourse.set(group.courseId, entry);
+    }
+
+    let coursesTotal = 0;
+    let coursesActive = 0;
+    let coursesCompleted = 0;
+    for (const group of courseStatusGroups) {
+      coursesTotal += group._count._all;
+      if (group.status === "ACTIVE") coursesActive += group._count._all;
+      if (group.status === "COMPLETED") coursesCompleted += group._count._all;
     }
 
     // Weighted average when weights are present, otherwise a plain mean.
     const gradeSums = new Map<string, { weighted: number; weightTotal: number; plain: number; count: number }>();
-    for (const g of scoredGrades) {
+    for (const g of courseGrades) {
       if (!g.courseId || g.score === null || g.maxScore === null || g.maxScore <= 0) continue;
       const ratio = (g.score / g.maxScore) * 100;
       const entry = gradeSums.get(g.courseId) ?? { weighted: 0, weightTotal: 0, plain: 0, count: 0 };
@@ -383,7 +441,7 @@ export const dashboardService = {
       gradeSums.set(g.courseId, entry);
     }
 
-    const courseProgress: DashboardCourse[] = allCourses.slice(0, 6).map((c) => {
+    const courseProgress: DashboardCourse[] = recentCourses.map((c) => {
       const t = tasksByCourse.get(c.id) ?? { total: 0, completed: 0 };
       const g = gradeSums.get(c.id);
       const gradeAverage = g
@@ -402,6 +460,15 @@ export const dashboardService = {
         gradeAverage,
         gradeCount: g?.count ?? 0,
       };
+    });
+
+    const mapTask = (t: (typeof upcomingTasks)[number]) => ({
+      id: t.id,
+      title: t.title,
+      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+      priority: t.priority,
+      status: t.status,
+      course: t.course as CourseRef,
     });
 
     // ── Academics ──────────────────────────────────────────
@@ -503,47 +570,20 @@ export const dashboardService = {
           }
         : null,
       courses: {
-        total: allCourses.length,
-        active: allCourses.filter((c) => c.status === "ACTIVE").length,
-        completed: allCourses.filter((c) => c.status === "COMPLETED").length,
+        total: coursesTotal,
+        active: coursesActive,
+        completed: coursesCompleted,
         recent: courseProgress,
       },
       tasks: {
-        total: allTasks.length,
+        total: taskTotal,
         byStatus,
         byPriority,
-        overdue: overdueTasks.length,
-        dueToday: dueTodayTasks.length,
+        overdue: overdueCount,
+        dueToday: dueTodayCount,
       },
-      upcomingTasks: openTasks
-        .filter((t) => t.dueDate !== null && t.dueDate >= startOfToday)
-        .sort(byDueDate)
-        .slice(0, 8)
-        .map((t) => {
-          const course = allCourses.find((c) => c.id === t.courseId);
-          return {
-            id: t.id,
-            title: t.title,
-            dueDate: t.dueDate?.toISOString() ?? null,
-            priority: t.priority,
-            status: t.status,
-            course: course ? { id: course.id, code: course.code, name: course.name } : null,
-          };
-        }),
-      overdueTasks: overdueTasks
-        .sort(byDueDate)
-        .slice(0, 8)
-        .map((t) => {
-          const course = allCourses.find((c) => c.id === t.courseId);
-          return {
-            id: t.id,
-            title: t.title,
-            dueDate: t.dueDate?.toISOString() ?? null,
-            priority: t.priority,
-            status: t.status,
-            course: course ? { id: course.id, code: course.code, name: course.name } : null,
-          };
-        }),
+      upcomingTasks: upcomingTasks.map(mapTask),
+      overdueTasks: overdueTasks.map(mapTask),
       exams: {
         upcoming: upcomingExams.map((e) => ({
           id: e.id,

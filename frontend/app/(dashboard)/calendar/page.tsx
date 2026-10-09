@@ -13,6 +13,8 @@ import {
   subMonths,
 } from "date-fns";
 import {
+  AlertTriangle,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -25,6 +27,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip } from "@/components/panel";
 import { ErrorState } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -122,6 +125,15 @@ export default function CalendarPage() {
         .filter((entry) => entry.events.length > 0),
     [cells, anchor, byDay],
   );
+
+  const monthStats = useMemo(() => {
+    const items = events.data?.items ?? [];
+    return {
+      total: items.length,
+      today: (byDay.get(toDayKey(new Date())) ?? []).length,
+      exams: items.filter((e) => e.type === "EXAM").length,
+    };
+  }, [events.data, byDay]);
 
   const syncedMonth = searchParams.get("month");
   useEffect(() => {
@@ -246,6 +258,23 @@ export default function CalendarPage() {
         kicker="Schedule"
         title="Calendar"
         description="Classes, exams and commitments for the month."
+        chips={
+          events.data ? (
+            <>
+              <Chip tone="primary" icon={CalendarDays}>
+                {monthStats.total} this month
+              </Chip>
+              {monthStats.today > 0 && (
+                <Chip tone="success">{monthStats.today} today</Chip>
+              )}
+              {monthStats.exams > 0 && (
+                <Chip tone="danger" icon={AlertTriangle}>
+                  {monthStats.exams} exams
+                </Chip>
+              )}
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={newEventForAnchor}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> New event
@@ -440,7 +469,7 @@ export default function CalendarPage() {
           </DialogHeader>
 
           {selectedEvents.length === 0 ? (
-            <div className="rounded-lg bg-muted/50 px-3 py-6 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-primary/30 bg-muted/50 px-3 py-6 text-center text-sm text-muted-foreground">
               Nothing scheduled. A clear day.
             </div>
           ) : (

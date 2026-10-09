@@ -16,16 +16,27 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowRight, Award, Flame, Pencil, Plus, TrendingUp, Trash2 } from "lucide-react";
+import {
+  ArrowRight,
+  Award,
+  BarChart3,
+  Flame,
+  PieChart as PieChartIcon,
+  Pencil,
+  Plus,
+  Table2,
+  TrendingUp,
+  Trash2,
+} from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip, Panel } from "@/components/panel";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { StatCard } from "@/components/domain/stat-card";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FilterBar, SelectFilter } from "@/components/ui/filter-bar";
-import { Surface } from "@/components/ui/surface";
 import { useGrades, useDeleteGrade } from "@/features/grades/hooks";
 import { GradeFormDialog } from "@/features/grades/grade-form";
 import { useCourses } from "@/features/courses/hooks";
@@ -143,6 +154,21 @@ export default function AnalyticsPage() {
         kicker="Insights"
         title="Analytics"
         description="Your performance and study habits at a glance."
+        chips={
+          grades.data ? (
+            <>
+              <Chip tone="primary" icon={Award}>
+                {avg != null ? `${avg}% average` : "No averages yet"}
+              </Chip>
+              <Chip tone="success" icon={TrendingUp}>
+                {best != null ? `${best}% best` : "—"}
+              </Chip>
+              <Chip tone="warning" icon={Flame}>
+                {formatMinutes(weekSessions.data?.summary.totalMinutes)} this week
+              </Chip>
+            </>
+          ) : undefined
+        }
         actions={
           <Button size="sm" onClick={() => { setEditing(undefined); setFormOpen(true); }}>
             <Plus className="mr-1.5 h-4 w-4" aria-hidden /> Record grade
@@ -210,13 +236,17 @@ export default function AnalyticsPage() {
       ) : (
         <>
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <Surface className="p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 font-semibold">
-                  <TrendingUp className="h-4 w-4 text-primary" aria-hidden /> Score trend
-                </h2>
-                <span className="text-xs text-muted-foreground">Last {trendData.length} grades</span>
-              </div>
+            <Panel
+              title="Score trend"
+              icon={TrendingUp}
+              tone="primary"
+              collapsible={false}
+              actions={
+                <span className="text-xs text-muted-foreground">
+                  Last {trendData.length} grades
+                </span>
+              }
+            >
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
@@ -228,15 +258,15 @@ export default function AnalyticsPage() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </Surface>
+            </Panel>
 
-            <Surface className="p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 font-semibold">
-                  <Award className="h-4 w-4 text-primary" aria-hidden /> Average by type
-                </h2>
-                <span className="text-xs text-muted-foreground">Percentages</span>
-              </div>
+            <Panel
+              title="Average by type"
+              icon={PieChartIcon}
+              tone="success"
+              collapsible={false}
+              actions={<span className="text-xs text-muted-foreground">Percentages</span>}
+            >
               {byType.length === 0 ? (
                 <EmptyState icon={Award} title="Not enough data" className="py-10" />
               ) : (
@@ -273,13 +303,16 @@ export default function AnalyticsPage() {
                   </ul>
                 </div>
               )}
-            </Surface>
+            </Panel>
           </div>
 
-          <Surface className="mt-6 p-5">
-            <h2 className="mb-4 flex items-center gap-2 font-semibold">
-              <Award className="h-4 w-4 text-primary" aria-hidden /> Average by course
-            </h2>
+          <Panel
+            title="Average by course"
+            icon={BarChart3}
+            tone="warning"
+            className="mt-6"
+            collapsible={false}
+          >
             {byCourse.length === 0 ? (
               <EmptyState icon={Award} title="Not enough scored data" className="py-10" />
             ) : (
@@ -299,19 +332,22 @@ export default function AnalyticsPage() {
                 </ResponsiveContainer>
               </div>
             )}
-          </Surface>
+          </Panel>
 
-          <Surface className="mt-6 p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 font-semibold">
-                <Award className="h-4 w-4 text-primary" aria-hidden /> All grades
-              </h2>
+          <Panel
+            title="All grades"
+            icon={Table2}
+            tone="neutral"
+            className="mt-6"
+            collapsible={false}
+            actions={
               <Button asChild variant="ghost" size="sm">
                 <Link href="/courses">
                   Manage courses <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
                 </Link>
               </Button>
-            </div>
+            }
+          >
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
@@ -359,7 +395,7 @@ export default function AnalyticsPage() {
                 </tbody>
               </table>
             </div>
-          </Surface>
+          </Panel>
         </>
       )}
 

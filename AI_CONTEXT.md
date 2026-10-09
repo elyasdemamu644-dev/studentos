@@ -238,7 +238,7 @@ lib/      api/{client,auth-session,errors}.ts  theme/{themes,theme-provider}.tsx
               format.ts  labels.ts  utils.ts
 features/ <domain>/{*-api.ts, hooks.ts, *-form.tsx}
 components/ ui/ (Radix primitives)  domain/ (course-card, task-card, event/goal cards removed — see §17)
-              layout/app-shell.tsx  page-header.tsx  states.tsx  feedback.tsx  theme-toggle.tsx
+              layout/app-shell.tsx  page-header.tsx  panel.tsx  states.tsx  feedback.tsx  theme-toggle.tsx
               error-boundary.tsx
 types/    api-types.ts   <- shared frontend DTO types, imported by 55 files across all layers
 tests/         18 *.test.ts + setup.ts   (NOT colocated — see §12)
@@ -259,6 +259,18 @@ There is deliberately **no** `hooks/` or `src/schemas/`: every hook is feature-l
 | Rendering | Pages are server-rendered shells around client data. `next build` prerenders 19 routes statically; `/courses/[id]` is dynamic (ƒ). |
 
 Navigation (`app-shell.tsx`): 12 sidebar items — Dashboard, Courses, Academics, Tasks, Calendar, Exams, Notes, Resources, Study, Goals, Analytics, AI Assistant — plus Settings in the sidebar footer. Mobile bottom bar shows 5: Dashboard, Tasks, Courses, Study, Exams. `/notifications` has **no** nav entry; it is reached via the bell.
+
+**Shared UI kit (2026-10-08 visual upgrade).** Every page is composed from the same primitives, all styled with `hsl(var(--token))` theme values — never hardcoded colours:
+
+| Primitive | Where | Role |
+| --- | --- | --- |
+| `Panel` + `Chip` | `components/panel.tsx` | The section shell every page uses: `IconChip` + title + optional `actions` + optional `href`/`linkLabel` + collapse control (`aria-expanded`/`aria-controls`). Panels stretch to fill equal-height grid rows; a **collapsed** panel sets `self-start` so it hugs its header instead of stretching into an empty box. `Chip` is the outline pill; tones are **static** class strings (`primary/success/warning/danger/neutral`) because Tailwind cannot see template-literal classes. |
+| `PageHeader` | `components/page-header.tsx` | `variant="hero"` (default): gradient surface, blur blob, kicker/title/description, `chips` (stat pills) and actions. `variant="plain"` for prose/workspace screens. All app pages use hero + per-page stat chips. |
+| Cards | `components/domain/` | `StatCard`, `TaskCard` (checkbox, overdue rail, course swatch), `CourseCard` (square swatch, hover lift), `CourseSwatch` (id-derived hue), `PriorityBadge`. |
+| States | `feedback.tsx`, `states.tsx` | `EmptyState`, `GridSkeleton`, `ListSkeleton`, `PanelSkeleton`, `ErrorState`, `ErrorAlert`. |
+| Workspace | `components/ui/surface.tsx` | `Surface`, `SectionCard`, `WorkspacePanel` — workspace layouts (AI) and settings-style blocks; new pages should prefer `Panel`. |
+
+Chart colours come only from `lib/theme/chart-theme.ts` (`CHART_SERIES`, `chartGridStyle`, `chartAxisStyle`, `chartTooltipStyle`, `barRadius`); `var()` does not resolve in SVG presentation attributes — use `style` objects/classes.
 
 ---
 
@@ -687,6 +699,103 @@ Remaining work is optional polish, not phase work:
 ---
 
 ## 17. Latest AI work / change log
+
+### 2026-10-09 — Dashboard stability & data scaling
+
+The dashboard stays balanced, predictable and fast as real data grows. **Response shape and all business logic are unchanged** — every counter, list and course rollup produces exactly what it did before; the change is *how* the backend computes it.
+
+**Backend — no more unbounded loads** (`backend/src/services/dashboard.ts` + `backend/tests/dashboard-scaling.test.ts`):
+- `GET /api/v1/dashboard` previously loaded **every** task row, every course and every scored grade for the user, then aggregated in JS. Now:
+  - Task counters and course/task rollups come from `prisma.task.groupBy` (`by: ["status"]`, `by: ["priority"]`, `by: ["courseId","status"]`) and `prisma.course.groupBy` (`by: ["status"]`) — counts stream straight from the DB, never materialised as rows.
+  - Overdue / due-today counters are `task.count` with the same open-status + date predicates as before.
+  - Overdue and upcoming **lists** are bounded `task.findMany` (open + `dueDate` window, `orderBy dueDate asc`, `take: 8`) with the course loaded via the relation — replacing the old filter-then-`allCourses.find` per item (an O(openTasks × courses) scan).
+  - Only the six courses the UI renders are fetched; grade averages are computed from that course set only (was: every scored grade the user has ever had).
+  - Today's events are now capped (`take: 8`); the header still links to the full calendar.
+
+**Frontend** (`app/(dashboard)/dashboard/page.tsx`): `events.today` render capped to 4 rows (was the full day) so a heavy schedule cannot stretch the Schedule box; all other lists already had per-panel caps and `truncate` on titles/courses/locations.
+
+**Duplicate search box removed:** the sidebar `SidebarSearch` (added in the nav-shell entry above) is gone — the single top-bar "Search…" pill / `⌘K` opens the command palette. (Done in the same shell, re-verified this turn.)
+
+**Tests added:** `backend/tests/dashboard-scaling.test.ts` seeds 21 tasks + 10 events and pins that list sections cap at 8 while the counters above them keep the full totals; that the capped lists stay due-date-ordered; that a ~340-char title is returned intact for the UI to truncate; and that a brand-new user still gets a fully balanced zeroed dashboard.
+
+**Gate:** `tsc --noEmit` clean (backend only the pre-existing `missing-tools.ts` AI-placeholder errors + frontend 0); `next lint` clean; backend **437 passed** — only `tests/ai-tools.test.ts` fails (2 pre-existing write-tool-verifier checks in the active AI workstream); dashboard suites 15/15. Frontend **233/236**: the known `task-deep-link` flake + 2 `ai-workspace.test.tsx` app-shell failures caused by the untracked `focus-timer.tsx` throwing in jsdom (`useStartSession` render error) — unrelated to these edits and consistent in isolation.
+
+### 2026-10-08 — Dashboard even-boxes fix + visible box outlines
+
+Design-only follow-up to the visual upgrade. **No hooks, queries, routes or business logic changed.**
+
+**Even boxes / spacing (the "uneven boxes" report).** Measured the live page first (CDP audit of every `.surface-panel` rect) — the main column was 978px tall next to a 570px column (**~408px of dead space**), row 3 was 184/262/92 and row 4 was 92/90/370.
+- **Main section rewritten from two column stacks into one paired grid.** The two wrappers became `display: contents` and the grid is `grid-flow-row-dense lg:grid-cols-3`; the four wide panels carry `lg:col-span-2`, so the dense flow pairs each wide panel with a widget in the right column (Overdue↔Term/Study, What's next↔Study, Schedule↔Quick, Courses↔Goals). DOM order is unchanged, so the mobile stacking order is identical.
+- **`items-start` removed** from all three dashboard grids — grid items now stretch, so every box in a row shares one height.
+- **Collapsed panels `self-start`** (`components/panel.tsx`) so a collapsed panel hugs its header instead of stretching into an empty box in an equal-height row.
+- **`StatCard` is a `flex h-full flex-col`** with the hint pinned via `mt-auto pt-2`, so cards with one- vs two-line hints align at the bottom.
+- Grades / Recent notes / Recent activity / Goals are now open by default (collapse still available); the row-4 right cell is `flex flex-col` with the AI block `flex-1` so the column bottoms align. Loading skeleton mirrors the new paired grid.
+- Result (audit): rows 254/254, 270/270, 262/262 and 262/262/262 and 370/370/370 — no dead space.
+
+**Visible box lines.** The default theme border (`226 24% 89%`) was too faint to read.
+- `--border-strong` is now a real step: `darken(border, 0.07)` / `lighten(border, 0.10)` (was `0.03`/`0.05`) — `lib/theme/palette.ts`.
+- Default theme base `--border` strengthened: light `89% → 85%`, dark `20% → 25%`.
+- `.surface-panel` (globals.css) now uses `border-border-strong` and `box-shadow: var(--shadow-inset), var(--shadow-card)` — a light-catching top hairline over the existing elevation.
+- Inner "little boxes" (task/course/exam/library rows) switched from `border-border/60` to full `border-border` so the line is readable; dividers and table rules keep their soft opacity.
+
+**Gate:** `tsc --noEmit` 0 errors; `next lint` clean; **235/236 web tests** (the only failure is the known `task-deep-link` full-suite flake, which passes in isolation); live CDP audit confirms even geometry (rows 254/254, 270/270, 262/262, 262/262/262, 370/370/370) and readable panel borders (`rgb(76,81,103)` dark).
+
+### 2026-10-09 — Colourful tone-coded inner boxes + dashboard mojibake fix
+
+Follow-up polish on the previous entry's inner-box lines. Design-only — no hooks, queries, routes or business logic changed.
+
+**Tone-coded inner borders.** The inner "little boxes" introduced above were a flat neutral `border-border`; every page's tinted boxes now carry a visible border in the accent that matches their panel, using **static Tailwind classes and theme tokens only** (Tailwind cannot see template-literal classes):
+- What's next → `border-warning/30` (hover `/60`); Overdue + Exams → `border-danger/25`; Grades → `border-success/30`; Courses, Notes, Activity, Schedule rows, Quick-action tiles, Library box, study sessions, calendar empty state, settings empty/notification rows, academics semester box and the AI-connections empty state → `border-primary/25`–`/40`.
+- List wrappers use `space-y-1.5` so adjacent bordered boxes never touch.
+- Files: `app/(dashboard)/dashboard/page.tsx`, `app/(dashboard)/courses/[id]/page.tsx`, `app/(dashboard)/study/page.tsx`, `app/(dashboard)/settings/page.tsx`, `app/(dashboard)/calendar/page.tsx`, `app/(dashboard)/academics/page.tsx`, `features/ai-connections/connection-list.tsx`.
+
+**Dashboard mojibake fix.** `app/(dashboard)/dashboard/page.tsx` was double-encoded UTF-8, so the live page rendered `Â·` where a middle dot was intended and `â€”` where an em dash was intended. All 42 occurrences were normalised to proper `·`, `—` and `–`; the comment box-drawing decoded to `─`. A repo-wide grep for `Â|â€|âœ|â”` across `*.tsx` is now empty.
+
+**Navigation chrome lines.** The top bars and left sidebar in `components/layout/app-shell.tsx` now use the same primary-tinted line: sidebar right edge (`border-r border-primary/30`), the brand `Separator` (`bg-primary/30`), both sticky headers (`border-b border-primary/30`) and the mobile bottom nav (`border-t border-primary/30`). The `sidebar-border` token stays (still used by the theme-selector preview).
+
+**Gate:** `tsc --noEmit` 0 errors; `next lint` clean; **235/236 web tests** (failing case is the known `task-deep-link` full-suite flake, passing in isolation); CDP audit shows `innerBorder: rgba(103,96,235,0.3)` (primary) over the neutral panel border and the corrected hero text ("All clear — nothing needs you right now").
+
+### 2026-10-09 — Navigation shell: redesigned sidebar + section-breadcrumb top bar
+
+Chrome-only polish of `components/layout/app-shell.tsx`. Design/structure only — no routes, data hooks or navigation behaviour changed; the DOM nesting the workspace tests assert (root `min-h-dvh`/`h-dvh` → content wrapper → `main.max-w-content`) is untouched.
+
+**Left sidebar.**
+- Brand row is taller and now shows the app mark plus a "Study workspace" subtitle; the mark scales on hover.
+- A new `SidebarSearch` button under the brand opens the command palette (`useCommandPalette`), with a platform-correct `⌘K`/`Ctrl K` hint — the rail's new primary call-to-action.
+- Nav groups get a hairline rule beside the label; each item keeps its active left indicator and gains a primary icon tint, a `shadow-card` lift and an inner `ring-primary/30` when active.
+- Footer groups appearance + account: the theme-mode toggle sits in a bordered "Appearance" row and the `UserMenu` trigger is now a bordered card.
+
+**Top bar (desktop).** No longer a bare right-aligned cluster — it is `justify-between` with a `Current section` breadcrumb (`StudentOS › <section>`, derived from `NAV_ITEMS` via `isNavActive`, falling back to the capitalised first path segment for unlisted routes like `/settings`). The search trigger became a rounded pill; bell and theme toggle unchanged. Background softened to `bg-background/80`.
+
+**Mobile header.** Same `bg-background/80` and tighter action gap.
+
+**Gate:** `tsc --noEmit` 0 errors; `next lint` clean; `app-shell.test.ts` (6) and `ai-workspace.test.tsx` (20) pass; full suite **235/236** (only the known `task-deep-link` flake); CDP audit still renders `/dashboard` (doc height unchanged at 2162).
+
+### 2026-10-08 — Frontend visual upgrade: shared Panel/Chip kit, hero page headers, every page lifted
+
+Continuation of the frontend upgrade brief. Design/structure only — no hooks, routes, queries or business logic changed (the only behavioural fix is a broken glyph).
+
+**New shared kit.**
+- **`components/panel.tsx` (new).** `Panel` + `Chip` were local components inside `dashboard/page.tsx`; they are now shared so every page has one section rhythm: `IconChip`, title, optional `actions`, optional `href`/`linkLabel` ("View all" arrow link), collapse control with `aria-expanded`/`aria-controls`. The dashboard imports them (its duplicates were deleted).
+- **`components/page-header.tsx` upgraded.** `variant="hero"` is now the default: gradient surface panel, blur blob, kicker/title/description, optional `chips` and actions; `variant="plain"` preserves the old text header. All 13 `PageHeader` pages inherit the hero look and gained summary chips: tasks (open/overdue/done), courses (active/completed), notes (notes/linked), exams (upcoming/next-countdown/done), goals (active/avg %/completed), calendar (this month/today/exams), academics (years/semesters/running year), notifications (unread/shown), resources (saved/links/with course), study (studied today/sessions), analytics (avg/best/this week), settings (mode/unread).
+
+**Page upgrades.**
+- **Tasks:** Open/Done groups are `Panel`s with count chips; Done starts collapsed.
+- **Exams:** Upcoming/Past panels (past collapsed); rows restyled from a nested `Surface` to flat hover rows so panels never nest inside panels.
+- **Analytics:** the three chart surfaces and the grades table are `Panel`s with correct icons (`TrendingUp`/`PieChartIcon`/`BarChart3`/`Table2` — the lucide `PieChart` collides with recharts', aliased on import).
+- **Settings:** Profile / Notifications / Appearance / Preferences are `Panel`s with header actions (mark-all-read, theme reset).
+- **Course detail:** hero header with `CourseSwatch` + gradient; all six sections converted to `Panel` with their existing links (calendar/tasks/notes/analytics/resources/goals); the task-progress strip is a panel too.
+- **Calendar/study:** hero chips; the study timer panel gains a primary gradient + border while a session is active.
+- **Error page** wrapped in a surface panel.
+
+**Card upgrades.**
+- **`TaskCard`:** fixed the mojibake check glyph (`âœ“` → lucide `Check` with `strokeWidth={3}`), added an overdue rail (`border-danger/25 bg-danger/[0.04]`), course swatch + code in the meta row, hover lift when `onClick` is set.
+- **`CourseCard`:** bigger square swatch, instructor line, `ArrowUpRight` on hover, status tones.
+- **`GoalCard`:** `IconChip` header with status tone, overdue deadline rendering ("Overdue · date"), status shown as a `Chip`.
+- **Notifications rows:** type-coded `IconChip` per kind (`OVERDUE_TASK` danger / `ASSIGNMENT_DUE`+`EXAM_REMINDER` warning / `STUDY_*` primary / `GOAL_REMINDER` success / `GENERAL` neutral) instead of a bare dot; the dot moved to the timestamp line.
+- **Resources cards:** per-type icon tones (`TYPE_TONE` static map); **notes list** rows show a course swatch instead of a `UserRound` icon.
+
+**Gate:** `tsc --noEmit` 0 errors; `next lint` clean; **236/236 web tests, 20 files** (the known `task-deep-link` full-suite flake did not fire this run); `next build` clean (19 routes — run it only with the dev server stopped and `frontend/.next` cleared, see the `.next` corruption note below); all 14 app routes HTTP 200 on the restarted dev server with an error-free `dev.log`.
 
 ### 2026-10-08 — Frontend product upgrade: command palette, deep links, real search, error states
 

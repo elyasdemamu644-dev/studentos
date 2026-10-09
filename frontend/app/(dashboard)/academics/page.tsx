@@ -5,12 +5,13 @@ import Link from "next/link";
 import { CalendarRange, ChevronDown, GraduationCap, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { Chip } from "@/components/panel";
 import { EmptyState, ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Surface } from "@/components/ui/surface";
+import { IconChip, Surface } from "@/components/ui/surface";
 import {
   AcademicYearFormDialog,
   SemesterFormDialog,
@@ -88,6 +89,24 @@ export default function AcademicsPage() {
         kicker="Structure"
         title="Academics"
         description="Your academic years and semesters — the backbone for courses, tasks, and the dashboard."
+        chips={
+          !isPending && !years.isError ? (
+            <>
+              <Chip tone="primary" icon={GraduationCap}>
+                {orderedYears.length} {orderedYears.length === 1 ? "year" : "years"}
+              </Chip>
+              <Chip tone="neutral" icon={CalendarRange}>
+                {(semesters.data ?? []).length} semesters
+              </Chip>
+              {(() => {
+                const active = orderedYears.find((y) => y.status === "ACTIVE");
+                return active ? (
+                  <Chip tone="success">{active.name} is running</Chip>
+                ) : null;
+              })()}
+            </>
+          ) : undefined
+        }
         actions={
           <>
             <Button
@@ -133,8 +152,11 @@ export default function AcademicsPage() {
             return (
               <Surface key={year.id} className="p-4">
                 <header className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <CalendarRange className="h-4 w-4 text-primary" aria-hidden />
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <IconChip
+                      icon={CalendarRange}
+                      tone={year.status === "ACTIVE" ? "primary" : "neutral"}
+                    />
                     <h2 className="font-semibold">{year.name}</h2>
                     <Badge variant={STATUS_VARIANT[year.status]}>
                       {year.status.toLowerCase()}
@@ -143,6 +165,7 @@ export default function AcademicsPage() {
                       {formatDate(year.startDate, "MMM d, yyyy")} –{" "}
                       {formatDate(year.endDate, "MMM d, yyyy")}
                     </span>
+                    <Chip tone="neutral">{children.length} semesters</Chip>
                   </div>
                   <div className="flex items-center gap-1">
                     <Button variant="ghost" size="sm" onClick={() => openYearForm(year)}>
@@ -176,7 +199,7 @@ export default function AcademicsPage() {
                       return (
                         <li
                           key={semester.id}
-                          className="rounded-lg border border-border/70 bg-background/40 transition-colors hover:border-primary/30 hover:bg-background"
+                          className="rounded-lg border border-primary/40 bg-background/40 transition-colors hover:border-primary/60 hover:bg-background"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                             <button
