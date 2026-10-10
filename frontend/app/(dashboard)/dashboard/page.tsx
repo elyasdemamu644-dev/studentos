@@ -41,6 +41,7 @@ import { Chip, Panel, type Tone } from "@/components/panel";
 import { useDashboard } from "@/features/dashboard/hooks";
 import { useCompleteTask } from "@/features/tasks/hooks";
 import { useAuth } from "@/features/auth/auth-provider";
+import { TestClientComponent } from "@/components/domain/test-client";
 import type {
   ActivityKind,
   DashboardActivity,
@@ -1096,31 +1097,8 @@ export default function DashboardPage() {
             )}
           </Panel>
 
-          {/* AI — its own block, never mixed into Analytics. */}
-          <section
-            className="surface-panel relative flex-1 overflow-hidden p-5"
-            style={{
-              backgroundImage:
-                "linear-gradient(135deg, hsl(var(--primary) / 0.12), transparent 70%)",
-            }}
-          >
-            <div className="relative">
-              <div className="flex items-center gap-2.5">
-                <IconChip icon={Sparkles} />
-                <h2 className="min-w-0 flex-1 truncate font-semibold">AI Study Assistant</h2>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Ask about a course, what to study next, upcoming deadlines or your tasks — grounded
-                in your own StudentOS data.
-              </p>
-              <Button asChild size="sm" className="mt-4">
-                <Link href="/ai">
-                  Open assistant
-                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" aria-hidden />
-                </Link>
-              </Button>
-            </div>
-          </section>
+          {/* AI — embedded chat interface with companion */}
+          <TestClientComponent />
         </div>
       </div>
     </div>
