@@ -7,6 +7,7 @@ import {
   createConversationSchema,
   createMessageSchema,
   createStudyPlanSchema,
+  structuredRequestSchema,
   updateConversationSchema,
   updateStudyPlanSchema,
   updateStudyPlanEntrySchema,
@@ -15,6 +16,7 @@ import {
   type CreateConversationInput,
   type CreateMessageInput,
   type CreateStudyPlanInput,
+  type StructuredRequestInput,
   type UpdateConversationInput,
   type UpdateStudyPlanInput,
   type UpdateStudyPlanEntryInput,
@@ -91,6 +93,21 @@ router.post("/conversations/:id/messages", zValidator("params", messageParam), z
     const input = req.body as unknown as CreateMessageInput;
     const result = await aiService.addMessage(req.currentUser!.id, String(req.params.id), input);
     return res.status(201).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+// ── Structured extraction ─────────────────────
+//
+// Pure read-only text → JSON path: it calls the same grounded provider chat
+// endpoint the no-tools path uses, then returns only output that validated
+// against the client-supplied JSON Schema. No tools run and nothing is written,
+// so there is never a proposal to confirm.
+
+router.post("/structured", zValidator("body", structuredRequestSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const input = req.body as unknown as StructuredRequestInput;
+    const result = await aiService.structured(req.currentUser!.id, input);
+    return res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 });
 

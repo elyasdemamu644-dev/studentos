@@ -2,6 +2,7 @@ import { confirmationStore } from "./confirmations";
 import { config } from "@/config";
 import type { AiProvider, ChatMessage, ChatToolCall, ToolChoice } from "./provider";
 import { buildAgentSystemPrompt } from "./system-prompt";
+import type { StudentContext } from "./context";
 import { executeTool, getProviderToolSchemas, getTool } from "./tools/registry";
 import type { AiToolContext, AiToolResult, ProposedAction } from "./tools/types";
 
@@ -71,6 +72,12 @@ export interface AgentRunInput {
   /** The JSON context snapshot, used only on the no-tools fallback path. */
   context?: string;
   /**
+   * The same snapshot as a structured object, inlined into the tool-path system
+   * prompt so the model starts oriented instead of blind. The no-tools path uses
+   * the serialized `context` above.
+   */
+  studentContext?: StudentContext | null;
+  /**
    * Exact calls the student has already approved this turn. Non-null only for
    * a turn that is explicitly approving a stored proposal.
    */
@@ -123,6 +130,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       role: "system",
       content: buildAgentSystemPrompt({
         studentName: input.studentName,
+        studentContext: input.studentContext,
         pendingProposal: pending
           ? {
               id: pending.id,

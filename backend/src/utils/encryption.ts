@@ -5,6 +5,23 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 
+/**
+ * Thrown when a ciphertext cannot be decrypted: malformed input, or a valid
+ * AES-256-GCM payload whose authentication tag fails (e.g. it was encrypted
+ * under a different `ENCRYPTION_KEY`). Callers can catch this specific type to
+ * surface an actionable error without masking unrelated failures.
+ *
+ * The message never contains the ciphertext, key, or plaintext.
+ */
+export class CredentialDecryptionError extends Error {
+  constructor(message = "Stored credentials could not be decrypted") {
+    super(message);
+    this.name = "CredentialDecryptionError";
+    // Ensure the prototype chain survives transpilation so `instanceof` works.
+    Object.setPrototypeOf(this, CredentialDecryptionError.prototype);
+  }
+}
+
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
@@ -47,7 +64,7 @@ export function decrypt(ciphertextBase64: string): string {
   // providers (ollama) store `encryptForUser(userId, "")`, so any shorter
   // threshold than `IV + AUTH_TAG` would reject a legitimate ciphertext.
   if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH) {
-    throw new Error("Invalid ciphertext: too short");
+    throw new CredentialDecryptionError("Invalid ciphertext: too short");
   }
 
   const iv = packed.subarray(0, IV_LENGTH);
@@ -57,10 +74,15 @@ export function decrypt(ciphertextBase64: string): string {
   const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(authTag);
 
-  let decrypted = "";
-  decrypted += decipher.update(ciphertext, undefined, "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+  try {
+    let decrypted = "";
+    decrypted += decipher.update(ciphertext, undefined, "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch {
+    // GCM authentication failed: wrong key or tampered ciphertext.
+    throw new CredentialDecryptionError();
+  }
 }
 
 // ── Per‑user key vault ─────────────────────────────────────────────────────────
@@ -112,7 +134,7 @@ export function decryptForUser(userId: string, ciphertextBase64: string): string
   // See `decrypt` above: an encrypted empty string is 28 bytes (IV + auth tag)
   // and must be accepted so credential-free providers can round-trip.
   if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH) {
-    throw new Error("Invalid ciphertext: too short");
+    throw new CredentialDecryptionError("Invalid ciphertext: too short");
   }
 
   const iv = packed.subarray(0, IV_LENGTH);
@@ -122,10 +144,15 @@ export function decryptForUser(userId: string, ciphertextBase64: string): string
   const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(authTag);
 
-  let decrypted = "";
-  decrypted += decipher.update(ciphertext, undefined, "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+  try {
+    let decrypted = "";
+    decrypted += decipher.update(ciphertext, undefined, "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch {
+    // GCM authentication failed: wrong key or tampered ciphertext.
+    throw new CredentialDecryptionError();
+  }
 }
 
 // ── Credential hashing (for idempotency key, not for storage) ─────────────────

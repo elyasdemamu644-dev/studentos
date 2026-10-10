@@ -29,8 +29,10 @@ import { ok, toDate, toIsoTimestamp } from "./types";
 //     exact call. The confirmation gate lives in registry.ts, not here, so a
 //     new write tool cannot forget it.
 //
-// There is deliberately no delete, no bulk operation and no free-form update
-// tool: every action names one record and one bounded change.
+// This file is deliberately limited to creates and updates — no free-form
+// update tool. The bounded delete and bulk tools live in missing-tools.ts;
+// every write, here or there, names one record or an explicit id list and
+// passes the same confirmation gate in registry.ts.
 //
 // Arguments arrive as ISO strings because that is what a model can produce
 // reliably; each handler converts to the `Date`/datetime string its service
@@ -961,6 +963,40 @@ const updateCourseArgs = z.object({
   semesterId: z.string().min(1).optional().describe("Move the course to another semester. Must belong to the student."),
 });
 
+const createCourseArgs = z.object({
+  name: z.string().min(1).max(200).describe("The course name, e.g. Database Systems."),
+  code: z.string().min(1).max(20).optional().describe("Short course code, e.g. DB301."),
+  credits: z.number().int().min(0).max(50).optional(),
+  instructor: z.string().max(200).optional(),
+  description: z.string().max(2000).optional(),
+  semesterId: z.string().min(1).optional().describe("Semester to place the course in. Must belong to the student."),
+});
+
+export const createCourseTool: AiToolDefinition = {
+  name: "create_course",
+  description:
+    "Create a new course for the student. Requires the student's confirmation first.",
+  kind: "WRITE",
+  activityLabel: "Creating a course",
+  parameters: createCourseArgs,
+  async execute(args, ctx) {
+    const input = createCourseArgs.parse(args);
+    const course = await coursesService.create(ctx.userId, {
+      name: input.name,
+      code: input.code,
+      credits: input.credits,
+      instructor: input.instructor,
+      description: input.description,
+      semesterId: input.semesterId,
+    });
+
+    return ok(
+      { id: course.id, code: course.code, name: course.name, credits: course.credits, status: course.status, semesterId: course.semesterId },
+      `Created course "${course.name}"`,
+    );
+  },
+};
+
 export const updateCourseTool: AiToolDefinition = {
   name: "update_course",
   description:
@@ -1015,5 +1051,6 @@ export const actionTools: AiToolDefinition[] = [
   updateEventTool,
   createGradeTool,
   updateGradeTool,
+  createCourseTool,
   updateCourseTool,
 ];

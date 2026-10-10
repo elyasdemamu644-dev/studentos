@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import { prisma } from "@/utils/prisma";
 
@@ -14,6 +15,7 @@ import {
   verifyJwt,
 } from "@/utils/jwt";
 import { AuthRequest, authenticate } from "@/middlewares/auth";
+import { verifyGoogleIdToken } from "@/services/google-oauth";
 
 // ─────────────────────────────────────────────
 // Password hashing
@@ -25,6 +27,12 @@ export async function hashPassword(password: string): Promise<string> {
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return argon2Verify(hash, password, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
+}
+
+/** Cryptographically random secret, used to make password login impossible
+ *  for accounts that were created through Google OAuth. */
+function randomSecret(): string {
+  return randomBytes(48).toString("base64url");
 }
 
 // ─────────────────────────────────────────────
@@ -64,6 +72,45 @@ export const authService = {
     if (!user) { throw unauthorizedError("Invalid email or password"); }
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) { throw unauthorizedError("Invalid email or password"); }
+    return this.issueSession(user);
+  },
+
+  /**
+   * Google OAuth sign-in. Verifies a Google OIDC id_token, then logs in the
+   * matching existing user or provisions a new account keyed on the verified
+   * email. Google accounts have no password, so a new user is created with an
+   * unguessable random hash — password login stays impossible for them.
+   */
+  async loginWithGoogle(idToken: string) {
+    const claims = await verifyGoogleIdToken(idToken);
+    const email = claims.email.toLowerCase();
+
+    // Registration and password login are case-sensitive, so the stored row
+    // may carry mixed case. Google always reports the mailbox lowercased —
+    // match case-insensitively so a Google sign-in links to the existing
+    // account instead of silently provisioning a duplicate for the same user.
+    let user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
+    if (!user) {
+      const passwordHash = await hashPassword(randomSecret());
+      user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash,
+          firstName: claims.name?.split(" ")[0] ?? "",
+          lastName: claims.name?.split(" ").slice(1).join(" ") ?? "",
+          profilePicture: claims.picture ?? null,
+          timezone: "UTC",
+        },
+      });
+    }
+
+    return this.issueSession(user);
+  },
+
+  /** Issue a fresh access/refresh pair and persist the refresh row. */
+  async issueSession(user: User) {
     const accessToken = await signAccessToken(user.id, user.email);
     const refreshToken = await signRefreshToken(user.id);
     const expiresAt = new Date(Date.now() + refreshTokenTtlSeconds * 1000);
@@ -88,11 +135,7 @@ export const authService = {
     }
     await prisma.refreshToken.delete({ where: { id: stored.id } });
     const user = stored.user;
-    const accessToken = await signAccessToken(user.id, user.email);
-    const newRefreshToken = await signRefreshToken(user.id);
-    const expiresAt = new Date(Date.now() + refreshTokenTtlSeconds * 1000);
-    await prisma.refreshToken.create({ data: { token: newRefreshToken, userId: user.id, expiresAt } });
-    return { accessToken, refreshToken: newRefreshToken, expiresIn: accessTokenTtlSeconds, user: toPublicUser(user) };
+    return this.issueSession(user);
   },
 
   async logout(refreshToken: string): Promise<void> {
@@ -162,6 +205,10 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const googleLoginSchema = z.object({
+  idToken: z.string().min(1, "idToken is required"),
+});
+
 export const refreshSchema = z.object({
   refreshToken: z.string().min(1, "Refresh token is required"),
 });
@@ -217,6 +264,14 @@ authRouter.post("/login", zValidator("body", loginSchema), async (req, res, next
   } catch (error) { next(error); }
 });
 
+authRouter.post("/google", zValidator("body", googleLoginSchema), async (req, res, next) => {
+  try {
+    const { idToken } = req.body as z.infer<typeof googleLoginSchema>;
+    const result = await authService.loginWithGoogle(idToken);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
 authRouter.post("/refresh", zValidator("body", refreshSchema), async (req, res, next) => {
   try {
     const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
@@ -237,6 +292,20 @@ authRouter.get("/me", authenticate, async (req: AuthRequest, res, next) => {
   try {
     const user = await authService.getProfile(req.currentUser!.id);
     return res.status(200).json({ success: true, data: user });
+  } catch (error) { next(error); }
+});
+
+authRouter.patch("/me", authenticate, zValidator("body", updateProfileSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const user = await authService.updateProfile(req.currentUser!.id, req.body as z.infer<typeof updateProfileSchema>);
+    return res.status(200).json({ success: true, data: user });
+  } catch (error) { next(error); }
+});
+
+authRouter.post("/me/change-password", authenticate, zValidator("body", changePasswordSchema), async (req: AuthRequest, res, next) => {
+  try {
+    await authService.changePassword(req.currentUser!.id, req.body.currentPassword, req.body.newPassword);
+    return res.status(200).json({ success: true, data: { changed: true } });
   } catch (error) { next(error); }
 });
 

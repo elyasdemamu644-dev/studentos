@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { encrypt, decrypt, encryptForUser, decryptForUser } from "@/utils/encryption";
+import { encrypt, decrypt, encryptForUser, decryptForUser, CredentialDecryptionError } from "@/utils/encryption";
 import { AiProvider, resolveAiProvider } from "@/services/ai/provider";
 
 describe("encryption empty-ciphertext round-trip (regression: credential-free AI connections)", () => {
@@ -17,6 +17,31 @@ describe("encryption empty-ciphertext round-trip (regression: credential-free AI
 
   it("still rejects byte strings shorter than a valid GCM envelope", () => {
     expect(() => decrypt("aGVsbG8=")).toThrow("Invalid ciphertext: too short");
+  });
+});
+
+describe("decryptForUser typed failure (regression: ENCRYPTION_KEY drift surfaced as an unhandled 500)", () => {
+  it("throws CredentialDecryptionError when a valid envelope was encrypted for a different key", () => {
+    // A well-formed envelope whose GCM tag only authenticates under another key
+    // is exactly what saving credentials and then rotating ENCRYPTION_KEY
+    // produces. It must fail with the typed error, not a bare Error.
+    const foreign = encryptForUser("other-user", JSON.stringify({ apiKey: "sk-secret-value" }));
+
+    let thrown: unknown;
+    try {
+      decryptForUser("user-1", foreign);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(CredentialDecryptionError);
+    // The error must never carry the ciphertext or the decrypted secret.
+    expect((thrown as Error).message).not.toContain("sk-secret-value");
+    expect((thrown as Error).message).not.toContain(foreign);
+  });
+
+  it("throws CredentialDecryptionError for a too-short payload", () => {
+    expect(() => decrypt("aGVsbG8=")).toThrow(CredentialDecryptionError);
   });
 });
 

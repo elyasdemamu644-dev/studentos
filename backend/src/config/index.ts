@@ -52,6 +52,12 @@ export const config = {
     algorithm: "HS256",
   },
 
+  // Google OAuth (optional) — enables POST /auth/google. No client secret or
+  // access token is ever stored: Google ID tokens are public-key verified
+  // against the configured JWKS endpoint, so only the client id is needed.
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? undefined,
+  googleJwksUri: process.env.GOOGLE_JWKS_URI ?? undefined,
+
   // AI provider
   aiEnabled: process.env.AI_ENABLED !== "false",
   aiProvider: process.env.AI_PROVIDER ?? "openai",
@@ -77,6 +83,11 @@ export const config = {
     aiAgentMaxToolRounds: Number(process.env.AI_AGENT_MAX_TOOL_ROUNDS ?? 4),
     aiAgentMaxToolCalls: Number(process.env.AI_AGENT_MAX_TOOL_CALLS ?? 12),
     aiAgentMaxProposedActions: Number(process.env.AI_AGENT_MAX_PROPOSED_ACTIONS ?? 8),
+
+    // Hard ceiling on a single provider request. A slow or hung provider must
+    // not pin a request (and its socket) open indefinitely; this mirrors the
+    // EMAIL_TIMEOUT_MS convention used for SMTP.
+    aiRequestTimeoutMs: Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 60_000),
 
 
   // S3-compatible storage
@@ -106,6 +117,23 @@ export const config = {
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean),
+  // Root directory for the local-disk storage provider (used when no S3 bucket
+  // is configured). Never serve this directory directly — downloads go through
+  // the owner-scoped `GET /resources/:id/download` route.
+  uploadDir: process.env.UPLOAD_DIR ?? path.resolve(__dirname, "../../uploads"),
+
+  // Email dispatch (notification delivery). Opt-in: disabled until
+  // EMAIL_ENABLED=true AND SMTP_HOST is set, otherwise dispatch endpoints
+  // answer 503 EMAIL_NOT_CONFIGURED. Credentials stay server-side and are the
+  // reason dispatch is only to the authenticated user's own mailbox.
+  emailEnabled: process.env.EMAIL_ENABLED === "true",
+  smtpHost: process.env.SMTP_HOST,
+  smtpPort: Number(process.env.SMTP_PORT ?? 587), // 587 STARTTLS / 465 implicit TLS / 25 relay
+  smtpSecure: process.env.SMTP_SECURE === "true", // implicit TLS on connect
+  smtpUser: process.env.SMTP_USER,
+  smtpPassword: process.env.SMTP_PASSWORD,
+  smtpFrom: process.env.SMTP_FROM ?? "no-reply@studentos.local",
+  emailTimeoutMs: Number(process.env.EMAIL_TIMEOUT_MS ?? 10_000),
 
   // App metadata
   appName: "StudentOS",
@@ -215,6 +243,10 @@ export function validateConfig(): void {
 
   if (config.s3Endpoint && (!config.s3AccessKeyId || !config.s3SecretAccessKey))
     missing.push("S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY");
+
+  // EMAIL_ENABLED without a relay is a silent footgun (dispatch would 503 at
+  // runtime), so fail the boot instead of pretending email is on.
+  if (config.emailEnabled && !config.smtpHost) missing.push("SMTP_HOST");
 
   if (missing.length > 0) {
     throw new Error(

@@ -71,7 +71,8 @@ export default function AiPage() {
   // Deep links (`/ai?prompt=…`) from the course page, the dashboard and the
   // command palette land with the question already in the composer. The URL is
   // read and rewritten directly: only the query changes, the route does not,
-  // and the param is stripped so a refresh doesn't stomp what the user typed.
+  // and the prompt param is stripped so a refresh doesn't stomp what the user
+  // typed. Other params (courseId, semesterId) are preserved for context.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const prompt = params.get("prompt");

@@ -630,6 +630,43 @@ describe("Agent loop", () => {
     expect(toolMessage?.content).toContain("Essay draft");
   });
 
+  it("inlines the student snapshot into the tool-path system prompt", async () => {
+    const harness = openAiProvider([textTurn("Ok.")]);
+
+    await runAgent({
+      provider: harness.provider,
+      userId: userA.id,
+      conversationId: "conv-snapshot",
+      history: [],
+      userMessage: "What is due?",
+      studentContext: {
+        currentSemester: {
+          id: "sem-1",
+          name: "Fall 2034",
+          startDate: "2034-09-01T00:00:00.000Z",
+          endDate: "2034-12-15T00:00:00.000Z",
+          academicYearName: "2034/35",
+        },
+        courses: [
+          { id: "c1", name: "World History", code: "HIST101", status: "ACTIVE", semesterId: "sem-1", credits: 3 },
+        ],
+        tasks: [],
+        upcomingEvents: [],
+        recentStudySessions: [],
+        activeGoals: [],
+        recentNotes: [],
+        recentGrades: [],
+      },
+    });
+
+    const system = (harness.bodies[0].messages as Array<{ role: string; content: string }>).find(
+      (m) => m.role === "system",
+    );
+    expect(system?.content).toContain("STUDENT SNAPSHOT");
+    expect(system?.content).toContain("HIST101");
+    expect(system?.content).toContain("Fall 2034");
+  });
+
   it("stops at the round limit when the model only calls tools", async () => {
     const harness = openAiProvider([toolCallTurn("get_tasks", { status: "TODO" })]);
 
@@ -1774,7 +1811,8 @@ describe("Post-write verification", () => {
     // they are excluded: the resolver consumes them before the write runs.
     const locators = new Set([
       "id", "taskId", "courseId", "sessionId", "goalId", "noteId", "resourceId",
-      "eventId", "gradeId", "subtaskId", "milestoneId", "task", "course", "session",
+      "eventId", "gradeId", "subtaskId", "milestoneId", "planId", "taskIds",
+      "task", "course", "session",
       "goal", "note", "resource", "event", "grade", "milestone", "subtask",
     ]);
 
@@ -2096,7 +2134,7 @@ describe("Post-write verification", () => {
       "create_resource", "update_resource",
       "create_event", "update_event",
       "create_grade", "update_grade",
-      "update_course",
+      "create_course", "update_course",
     ];
 
     for (const tool of writeTools) {
@@ -2109,6 +2147,106 @@ describe("Post-write verification", () => {
     expect(fields).toContain("title");
     expect(fields).toContain("type");
     expect(fields).toContain("priority");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Course create and update tools", () => {
+  beforeEach(async () => {
+    const a = await seedStudent("course-tools", "SE101", "Software Engineering");
+    userA = { token: a.token, id: a.id };
+  });
+
+  async function runConfirmed(tool: string, args: Record<string, unknown>) {
+    const action: ProposedAction = { tool, description: tool, arguments: args };
+    return executeTool({ name: tool, arguments: args }, ctxFor(userA, `conv-course-${tool}`, [action]));
+  }
+
+  it("refuses to create a course until the student confirms", async () => {
+    const result = await executeTool(
+      { name: "create_course", arguments: { name: "Unconfirmed" } },
+      ctxFor(userA, "conv-course-gate"),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("confirmation_required");
+    expect(result.proposedActions?.[0].tool).toBe("create_course");
+    expect(await prisma.course.count({ where: { userId: userA.id, name: "Unconfirmed" } })).toBe(0);
+  });
+
+  it("creates a confirmed course and verifies it landed", async () => {
+    const result = await runConfirmed("create_course", { name: "Database Systems", code: "DB301", credits: 4 });
+    expect(result.ok).toBe(true);
+
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "create_course",
+      { name: "Database Systems", code: "DB301", credits: 4 },
+      result.data,
+    );
+    expect(verification.verified).toBe(true);
+
+    expect(await prisma.course.count({ where: { userId: userA.id, code: "DB301", name: "Database Systems" } })).toBe(1);
+  });
+
+  it("fails honestly when the target semester belongs to another student", async () => {
+    const other = await seedStudent("course-tools-other", "EE101", "Electrical Engineering");
+    const year = await authRequestJson("post", `${BASE}/academics/years`, other.token, {
+      name: "2036-2037",
+      startDate: "2036-09-01T00:00:00.000Z",
+      endDate: "2037-06-30T00:00:00.000Z",
+    });
+    const foreignSem = await authRequestJson("post", `${BASE}/academics/semesters`, other.token, {
+      name: "Fall 2036",
+      academicYearId: year.body.data.id,
+      startDate: "2036-09-01T00:00:00.000Z",
+      endDate: "2036-12-15T00:00:00.000Z",
+    });
+
+    const result = await runConfirmed("create_course", { name: "Ghost", semesterId: foreignSem.body.data.id });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
+    expect(await prisma.course.count({ where: { userId: userA.id, name: "Ghost" } })).toBe(0);
+  });
+
+  it("updates a confirmed course and verifies the approved fields", async () => {
+    const created = await authRequestJson("post", `${BASE}/courses`, userA.token, {
+      name: "Intro to CS",
+      code: "CS101",
+      credits: 3,
+    });
+
+    const result = await runConfirmed("update_course", {
+      courseId: created.body.data.id,
+      name: "Intro to Computer Science",
+      credits: 4,
+    });
+    expect(result.ok).toBe(true);
+
+    const verification = await verifyExecutedAction(
+      userA.id,
+      "update_course",
+      { name: "Intro to Computer Science", credits: 4 },
+      result.data,
+    );
+    expect(verification.verified).toBe(true);
+
+    const stored = await prisma.course.findFirst({ where: { id: created.body.data.id, userId: userA.id } });
+    expect(stored?.name).toBe("Intro to Computer Science");
+    expect(stored?.credits).toBe(4);
+  });
+
+  it("cannot update another student's course", async () => {
+    const other = await seedStudent("course-tools-b", "BIO101", "Biology");
+    const theirs = await authRequestJson("post", `${BASE}/courses`, other.token, { name: "Theirs", code: "THE1" });
+
+    const result = await runConfirmed("update_course", { courseId: theirs.body.data.id, name: "Hijacked" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
+
+    const stored = await prisma.course.findFirst({ where: { id: theirs.body.data.id, userId: other.id } });
+    expect(stored?.name).toBe("Theirs");
   });
 });
 

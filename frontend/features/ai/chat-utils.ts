@@ -242,16 +242,53 @@ export function conversationPreview(conversation: Pick<Conversation, "preview">)
 // than add a markdown dependency, render the subset that actually shows up.
 // Everything is produced as React nodes — no HTML string is ever injected.
 
+/** Column alignment parsed from a table's `---:` delimiter row. */
+export type TableAlign = "left" | "center" | "right" | null;
+
+export interface MarkdownTable {
+  headers: string[];
+  rows: string[][];
+  align: TableAlign[];
+}
+
 export type MarkdownBlock =
   | { kind: "paragraph"; lines: string[] }
   | { kind: "bullets"; items: string[] }
   | { kind: "numbers"; items: string[] }
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "blockquote"; lines: string[] }
+  | { kind: "table"; table: MarkdownTable }
   | { kind: "code"; language: string | null; code: string };
 
 const BULLET = /^\s*[-*•]\s+(.*)$/;
 const NUMBER = /^\s*(\d+)[.)]\s+(.*)$/;
 const HEADING = /^\s*(#{1,6})\s+(.*)$/;
 const FENCE = /^\s*```(.*)$/;
+const BLOCKQUOTE = /^\s*>\s?(.*)$/;
+
+/** A table delimiter row such as `| --- | :---: |` — must contain a pipe. */
+function isTableSeparator(line: string): boolean {
+  if (!line.includes("|")) return false;
+  return /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(line);
+}
+
+function splitTableRow(line: string): string[] {
+  let row = line.trim();
+  if (row.startsWith("|")) row = row.slice(1);
+  if (row.endsWith("|")) row = row.slice(0, -1);
+  return row.split("|").map((cell) => cell.trim());
+}
+
+function tableAlignments(separator: string): TableAlign[] {
+  return splitTableRow(separator).map((cell) => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
 
 export function stripMarkdown(text: string): string {
   return text
@@ -263,6 +300,8 @@ export function stripMarkdown(text: string): string {
     .replace(/^\s*([-*•]|\d+[.)])\s+/gm, "")
     .replace(/(\*\*|__|\*|_|~~)/g, "")
     .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s*\|?[\s:|-]*\|[\s:|-]*$/gm, " ")
+    .replace(/\|/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -325,8 +364,41 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
     if (HEADING.test(line)) {
       flushAll();
       const heading = line.match(HEADING);
-      paragraph.push((heading?.[2] ?? line).trim());
-      flushParagraph();
+      blocks.push({
+        kind: "heading",
+        level: (heading?.[1] ?? "#").length,
+        text: (heading?.[2] ?? line).trim(),
+      });
+      continue;
+    }
+
+    const quote = line.match(BLOCKQUOTE);
+    if (quote) {
+      flushAll();
+      const quoteLines = [quote[1]];
+      while (index + 1 < lines.length) {
+        const next = lines[index + 1].match(BLOCKQUOTE);
+        if (!next) break;
+        quoteLines.push(next[1]);
+        index += 1;
+      }
+      blocks.push({ kind: "blockquote", lines: quoteLines });
+      continue;
+    }
+
+    // A table is a header row with a `---` delimiter row directly under it.
+    if (line.includes("|") && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
+      flushAll();
+      const headers = splitTableRow(line);
+      const align = tableAlignments(lines[index + 1]);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].trim() !== "" && lines[index].includes("|")) {
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      index -= 1; // the for-loop's own increment moves past the delimiter
+      blocks.push({ kind: "table", table: { headers, rows, align } });
       continue;
     }
 
@@ -359,11 +431,28 @@ export type InlineToken =
   | { kind: "text"; value: string }
   | { kind: "code"; value: string }
   | { kind: "strong"; value: InlineToken[] }
-  | { kind: "em"; value: InlineToken[] };
+  | { kind: "em"; value: InlineToken[] }
+  | { kind: "link"; href: string; label: string };
 
-const INLINE_PATTERN = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/;
+/**
+ * A link target we are willing to render, or `null`.
+ *
+ * Replies come from a model, so a "link" it emits is untrusted input. Only
+ * absolute http(s) and mailto targets survive; anything else — `javascript:`,
+ * `data:`, `vbscript:`, relative paths — is dropped and the label is shown as
+ * plain text. Whitespace and control characters are stripped first so a
+ * splice like `java\tscript:` cannot slip past the scheme check.
+ */
+export function safeHref(href: string): string | null {
+  const normalized = href.replace(/[\u0000-\u0020\u007f]/g, "");
+  if (!/^(https?:|mailto:)/i.test(normalized)) return null;
+  return normalized;
+}
 
-/** Tokenize one line: code, bold, italic, plain text. Nesting is one level deep. */
+const INLINE_PATTERN =
+  /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|(?<!!)\[[^\]]+\]\([^)\s]+\)|\*[^*]+\*|_[^_]+_)/;
+
+/** Tokenize one line: code, bold, italic, links, plain text. Nesting is one level deep. */
 export function parseInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   let rest = text;
@@ -381,6 +470,9 @@ export function parseInline(text: string): InlineToken[] {
       tokens.push({ kind: "code", value: token.slice(1, -1) });
     } else if (token.startsWith("**") || token.startsWith("__")) {
       tokens.push({ kind: "strong", value: parseInline(token.slice(2, -2)) });
+    } else if (token.startsWith("[")) {
+      const link = token.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
+      tokens.push({ kind: "link", label: link?.[1] ?? token, href: link?.[2] ?? "" });
     } else {
       tokens.push({ kind: "em", value: parseInline(token.slice(1, -1)) });
     }

@@ -12,6 +12,7 @@ import {
   parseInline,
   parseMarkdown,
   resolveConversationTitle,
+  safeHref,
   shouldSendOnKey,
   stripMarkdown,
   truncate,
@@ -209,8 +210,45 @@ describe("markdown rendering", () => {
     expect(blocks).toEqual([{ kind: "numbers", items: ["Read", "Revise"] }]);
   });
 
-  it("flattens a heading into a paragraph", () => {
-    expect(parseMarkdown("## Study plan")).toEqual([{ kind: "paragraph", lines: ["Study plan"] }]);
+  it("reads a heading as a heading, keeping its level", () => {
+    expect(parseMarkdown("## Study plan")).toEqual([
+      { kind: "heading", level: 2, text: "Study plan" },
+    ]);
+    expect(parseMarkdown("# Top")).toEqual([{ kind: "heading", level: 1, text: "Top" }]);
+  });
+
+  it("groups consecutive blockquote lines", () => {
+    expect(parseMarkdown("> first\n> second\n\nafter")).toEqual([
+      { kind: "blockquote", lines: ["first", "second"] },
+      { kind: "paragraph", lines: ["after"] },
+    ]);
+  });
+
+  it("parses a pipe table with alignment", () => {
+    const blocks = parseMarkdown(
+      ["| Course | Credits |", "| :--- | ---: |", "| DB301 | 15 |", "| MA101 | 10 |"].join("\n"),
+    );
+    expect(blocks).toEqual([
+      {
+        kind: "table",
+        table: {
+          headers: ["Course", "Credits"],
+          rows: [
+            ["DB301", "15"],
+            ["MA101", "10"],
+          ],
+          align: ["left", "right"],
+        },
+      },
+    ]);
+  });
+
+  it("does not mistake a horizontal rule for a table", () => {
+    expect(parseMarkdown("Notes\n\n---\n\nMore")).toEqual([
+      { kind: "paragraph", lines: ["Notes"] },
+      { kind: "paragraph", lines: ["---"] },
+      { kind: "paragraph", lines: ["More"] },
+    ]);
   });
 
   it("keeps hyphens inside a code fence instead of reading them as bullets", () => {
@@ -230,6 +268,30 @@ describe("markdown rendering", () => {
 
   it("leaves unmatched markers as literal text", () => {
     expect(parseInline("2 * 3 = 6")).toEqual([{ kind: "text", value: "2 * 3 = 6" }]);
+  });
+
+  it("tokenizes a link", () => {
+    expect(parseInline("see [the notes](https://example.com/notes) now")).toEqual([
+      { kind: "text", value: "see " },
+      { kind: "link", label: "the notes", href: "https://example.com/notes" },
+      { kind: "text", value: " now" },
+    ]);
+  });
+
+  it("does not treat an image as a link", () => {
+    expect(parseInline("![alt](https://example.com/a.png)")).toEqual([
+      { kind: "text", value: "![alt](https://example.com/a.png)" },
+    ]);
+  });
+
+  it("allows only http(s) and mailto link targets", () => {
+    expect(safeHref("https://example.com")).toBe("https://example.com");
+    expect(safeHref("http://example.com")).toBe("http://example.com");
+    expect(safeHref("mailto:tutor@example.edu")).toBe("mailto:tutor@example.edu");
+    expect(safeHref("javascript:alert(1)")).toBeNull();
+    expect(safeHref("java\tscript:alert(1)")).toBeNull();
+    expect(safeHref("data:text/html,<script>")).toBeNull();
+    expect(safeHref("/relative/path")).toBeNull();
   });
 
   it("reduces markdown to plain text for previews", () => {

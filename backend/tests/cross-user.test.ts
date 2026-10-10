@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
 import { app } from "@/app";
-import { registerAndLogin } from "./helpers";
+import { prisma, registerAndLogin } from "./helpers";
 
 const BASE = "/api/v1";
 
@@ -230,6 +230,191 @@ describe("Cross-User Isolation", () => {
           .set("Authorization", `Bearer ${aliceToken}`);
         expect(res.status, `${record.label} owner re-read`).toBe(200);
       }
+    });
+  });
+
+  // ────────────────────────────────────────────
+  // IDOR sweep — nested children and action endpoints
+  // ────────────────────────────────────────────
+  //
+  // The sweep above covers top-level records. These surfaces hang off a parent
+  // id or are verbs on an id, so a module that checks the parent but forgets to
+  // scope the child (or the reverse) would slip through. Every foreign probe
+  // must answer 404 — never 403, never a 200 with a "failed" payload.
+
+  describe("IDOR sweep — nested resources and action endpoints", () => {
+    let taskId = "";
+    let subtaskId = "";
+    let tagId = "";
+    let goalId = "";
+    let milestoneId = "";
+    let conversationId = "";
+    let planId = "";
+    let entryId = "";
+    let notificationId = "";
+    let courseId = "";
+    let sessionId = "";
+    let connectionId = "";
+
+    beforeAll(async () => {
+      const alice = (
+        method: "get" | "post" | "patch",
+        path: string,
+        body?: unknown,
+      ) => {
+        const req = request(app)[method](`${BASE}${path}`).set(
+          "Authorization",
+          `Bearer ${aliceToken}`,
+        );
+        return body === undefined ? req : req.send(body);
+      };
+      const year = await alice("post", "/academics/years", {
+        name: "2090-2091",
+        startDate: "2090-09-01",
+        endDate: "2091-06-30",
+      });
+      const semester = await alice("post", "/academics/semesters", {
+        name: "Fall 2090",
+        academicYearId: year.body.data.id,
+        startDate: "2090-09-01",
+        endDate: "2090-12-20",
+      });
+      const course = await alice("post", "/courses", {
+        code: "NEST101",
+        name: "Nested course",
+        credits: 3,
+        semesterId: semester.body.data.id,
+      });
+      courseId = course.body.data.id;
+
+      const task = await alice("post", "/tasks", { title: "Nested task", type: "OTHER" });
+      taskId = task.body.data.id;
+
+      const subtask = await alice("post", `/tasks/${taskId}/subtasks`, { title: "Nested subtask" });
+      subtaskId = subtask.body.data.id;
+
+      const tag = await alice("post", `/tasks/${taskId}/tags`, { name: "nested-tag" });
+      tagId = tag.body.data.id;
+
+      const goal = await alice("post", "/goals", { title: "Nested goal" });
+      goalId = goal.body.data.id;
+
+      const milestone = await alice("post", `/goals/${goalId}/milestones`, { title: "Nested milestone" });
+      milestoneId = milestone.body.data.id;
+
+      const conversation = await alice("post", "/ai/conversations", { title: "Nested chat" });
+      conversationId = conversation.body.data.id;
+      await alice("post", `/ai/conversations/${conversationId}/messages`, {
+        content: "hello there",
+        generateReply: false,
+      });
+
+      const plan = await alice("post", "/ai/study-plans", {
+        title: "Nested plan",
+        entries: [{ dayNumber: 1, title: "Day one", durationMinutes: 30 }],
+      });
+      planId = plan.body.data.id;
+      const entries = await alice("get", `/ai/study-plans/${planId}/entries`);
+      expect(entries.status, "setup plan entries").toBe(200);
+      entryId = entries.body.data[0].id;
+
+      const session = await alice("post", "/study-sessions", {
+        startedAt: "2090-04-02T18:00:00.000Z",
+        topic: "Nested session",
+      });
+      sessionId = session.body.data.id;
+
+      // A provider Alice has not used in another describe — (userId, provider)
+      // is unique, so re-using "openai" here would collide with the sweep above.
+      const connection = await alice("post", "/ai-connections", {
+        provider: "gemini",
+        credentials: "sk-nested-sweep",
+      });
+      connectionId = connection.body.data.id;
+
+      // Notifications have no create endpoint — provision one directly.
+      const notification = await prisma.notification.create({
+        data: {
+          userId: aliceUserId,
+          title: "Nested notification",
+          message: "private",
+          type: "GENERAL",
+        },
+      });
+      notificationId = notification.id;
+    });
+
+    it("answers 404 for every foreign nested/action probe", async () => {
+      const bob = (method: "get" | "post" | "patch" | "delete", path: string, body?: unknown) => {
+        const req = request(app)[method](`${BASE}${path}`).set(
+          "Authorization",
+          `Bearer ${bobToken}`,
+        );
+        return body === undefined ? req : req.send(body);
+      };
+
+      const probes: Array<[string, "get" | "post" | "patch" | "delete", unknown?]> = [
+        ["GET subtasks", "get", `/tasks/${taskId}/subtasks`],
+        ["POST subtask", "post", `/tasks/${taskId}/subtasks`, { title: "stolen" }],
+        ["PATCH subtask", "patch", `/tasks/${taskId}/subtasks/${subtaskId}`, { title: "stolen" }],
+        ["DELETE subtask", "delete", `/tasks/${taskId}/subtasks/${subtaskId}`],
+        ["GET tags", "get", `/tasks/${taskId}/tags`],
+        ["POST tag", "post", `/tasks/${taskId}/tags`, { name: "stolen" }],
+        ["PATCH tag", "patch", `/tasks/${taskId}/tags/${tagId}`, { name: "stolen" }],
+        ["DELETE tag", "delete", `/tasks/${taskId}/tags/${tagId}`],
+        ["GET milestones", "get", `/goals/${goalId}/milestones`],
+        ["POST milestone", "post", `/goals/${goalId}/milestones`, { title: "stolen" }],
+        ["PATCH milestone", "patch", `/goals/${goalId}/milestones/${milestoneId}`, { title: "stolen" }],
+        ["DELETE milestone", "delete", `/goals/${goalId}/milestones/${milestoneId}`],
+        ["GET messages", "get", `/ai/conversations/${conversationId}/messages`],
+        ["POST message", "post", `/ai/conversations/${conversationId}/messages`, { content: "stolen" }],
+        ["GET plan entries", "get", `/ai/study-plans/${planId}/entries`],
+        ["PATCH plan entry", "patch", `/ai/study-plans/${planId}/entries/${entryId}`, { title: "stolen" }],
+        ["GET notification", "get", `/notifications/${notificationId}`],
+        ["PATCH notification", "patch", `/notifications/${notificationId}`, {}],
+        ["POST notification read", "post", `/notifications/${notificationId}/read`],
+        ["GET course summary", "get", `/courses/${courseId}/summary`],
+        ["POST complete session", "post", `/study-sessions/${sessionId}/complete`, {}],
+        ["POST activate connection", "post", `/ai-connections/${connectionId}/activate`],
+        ["POST test connection", "post", `/ai-connections/${connectionId}/test`, {}],
+      ];
+
+      for (const [label, method, path, body] of probes) {
+        const res = await bob(method, path, body);
+        expect(res.status, `${label} (${method.toUpperCase()} ${path})`).toBe(404);
+        expect(res.body.error?.code, label).toBe("NOT_FOUND");
+      }
+    });
+
+    it("leaves Alice's nested records readable by their owner", async () => {
+      const owner = (path: string) =>
+        request(app).get(`${BASE}${path}`).set("Authorization", `Bearer ${aliceToken}`);
+
+      const checks = [
+        `/tasks/${taskId}/subtasks`,
+        `/tasks/${taskId}/tags`,
+        `/goals/${goalId}/milestones`,
+        `/ai/conversations/${conversationId}/messages`,
+        `/ai/study-plans/${planId}/entries`,
+        `/notifications/${notificationId}`,
+        `/courses/${courseId}/summary`,
+      ];
+
+      for (const path of checks) {
+        const res = await owner(path);
+        expect(res.status, `owner GET ${path}`).toBe(200);
+      }
+    });
+
+    afterAll(async () => {
+      // The dashboard describe below asserts Alice owns *exactly* one course
+      // and one task; drop the extra course/task so its counts stay meaningful.
+      await request(app)
+        .delete(`${BASE}/tasks/${taskId}`)
+        .set("Authorization", `Bearer ${aliceToken}`);
+      await request(app)
+        .delete(`${BASE}/courses/${courseId}`)
+        .set("Authorization", `Bearer ${aliceToken}`);
     });
   });
 

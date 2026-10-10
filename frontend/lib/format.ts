@@ -57,3 +57,18 @@ export function formatMinutes(minutes: number | null | undefined): string {
   if (m === 0) return `${h} hr`;
   return `${h} hr ${m} min`;
 }
+
+/** Human file size, e.g. `512 B`, `1.5 KB`, `2 MB`. `null`/invalid → `—`. */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded} ${units[unit]}`;
+}

@@ -176,6 +176,155 @@ async function requestInternal<T>(
   return respond(res);
 }
 
+// ─────────────────────────────────────────────
+// Multipart upload + binary download
+// ─────────────────────────────────────────────
+//
+// The JSON transport above cannot express either of these, so they get their
+// own paths while reusing the same base URL, bearer token and one-time 401
+// refresh. Two rules are load-bearing:
+//
+//   • An upload NEVER sets `Content-Type`. Only the browser can add the
+//     multipart boundary, and setting the header by hand (even to the right
+//     value) drops the boundary and makes the body unparseable by the server.
+//   • A download never parses the success body as JSON — it is raw file bytes.
+//     The JSON error envelope is only read on a non-2xx response.
+
+/** Guard against an HTML page (a mis-routed API base) where JSON was expected. */
+async function assertNotHtml(res: Response): Promise<void> {
+  const contentType = res.headers?.get?.("content-type") ?? "";
+  const isEmptyBody = res.status === 204 || res.status === 205;
+  const looksLikeHtml = contentType.includes("text/html");
+  if (
+    !isEmptyBody &&
+    (looksLikeHtml ||
+      (res.status >= 400 && contentType && !contentType.includes("application/json")))
+  ) {
+    const body = res.text ? await res.text().catch(() => "") : "";
+    if (looksLikeHtml || /^\s*<!doctype html/i.test(body)) {
+      throw new ApiClientError(
+        `The API returned an HTML page instead of JSON (HTTP ${res.status}). ` +
+          `NEXT_PUBLIC_API_URL is probably pointing at the web app (${API_BASE_URL}) ` +
+          `rather than the API server.`,
+        res.status,
+        "API_BASE_URL_MISCONFIGURED",
+      );
+    }
+    throw new ApiClientError(`Request failed (${res.status})`, res.status, "INVALID_RESPONSE");
+  }
+}
+
+async function parseJsonEnvelope<T>(res: Response): Promise<Envelope<T> | null> {
+  if (res.status === 204 || res.status === 205) return null;
+  try {
+    return (await res.json()) as Envelope<T>;
+  } catch {
+    return null;
+  }
+}
+
+/** Re-authenticate once and retry, or throw the typed API error. */
+async function settleError<T>(
+  res: Response,
+  json: Envelope<unknown> | null,
+  wasRefreshed: boolean,
+  retry: () => Promise<T>,
+  fallbackMessage: string,
+): Promise<T> {
+  const error = json?.error;
+  const code = error?.code ?? "UNKNOWN_ERROR";
+  if (res.status === 401 && AUTH_PROBLEM_CODES.has(code) && getRefreshToken() && !wasRefreshed) {
+    const fresh = await attemptRefresh();
+    if (fresh) return retry();
+    throw new SessionExpiredError();
+  }
+  throw new ApiClientError(error?.message ?? fallbackMessage, res.status, code, error?.details);
+}
+
+async function uploadInternal<T>(
+  path: string,
+  formData: FormData,
+  wasRefreshed: boolean,
+): Promise<T> {
+  const token = getAccessToken();
+  const doFetch = async (withAuth: boolean): Promise<Response> => {
+    const headers = new Headers();
+    if (withAuth && token) headers.set("Authorization", `Bearer ${token}`);
+    // No Content-Type on purpose: the browser sets it (with the boundary).
+    try {
+      return await fetch(`${API_BASE_URL}${path}`, { method: "POST", headers, body: formData });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw new NetworkError();
+    }
+  };
+
+  const res = await doFetch(true);
+  if (res.status >= 200 && res.status < 300) {
+    const json = await parseJsonEnvelope<T>(res);
+    if (json && json.success === true) return json.data as T;
+    if (!json) return undefined as T;
+  }
+
+  await assertNotHtml(res);
+  const json = await parseJsonEnvelope<unknown>(res);
+  return settleError(
+    res,
+    json,
+    wasRefreshed,
+    () => uploadInternal<T>(path, formData, true),
+    `Upload failed (${res.status})`,
+  );
+}
+
+/** Extract the UTF-8-aware filename from a Content-Disposition header. */
+function fileNameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const extended = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      // Fall through to the plain form below.
+    }
+  }
+  const plain = /filename="([^"]*)"/i.exec(header);
+  return plain ? plain[1] : null;
+}
+
+async function downloadInternal(
+  path: string,
+  wasRefreshed: boolean,
+): Promise<{ blob: Blob; fileName: string | null }> {
+  const token = getAccessToken();
+  const doFetch = async (withAuth: boolean): Promise<Response> => {
+    const headers = new Headers();
+    if (withAuth && token) headers.set("Authorization", `Bearer ${token}`);
+    try {
+      return await fetch(`${API_BASE_URL}${path}`, { method: "GET", headers });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw new NetworkError();
+    }
+  };
+
+  const res = await doFetch(true);
+  if (res.status >= 200 && res.status < 300) {
+    const fileName = fileNameFromDisposition(res.headers?.get?.("content-disposition") ?? null);
+    return { blob: await res.blob(), fileName };
+  }
+
+  await assertNotHtml(res);
+  const json = await parseJsonEnvelope<unknown>(res);
+  return settleError(
+    res,
+    json,
+    wasRefreshed,
+    () => downloadInternal(path, true),
+    `Download failed (${res.status})`,
+  );
+}
+
 export const api = {
   baseUrl: API_BASE_URL,
   get: <T>(path: string, options?: Omit<RequestOptions, "body" | "method">) =>
@@ -188,4 +337,8 @@ export const api = {
     request<T>(path, { ...options, method: "PUT", body }),
   delete: <T>(path: string, options?: Omit<RequestOptions, "body" | "method">) =>
     request<T>(path, { ...options, method: "DELETE" }),
+  /** Send a multipart body. The browser owns the Content-Type (boundary). */
+  upload: <T>(path: string, formData: FormData) => uploadInternal<T>(path, formData, false),
+  /** Fetch raw bytes with the bearer token. Returns the blob + server filename. */
+  download: (path: string) => downloadInternal(path, false),
 };

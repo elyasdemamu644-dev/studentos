@@ -6,6 +6,7 @@ vi.mock("@/services/ai-connections", async (importOriginal) => {
 });
 
 import {
+  AiConnectionUnreadableError,
   AiProvider,
   AiProviderNotConfiguredError,
   AiProviderError,
@@ -142,6 +143,24 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     await expect(getAIProvider("user-nothing")).rejects.toMatchObject({
       statusCode: 503,
       code: "AI_PROVIDER_NOT_CONFIGURED",
+    });
+  });
+
+  it("propagates an unreadable-connection error instead of falling back to the env default", async () => {
+    // The user has an active connection, but its stored credentials could not be
+    // decrypted. Resolution must surface that typed error rather than silently
+    // answering with a different (environment-default) provider.
+    vi.stubEnv("AI_ENABLED", "true");
+    vi.stubEnv("AI_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test-openrouter-key-12345");
+
+    const { getActiveUserConnection } = await import("@/services/ai-connections");
+    vi.mocked(getActiveUserConnection).mockRejectedValue(new AiConnectionUnreadableError());
+
+    await expect(getAIProvider("user-unreadable")).rejects.toBeInstanceOf(AiConnectionUnreadableError);
+    await expect(getAIProvider("user-unreadable")).rejects.toMatchObject({
+      statusCode: 409,
+      code: "AI_CONNECTION_UNREADABLE",
     });
   });
 
@@ -292,5 +311,48 @@ describe("AiProvider.chat provider-error sanitization", () => {
     expect((fetchMock as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
       "https://provider.test.local/chat/completions"
     );
+  });
+});
+
+describe("AiProvider request timeout", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("aborts a hung provider call and surfaces a controlled 504", async () => {
+    // Mirror real fetch: it never settles until the caller aborts.
+    vi.stubEnv("AI_REQUEST_TIMEOUT_MS", "20");
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("The operation was aborted."), { name: "AbortError" }));
+          });
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    // The config module reads AI_REQUEST_TIMEOUT_MS at import time, so the
+    // provider must be re-imported after the env is set.
+    vi.resetModules();
+
+    const providerMod = await import("@/services/ai/provider");
+    const provider = new providerMod.AiProvider(
+      providerMod.resolveAiProvider("openai"),
+      { apiKey: "sk-test-key-a1b2c3" },
+      "https://provider.test.local"
+    );
+
+    const err = await provider
+      .chat({ messages: [{ role: "user", content: "hi" }] })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(providerMod.AiProviderTimeoutError);
+    expect((err as { statusCode?: number }).statusCode).toBe(504);
+    expect((err as { code?: string }).code).toBe("AI_PROVIDER_TIMEOUT");
+    expect((err as Error).message).toMatch(/did not respond within/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

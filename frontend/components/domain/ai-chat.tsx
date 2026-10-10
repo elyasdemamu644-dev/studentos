@@ -29,6 +29,7 @@ import {
   MAX_MESSAGE_LENGTH,
   parseInline,
   parseMarkdown,
+  safeHref,
   shouldSendOnKey,
   type InlineToken,
   type MarkdownBlock,
@@ -68,6 +69,21 @@ function InlineTokens({ tokens }: { tokens: InlineToken[] }) {
                 <InlineTokens tokens={token.value} />
               </em>
             );
+          case "link": {
+            const href = safeHref(token.href);
+            if (!href) return <span key={index}>{token.label}</span>;
+            return (
+              <a
+                key={index}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2 hover:no-underline"
+              >
+                {token.label}
+              </a>
+            );
+          }
           default:
             return <span key={index}>{token.value}</span>;
         }
@@ -95,6 +111,83 @@ function Markdown({ content }: { content: string }) {
               )}
               <code className="font-mono leading-relaxed">{block.code}</code>
             </pre>
+          );
+        }
+
+        if (block.kind === "heading") {
+          const Tag = (["h1", "h2", "h3", "h4", "h5", "h6"][block.level - 1] ?? "h4") as
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6";
+          const size = ["text-lg", "text-base", "text-sm", "text-sm", "text-sm", "text-sm"][block.level - 1];
+          return (
+            <Tag key={index} className={cn("font-semibold text-foreground", size, index > 0 && "pt-1")}>
+              <InlineTokens tokens={parseInline(block.text)} />
+            </Tag>
+          );
+        }
+
+        if (block.kind === "blockquote") {
+          return (
+            <blockquote key={index} className="border-l-2 border-border pl-3 text-muted-foreground">
+              {block.lines.map((line, lineIndex) => (
+                <p key={lineIndex} className="whitespace-pre-wrap break-words leading-relaxed">
+                  <InlineTokens tokens={parseInline(line)} />
+                </p>
+              ))}
+            </blockquote>
+          );
+        }
+
+        if (block.kind === "table") {
+          const { headers, rows, align } = block.table;
+          const columns = Math.max(headers.length, 0, ...rows.map((row) => row.length));
+          const alignClass = (columnIndex: number) => {
+            const alignment = align[columnIndex] ?? null;
+            if (alignment === "center") return "text-center";
+            if (alignment === "right") return "text-right";
+            return "text-left";
+          };
+          return (
+            <div key={index} className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr>
+                    {Array.from({ length: columns }, (_, columnIndex) => (
+                      <th
+                        key={columnIndex}
+                        className={cn(
+                          "border border-border bg-ai-muted px-2 py-1 font-medium",
+                          alignClass(columnIndex),
+                        )}
+                      >
+                        <InlineTokens tokens={parseInline(headers[columnIndex] ?? "")} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      {Array.from({ length: columns }, (_, columnIndex) => (
+                        <td
+                          key={columnIndex}
+                          className={cn(
+                            "border border-border px-2 py-1 align-top",
+                            alignClass(columnIndex),
+                          )}
+                        >
+                          <InlineTokens tokens={parseInline(row[columnIndex] ?? "")} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         }
 

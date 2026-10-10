@@ -58,6 +58,56 @@ export function internalError(message = "An internal error occurred"): ApiError 
   return new ApiError(500, ERROR_CODES.INTERNAL_ERROR, message);
 }
 
+// 503 — thrown when an optional integration is not configured (e.g. Google OAuth
+// enabled at runtime but GOOGLE_CLIENT_ID missing).
+export function serviceUnavailableError(message = "Service is not configured"): ApiError {
+  return new ApiError(503, "SERVICE_UNAVAILABLE", message);
+}
+
+// 503 (default) — thrown when the file-storage provider fails (disk write,
+// S3 non-2xx, network). A 404 variant is used when the record exists but its
+// stored object is gone. The underlying provider error is never leaked.
+export class StorageError extends ApiError {
+  constructor(message: string, statusCode = 503, code: string = "STORAGE_ERROR") {
+    super(statusCode, code, message);
+    this.name = "StorageError";
+    Object.setPrototypeOf(this, StorageError.prototype);
+  }
+}
+
+// 503 — thrown when email dispatch is not configured (EMAIL_ENABLED false or
+// SMTP_HOST missing). Kept distinct from SERVICE_UNAVAILABLE so clients can
+// tell "feature off" apart from "integration broken".
+export class EmailNotConfiguredError extends ApiError {
+  constructor(message = "Email dispatch is not configured on this server") {
+    super(503, "EMAIL_NOT_CONFIGURED", message);
+    this.name = "EmailNotConfiguredError";
+    Object.setPrototypeOf(this, EmailNotConfiguredError.prototype);
+  }
+}
+
+// 502 — thrown when the SMTP provider refuses or cannot reach the message
+// (non-2xx reply, connection failure). The underlying provider text is never
+// leaked to the client.
+export class EmailProviderError extends ApiError {
+  constructor(message = "The email provider rejected the message") {
+    super(502, "EMAIL_PROVIDER_ERROR", message);
+    this.name = "EmailProviderError";
+    Object.setPrototypeOf(this, EmailProviderError.prototype);
+  }
+}
+
+// 504 — thrown when the SMTP conversation exceeds the configured timeout
+// without completing. Distinct from provider rejection so operators can tune
+// EMAIL_TIMEOUT_MS without masking real failures.
+export class EmailTimeoutError extends ApiError {
+  constructor(message = "The email provider did not respond in time") {
+    super(504, "EMAIL_TIMEOUT", message);
+    this.name = "EmailTimeoutError";
+    Object.setPrototypeOf(this, EmailTimeoutError.prototype);
+  }
+}
+
 // A "not found" that is also clearly a 404 for resource lookups.
 export class NotFoundError extends ApiError {
   constructor(resource: string, identifier?: string) {

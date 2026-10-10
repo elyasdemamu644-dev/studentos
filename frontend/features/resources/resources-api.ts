@@ -23,11 +23,45 @@ export function getResource(id: string): Promise<ResourceRecord> {
   return api.get<ResourceRecord>(`/resources/${id}`);
 }
 
+export interface UploadResourceInput {
+  file: File;
+  title: string;
+  description?: string | null;
+  courseId?: string | null;
+  /** Omit to let the server infer the type from the file's content. */
+  resourceType?: ResourceType;
+}
+
+/**
+ * Upload a file as a multipart resource. The `file` part name and the optional
+ * metadata field names mirror `uploadResourceFieldsSchema` on the API; the
+ * client never sets the multipart Content-Type (the browser adds the boundary).
+ */
+export function uploadResource(input: UploadResourceInput): Promise<ResourceRecord> {
+  const form = new FormData();
+  form.append("file", input.file);
+  form.append("title", input.title);
+  if (input.description) form.append("description", input.description);
+  if (input.courseId) form.append("courseId", input.courseId);
+  if (input.resourceType) form.append("resourceType", input.resourceType);
+  return api.upload<ResourceRecord>("/resources/upload", form);
+}
+
+/**
+ * Fetch an uploaded resource's bytes through the authenticated API. The
+ * response is the raw file, not the JSON envelope, so this bypasses the normal
+ * JSON transport. Returns the blob and the server's filename, if any.
+ */
+export function downloadResource(
+  id: string,
+): Promise<{ blob: Blob; fileName: string | null }> {
+  return api.download(`/resources/${id}/download`);
+}
+
 export interface CreateResourceInput {
   title: string;
   description?: string | null;
   courseId?: string | null;
-  /** Only `URL` storage is creatable today; uploads arrive with the S3 phase. */
   storageType?: "URL";
   url: string;
   resourceType?: ResourceType;

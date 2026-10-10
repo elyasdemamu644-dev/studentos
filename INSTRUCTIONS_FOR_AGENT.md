@@ -27,7 +27,7 @@ git status --short
 git log --oneline -5
 ```
 
-The working tree is **currently clean** — the folder migration is committed as `18b4f3a` on `task/studentos-folder-migration` (the commit is **not pushed**). Run `git status --short` before assuming any file is in its committed state, and never discard changes you did not make.
+The working tree is **NOT clean.** `18b4f3a` (the folder migration, on `task/studentos-folder-migration`) is the last commit and is **not pushed**; everything since is uncommitted — the AI Assistant fixes, the frontend product upgrade, and the file-uploads / email / Google-OAuth / structured-extraction / token-security / course-materials workstreams (see `AI_CONTEXT.md` §2 and §17). Always run `git status --short` first, and never discard changes you did not make.
 
 ### 2. Inspect only the relevant files
 
@@ -57,8 +57,8 @@ pnpm --filter @studentos/web test              # or test:watch
 
 # full gate, before handing off
 pnpm --filter @studentos/api build       # tsc          (passes)
-pnpm --filter @studentos/api test        # 261 tests, all passing
-pnpm --filter @studentos/web test        # 77 tests
+pnpm --filter @studentos/api test        # 560 tests, all passing
+pnpm --filter @studentos/web test        # 260 tests
 pnpm --filter @studentos/web build       # next build
 pnpm lint                                # web only
 ```

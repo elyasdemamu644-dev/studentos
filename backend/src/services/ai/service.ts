@@ -4,6 +4,7 @@ import { NotFoundError, ConflictError } from "@/config/errors";
 import { getAIProvider, AiProviderNotConfiguredError } from "./provider";
 import { studentContextBuilder } from "./context";
 import { runAgent, type ToolActivityEntry } from "./agent";
+import { extractStructured } from "./structured";
 import { confirmationStore, summarizeOutcomes, toPendingActionResponse } from "./confirmations";
 import { executeProposalActions } from "./tools/confirm-tool";
 import { executeTool } from "./tools/registry";
@@ -12,6 +13,7 @@ import type {
   CreateConversationInput,
   CreateMessageInput,
   CreateStudyPlanInput,
+  StructuredRequestInput,
   UpdateConversationInput,
   UpdateStudyPlanInput,
   UpdateStudyPlanEntryInput,
@@ -138,9 +140,11 @@ export const aiService = {
       }
 
       // Assemble ground-truth context from the user's StudentOS data. It is
-      // stored on the user message (as before) and inlined into the prompt for
-      // providers that have no native tool support.
-      const context = await studentContextBuilder.toPrompt(userId);
+      // stored on the user message (as before), inlined into the prompt for
+      // providers that have no native tool support, and handed to the agent as
+      // a structured snapshot so the tool path also starts oriented.
+      const studentContext = await studentContextBuilder.build(userId);
+      const context = JSON.stringify(studentContext);
 
       // Newest first: the window has to be the *latest* turns, and the ids are
       // needed to recognise a retry of a question that is still unanswered.
@@ -197,6 +201,7 @@ export const aiService = {
         userMessage: input.content,
         studentName: student?.firstName ?? null,
         context,
+        studentContext,
       });
 
       const pending = run.proposedActions.length
@@ -239,6 +244,25 @@ export const aiService = {
       pendingAction: toPendingActionResponse(confirmationStore.getPending(userId, conversationId)),
       agent: null,
     };
+  },
+
+  // ── Structured extraction ───────────────────
+
+  /**
+   * Schema-validated AI extraction (`POST /ai/structured`).
+   *
+   * This is a pure read path: it invokes the grounded provider chat call and
+   * returns only output that validated against the client-supplied schema. It
+   * executes no tools and writes nothing, so there is never a pending proposal
+   * to confirm.
+   */
+  async structured(userId: string, input: StructuredRequestInput) {
+    return extractStructured({
+      userId,
+      prompt: input.prompt,
+      schema: input.schema as unknown as Record<string, unknown>,
+      ground: input.ground,
+    });
   },
 
   // ── Pending action confirmations ───────────

@@ -11,6 +11,22 @@ import { dashboardService } from "@/services/dashboard";
 import type { AiToolDefinition, ProposedAction } from "./types";
 import { DAY_MS, daysUntil, fail, isoDaysFromNow, ok, pct, startOfDayOffset } from "./types";
 
+/** Check if a proposed session conflicts with any existing event. */
+function hasConflict(
+  proposedStart: Date,
+  proposedEnd: Date,
+  existingEvents: Array<{ startAt: string; endAt: string | null }>,
+): boolean {
+  const startMs = proposedStart.getTime();
+  const endMs = proposedEnd.getTime();
+  for (const event of existingEvents) {
+    const eventStart = new Date(event.startAt).getTime();
+    const eventEnd = event.endAt ? new Date(event.endAt).getTime() : eventStart + 60 * 60 * 1000;
+    if (startMs < eventEnd && endMs > eventStart) return true;
+  }
+  return false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ANALYZE tools
 // ─────────────────────────────────────────────────────────────────────────────
@@ -656,20 +672,35 @@ export const buildStudyPlanTool: AiToolDefinition = {
     // ── Shape the window around the exam ─────────────────────────────────────
     const daysUntilExam = exam ? daysUntil(exam.startAt, now) : null;
     const days = daysUntilExam !== null && daysUntilExam > 0 ? Math.min(input.days, daysUntilExam) : input.days;
+
+    // ── Fetch existing calendar events in the planning window for conflict detection ──────
+    const planWindowEnd = isoDaysFromNow(days, now);
+    let existingEvents = { items: [] as Array<{ startAt: string; endAt: string | null }>, hasMore: false, nextCursor: null as string | null };
+    try {
+      existingEvents = await eventsService.list(ctx.userId, {
+        startFrom: now.toISOString(),
+        startTo: planWindowEnd,
+        limit: 100,
+      });
+    } catch {
+      // If fetching events fails, proceed without conflict detection rather than failing the whole plan
+    }
+
     const subject = input.focus ? `${course.name} — ${input.focus}` : course.name;
 
     const startDay = startOfDayOffset(1, now);
-    const schedule: Array<{ day: number; date: string; sessions: Array<{ topic: string; startedAt: string; endedAt: string; durationMinutes: number }> }> = [];
+    const schedule: Array<{ day: number; date: string; sessions: Array<{ topic: string; startedAt: string; endedAt: string; durationMinutes: number; hasConflict: boolean }> }> = [];
     const proposedActions: ProposedAction[] = [];
 
     for (let day = 1; day <= days; day += 1) {
       const dayDate = startOfDayOffset(day, now);
-      const sessions: Array<{ topic: string; startedAt: string; endedAt: string; durationMinutes: number }> = [];
+      const sessions: Array<{ topic: string; startedAt: string; endedAt: string; durationMinutes: number; hasConflict: boolean }> = [];
 
       for (let slot = 0; slot < input.sessionsPerDay; slot += 1) {
         const start = new Date(dayDate);
         start.setHours(17 + slot * 2, 0, 0, 0); // 17:00, 19:00, …
         const end = new Date(start.getTime() + input.minutesPerSession * 60 * 1000);
+        const sessionConflict = hasConflict(start, end, existingEvents.items);
         const focusLabel = PLAN_FOCUSES[(day - 1 + slot) % PLAN_FOCUSES.length];
         const topic = `${subject}: ${focusLabel} (day ${day})`;
 
@@ -678,11 +709,12 @@ export const buildStudyPlanTool: AiToolDefinition = {
           startedAt: start.toISOString(),
           endedAt: end.toISOString(),
           durationMinutes: input.minutesPerSession,
+          hasConflict: sessionConflict,
         });
 
         proposedActions.push({
           tool: "create_study_session",
-          description: `Study session on ${start.toISOString().slice(0, 10)} at ${String(start.getHours()).padStart(2, "0")}:00 — ${focusLabel} (${input.minutesPerSession} min)`,
+          description: `Study session on ${start.toISOString().slice(0, 10)} at ${String(start.getHours()).padStart(2, "0")}:00 — ${focusLabel} (${input.minutesPerSession} min)${sessionConflict ? " ⚠️ conflicts with existing event" : ""}`,
           arguments: {
             courseId: course.id,
             topic,

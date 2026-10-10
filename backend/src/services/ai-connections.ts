@@ -1,4 +1,4 @@
-import { encryptForUser, decryptForUser } from "@/utils/encryption";
+import { encryptForUser, decryptForUser, CredentialDecryptionError } from "@/utils/encryption";
 import { prisma } from "@/utils/prisma";
 import {
   type AiConnectionResponse,
@@ -9,7 +9,7 @@ import {
   AiConnectionResponseSchema,
 } from "../schemas/ai-connections";
 import type { CreateAiConnectionInput, UpdateAiConnectionInput, TestConnectionInput, AiProviderName } from "../schemas/ai-connections";
-import type { ProviderCredentials } from "@/services/ai/provider";
+import { AiConnectionUnreadableError, type ProviderCredentials } from "@/services/ai/provider";
 import assert from "node:assert";
 
 function toResponse(record: {
@@ -213,24 +213,30 @@ export async function testConnection(
   input: TestConnectionInput,
   connectionId?: string
 ): Promise<TestConnectionResult> {
+  // Ownership is a hard 404, not a "connection failed" test result. Resolve the
+  // stored connection *before* the provider try/catch so a foreign or
+  // nonexistent id can never be masked as `200 { success: false }` — which
+  // would also make a probe unable to tell "not yours" from "does not exist".
+  const stored = connectionId
+    ? await prisma.aiConnection.findFirst({ where: { id: connectionId, userId } })
+    : null;
+  if (connectionId && !stored) {
+    const { NotFoundError } = await import("@/config/errors");
+    throw new NotFoundError("AI connection not found");
+  }
+
   let credentials: string | undefined;
-  let provider: AiProviderName;
-  let model: string | null;
-  let endpoint: string | null;
 
   try {
-    if (connectionId) {
-      const record = await prisma.aiConnection.findFirst({
-        where: { id: connectionId, userId },
-      });
-      if (!record) {
-        const { NotFoundError } = await import("@/config/errors");
-        throw new NotFoundError("AI connection not found");
-      }
-      credentials = decryptForUser(userId, record.credentialsEncrypted);
-      provider = record.provider as AiProviderName;
-      model = record.model;
-      endpoint = record.endpoint;
+    let provider: AiProviderName;
+    let model: string | null;
+    let endpoint: string | null;
+
+    if (stored) {
+      credentials = decryptForUser(userId, stored.credentialsEncrypted);
+      provider = stored.provider as AiProviderName;
+      model = stored.model;
+      endpoint = stored.endpoint;
     } else {
       const data = TestConnectionInputSchema.parse(input);
       credentials = data.credentials;
@@ -339,11 +345,24 @@ export async function getActiveUserConnection(
   // ai <-> ai-connections modules free of a static import cycle.
   const { parseProviderCredentials } = await import("@/services/ai/provider");
 
+  // Only a decryption/auth failure is converted into the typed, actionable
+  // connection error. Any other failure (e.g. a bug in `parseProviderCredentials`
+  // or a database error) propagates unchanged so it is never mislabelled as a
+  // bad key. We do NOT fall back to the environment-default provider here: the
+  // user explicitly selected this connection.
+  let decrypted: string;
+  try {
+    decrypted = decryptForUser(userId, record.credentialsEncrypted);
+  } catch (error) {
+    if (error instanceof CredentialDecryptionError) {
+      throw new AiConnectionUnreadableError();
+    }
+    throw error;
+  }
+
   return {
     provider: record.provider as AiProviderName,
-    decryptedCredentials: parseProviderCredentials(
-      decryptForUser(userId, record.credentialsEncrypted)
-    ),
+    decryptedCredentials: parseProviderCredentials(decrypted),
     endpoint: record.endpoint,
     model: record.model,
   };

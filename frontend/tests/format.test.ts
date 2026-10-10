@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addDays, format, subDays } from "date-fns";
 import {
   dueLabel,
+  formatBytes,
   formatDate,
   formatMinutes,
   formatTime,
@@ -43,6 +44,24 @@ describe("lib/format formatMinutes", () => {
     expect(formatMinutes(45)).toBe("45 min");
     expect(formatMinutes(120)).toBe("2 hr");
     expect(formatMinutes(null)).toBe("0 min");
+  });
+});
+
+describe("lib/format formatBytes", () => {
+  it("formats byte counts across units", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(1024)).toBe("1 KB");
+    expect(formatBytes(2048)).toBe("2 KB");
+    expect(formatBytes(1536)).toBe("1.5 KB");
+    expect(formatBytes(5 * 1024 * 1024)).toBe("5 MB");
+  });
+
+  it("returns an em dash for missing or invalid sizes", () => {
+    expect(formatBytes(null)).toBe("—");
+    expect(formatBytes(undefined)).toBe("—");
+    expect(formatBytes(-1)).toBe("—");
+    expect(formatBytes(Number.NaN)).toBe("—");
   });
 });
 

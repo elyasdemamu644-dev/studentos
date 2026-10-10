@@ -56,6 +56,16 @@ router.post("/:id/read", zValidator("params", idParam), async (req: AuthRequest,
   } catch (error) { next(error); }
 });
 
+// Emails the notification to the authenticated user's own mailbox. The
+// recipient is never an input — only the owner can dispatch, and only to
+// themselves — so this cannot become an arbitrary-mail relay.
+router.post("/:id/email", zValidator("params", idParam), async (req: AuthRequest, res, next) => {
+  try {
+    const result = await notificationsService.dispatchEmail(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
 router.patch(
   "/:id",
   zValidator("params", idParam),

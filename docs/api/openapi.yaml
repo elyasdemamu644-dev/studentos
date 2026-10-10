@@ -9,8 +9,9 @@ info:
 
 
     **Authentication.** Send `Authorization: Bearer <accessToken>` on every endpoint except `POST /auth/register`, `POST
-    /auth/login`, `POST /auth/refresh`, `POST /auth/logout` and `GET /health`. Access tokens are HS256 JWTs (default 900
-    s) minted by `POST /auth/login`; refresh them with `POST /auth/refresh`, which rotates the stored refresh row
+    /auth/login`, `POST /auth/google`, `POST /auth/refresh`, `POST /auth/logout` and `GET /health`. Access tokens are
+    HS256 JWTs (default 900 s) minted by `POST /auth/login` or `POST /auth/google`; refresh them with `POST
+    /auth/refresh`, which rotates the stored refresh row
     (default 7 d). A missing or bad token answers 401 with `AUTH_MISSING_TOKEN` / `AUTH_INVALID_TOKEN` /
     `AUTH_TOKEN_EXPIRED`.
 
@@ -39,8 +40,9 @@ info:
     **Errors.** 400 `VALIDATION_ERROR` (Zod, with per-field details), `INVALID_JSON`, `PAYLOAD_TOO_LARGE` (body limit is
     1 MB); 401 `UNAUTHORIZED`; 404 `NOT_FOUND`; 409 `CONFLICT` on duplicate creates and on deleting a course that still
     has data; 500 `INTERNAL_ERROR` with a fixed message in every environment — stacks and Prisma text go to the server
-    log under a `req_*` request id only. AI calls can additionally answer 503 `AI_PROVIDER_NOT_CONFIGURED` and 502
-    `AI_PROVIDER_ERROR`.
+    log under a `req_*` request id only. AI calls can additionally answer 503 `AI_PROVIDER_NOT_CONFIGURED`, 502
+    `AI_PROVIDER_ERROR`, and — when a provider stalls past `AI_REQUEST_TIMEOUT_MS` (default 60000 ms) — 504
+    `AI_PROVIDER_TIMEOUT`.
 
 
     **Content type.** `application/json` only.
@@ -155,13 +157,19 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
     '502':
-      description: '`AI_PROVIDER_ERROR` — the model provider answered non-2xx or with an unusable body.'
+      description: '`AI_PROVIDER_ERROR` — the model provider answered non-2xx or with an unusable body; `AI_STRUCTURED_OUTPUT_INVALID` — the structured endpoint never produced output matching the requested schema.'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
     '503':
       description: '`AI_PROVIDER_NOT_CONFIGURED` — no active connection and no environment default.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    '504':
+      description: '`AI_PROVIDER_TIMEOUT` — the model provider did not answer within `AI_REQUEST_TIMEOUT_MS` (default 60000 ms). Retryable.'
       content:
         application/json:
           schema:
@@ -212,6 +220,8 @@ components:
                 - UPLOAD_STORAGE_UNAVAILABLE
                 - AI_PROVIDER_NOT_CONFIGURED
                 - AI_PROVIDER_ERROR
+                - AI_PROVIDER_TIMEOUT
+                - AI_STRUCTURED_OUTPUT_INVALID
                 - AUTH_INVALID_TOKEN
                 - AUTH_TOKEN_EXPIRED
                 - AUTH_MISSING_TOKEN
@@ -1285,7 +1295,40 @@ components:
           type: string
           format: date-time
           description: ISO-8601 timestamp
-      description: "Delivery is IN_APP only; there is no scheduler Ã¢â‚¬â€\x9D the client triggers a sweep."
+      description: "IN_APP is the baseline delivery; EMAIL can be dispatched on demand via POST /notifications/{id}/email. There is no scheduler Ã¢â‚¬â€\x9D the client triggers a sweep."
+    NotificationEmailResult:
+      type: object
+      required:
+        - dispatched
+        - status
+        - delivery
+        - provider
+        - to
+      properties:
+        dispatched:
+          type: boolean
+          description: True only when the provider accepted (queued) the message.
+        status:
+          type: string
+          enum:
+            - accepted
+            - rejected
+          description: Provider outcome. `accepted` means queued by the relay, not delivered to the inbox.
+        delivery:
+          $ref: '#/components/schemas/NotificationDelivery'
+        channel:
+          type:
+            - string
+            - 'null'
+        provider:
+          type: string
+        to:
+          type: string
+          format: email
+          description: The owner's own mailbox — the only permitted recipient.
+        messageId:
+          type: string
+          description: Present when the provider reported a message id.
     SettingsMap:
       type: object
       additionalProperties:
@@ -1411,6 +1454,95 @@ components:
                 - no_tool_support
             rounds:
               type: integer
+    StructuredExtractionRequest:
+      type: object
+      required:
+        - prompt
+        - schema
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: >-
+            What the model should compute. The reply is validated against `schema`, so ask
+            for the information to extract rather than prose.
+        schema:
+          $ref: '#/components/schemas/StructuredOutputSchema'
+        ground:
+          type: boolean
+          default: true
+          description: >-
+            True (default): inline the authenticated student's own StudentOS data so the
+            model grounds its answer in it. False: pure text → JSON with no context snapshot.
+    StructuredOutputSchema:
+      type: object
+      additionalProperties: false
+      description: >-
+        A bounded, `$ref`-free JSON-Schema subset. The server converts it to a Zod validator
+        and returns only output that matches it; unknown keys (`$ref`, `oneOf`, `pattern`,
+        `format`, `minLength`, …) are rejected with 400, and nesting is capped at 6 levels.
+      properties:
+        type:
+          type: string
+          enum:
+            - object
+            - array
+            - string
+            - number
+            - integer
+            - boolean
+            - null
+        description:
+          type: string
+          maxLength: 200
+        properties:
+          type: object
+          description: Map of field name → nested field schema (object `type` only).
+        required:
+          type: array
+          maxItems: 24
+          items:
+            type: string
+            minLength: 1
+        items:
+          type: object
+          description: Element schema (array `type` only).
+        enum:
+          type: array
+          minItems: 1
+          maxItems: 32
+          description: Literal values a string/number/boolean/null field may take.
+        anyOf:
+          type: array
+          minItems: 2
+          maxItems: 8
+          description: >-
+            Mutually-exclusive field schemas. Nullability is expressed as `anyOf: [X, { type: "null" }]`.
+        additionalProperties:
+          type: boolean
+          const: false
+    StructuredExtractionResult:
+      type: object
+      required:
+        - result
+        - repaired
+        - provider
+        - model
+      properties:
+        result:
+          nullable: true
+          description: >-
+            The extracted value, validated server-side against the schema sent in the request
+            (object, array, or scalar — whatever the schema described).
+        repaired:
+          type: boolean
+          description: True when the first provider reply failed validation and a corrective retry was used.
+        provider:
+          type: string
+          description: Which provider served the call (openai, gemini, anthropic, openrouter, ollama, custom).
+        model:
+          type: string
     PendingAction:
       type: object
       required:
@@ -1936,6 +2068,15 @@ components:
           format: email
         password:
           type: string
+    GoogleLoginRequest:
+      type: object
+      required:
+        - idToken
+      properties:
+        idToken:
+          type: string
+          minLength: 1
+          description: Google OIDC ID token returned by the Google Sign-In frontend flow.
     RefreshRequest:
       type: object
       required:
@@ -2941,6 +3082,50 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
+      security: []
+  /auth/google:
+    post:
+      tags:
+        - Auth
+      summary: Log in or sign up with a Google ID token
+      operationId: googleLogin
+      responses:
+        '200':
+          description: >-
+            Verifies the Google OIDC ID token, logs the user in, mints a new access/refresh pair plus the
+            public profile. A verified email that has no account yet provisions one (Google accounts have no password, so
+            an unguessable random hash is stored to keep password login impossible).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '503':
+          description: '`SERVICE_UNAVAILABLE` — `GOOGLE_CLIENT_ID` is not configured on the server.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      description: >-
+        Verifies a Google OIDC ID token (RS256 signature, issuer, audience and `email_verified`), then logs in the
+        matching existing account or provisions a new one keyed on the verified email. Requires `GOOGLE_CLIENT_ID`
+        to be set; without it the endpoint answers 503.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleLoginRequest'
       security: []
   /auth/refresh:
     post:
@@ -4653,8 +4838,8 @@ paths:
       responses:
         '201':
           description: >-
-            `storageType: "UPLOAD"` → 400 `UPLOAD_STORAGE_UNAVAILABLE` (S3 is not implemented); a URL resource without
-            `url` → 400 `VALIDATION_ERROR`.
+            A JSON `storageType: "UPLOAD"` → 400 `UPLOAD_STORAGE_UNAVAILABLE` (uploads must be sent as
+            multipart to `POST /resources/upload`); a URL resource without `url` → 400 `VALIDATION_ERROR`.
           content:
             application/json:
               schema:
@@ -4675,14 +4860,70 @@ paths:
         '429':
           $ref: '#/components/responses/429'
       description: >-
-        `storageType: "UPLOAD"` → 400 `UPLOAD_STORAGE_UNAVAILABLE` (S3 is not implemented); a URL resource without `url`
-        → 400 `VALIDATION_ERROR`.
+        A JSON `storageType: "UPLOAD"` → 400 `UPLOAD_STORAGE_UNAVAILABLE` (uploads must be sent as multipart to
+        `POST /resources/upload`); a URL resource without `url` → 400 `VALIDATION_ERROR`.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateResourceRequest'
+  /resources/upload:
+    post:
+      tags:
+        - Resources
+      summary: Upload a file resource
+      operationId: uploadResource
+      description: >-
+        Creates an `UPLOAD` resource from multipart/form-data. The `file` part is required and must be a
+        non-empty file whose content type is allow-listed; the size is capped by `UPLOAD_MAX_FILE_SIZE_BYTES`.
+        The MIME type is sniffed from the content, never trusted from the client. Fields: `title` (required),
+        `description`, `courseId` (must belong to the caller), `resourceType`.
+      responses:
+        '201':
+          description: 'The created resource with `storageType: "UPLOAD"`.'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Resource'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '503':
+          $ref: '#/components/responses/503'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - title
+                - file
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 2000
+                courseId:
+                  type: string
+                resourceType:
+                  $ref: '#/components/schemas/ResourceType'
+                file:
+                  type: string
+                  format: binary
   /resources/{id}:
     get:
       tags:
@@ -4777,6 +5018,39 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/deleted'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /resources/{id}/download:
+    get:
+      tags:
+        - Resources
+      summary: Download an uploaded file
+      operationId: downloadResource
+      description: >-
+        Streams the raw bytes of an `UPLOAD` resource to its owner. The response is the file itself with
+        `Content-Type`/`Content-Length`/`Content-Disposition` (attachment) headers; it is the only endpoint that
+        returns non-JSON. Downloading a URL resource → 400 `RESOURCE_NOT_A_FILE`.
+      responses:
+        '200':
+          description: The file bytes as an attachment.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
         '400':
           $ref: '#/components/responses/400'
         '401':
@@ -6031,6 +6305,66 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateNotificationRequest'
+  /notifications/{id}/email:
+    post:
+      tags:
+        - Notifications
+      summary: Email a notification to its owner
+      operationId: emailNotification
+      description: >-
+        Sends the notification to the authenticated user's own mailbox through the configured SMTP relay. The
+        recipient is read from the account in the database — never from the request — so this cannot be used as
+        an arbitrary-mail relay: the owner can only email themselves. Requires `EMAIL_ENABLED=true` and
+        `SMTP_HOST`; otherwise it answers 503 `EMAIL_NOT_CONFIGURED`. The record is marked `delivery: EMAIL`
+        only after the provider accepts the message; a refusal leaves it unmarked and reports `dispatched: false`.
+        Credentials and message content are never logged.
+      responses:
+        '200':
+          description: >-
+            The dispatch outcome. `status` is `accepted` (queued by the provider) or `rejected`; `dispatched`
+            mirrors acceptance.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NotificationEmailResult'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+        '502':
+          description: '`EMAIL_PROVIDER_ERROR` — the relay refused or could not be reached.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: '`EMAIL_NOT_CONFIGURED` — `EMAIL_ENABLED` is off or `SMTP_HOST` is unset.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '504':
+          description: '`EMAIL_TIMEOUT` — the SMTP conversation exceeded `EMAIL_TIMEOUT_MS`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /notifications/{id}/read:
     post:
       tags:
@@ -6444,7 +6778,7 @@ paths:
             With `generateReply: true` (default) this runs the agent: it stores your message, executes read tools, and
             may park a write as a `pendingAction` (nothing is written until you confirm). `toolActivity` describes what
             ran, `agent` how the turn finished. A missing provider answers 503 and **nothing is stored**; a provider
-            failure answers 502.
+            failure answers 502; a provider that stalls past `AI_REQUEST_TIMEOUT_MS` answers 504 `AI_PROVIDER_TIMEOUT`.
           content:
             application/json:
               schema:
@@ -6468,11 +6802,13 @@ paths:
           $ref: '#/components/responses/502'
         '503':
           $ref: '#/components/responses/503'
+        '504':
+          $ref: '#/components/responses/504'
       description: >-
         With `generateReply: true` (default) this runs the agent: it stores your message, executes read tools, and may
         park a write as a `pendingAction` (nothing is written until you confirm). `toolActivity` describes what ran,
         `agent` how the turn finished. A missing provider answers 503 and **nothing is stored**; a provider failure
-        answers 502.
+        answers 502; a provider that stalls past `AI_REQUEST_TIMEOUT_MS` answers 504 `AI_PROVIDER_TIMEOUT`.
       parameters:
         - name: id
           in: path
@@ -6913,6 +7249,55 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateStudyPlanEntryRequest'
+  /ai/structured:
+    post:
+      tags:
+        - AI
+      summary: Schema-validated structured extraction
+      operationId: structuredExtraction
+      description: >-
+        Calls the live AI provider (the authenticated student's active connection, or the
+        environment default) and returns only output that validates against the JSON Schema
+        sent in the request — never raw model prose. The call is grounded in the student's own
+        StudentOS data by default (`ground: true`). This is a read-only path: it executes no
+        tools and writes nothing, so there is never a pending proposal to confirm. A reply that
+        is not valid JSON or does not match the schema triggers one corrective retry; a provider
+        that still never conforms answers 502 `AI_STRUCTURED_OUTPUT_INVALID`. A provider that is
+        missing answers 503 `AI_PROVIDER_NOT_CONFIGURED`; a provider failure answers 502
+        `AI_PROVIDER_ERROR`; a provider that stalls past `AI_REQUEST_TIMEOUT_MS` answers 504
+        `AI_PROVIDER_TIMEOUT`.
+      responses:
+        '200':
+          description: Schema-validated extracted value.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/StructuredExtractionResult'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+        '502':
+          $ref: '#/components/responses/502'
+        '503':
+          $ref: '#/components/responses/503'
+        '504':
+          $ref: '#/components/responses/504'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StructuredExtractionRequest'
   /ai-connections:
     get:
       tags:
@@ -7188,11 +7573,14 @@ paths:
           $ref: '#/components/responses/400'
         '401':
           $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
         '429':
           $ref: '#/components/responses/429'
       description: >-
         Uses the stored (decrypted server-side) credentials unless you override them. Provider failures are returned as
-        `success: false`, not as an HTTP error.
+        `success: false`, not as an HTTP error. A connection id that does not belong to the caller (or does not exist)
+        is a 404, never a `success: false` result.
       parameters:
         - name: id
           in: path

@@ -628,6 +628,52 @@ describe("transcript", () => {
     ]);
   });
 
+  it("renders safe links and drops unsafe ones to plain text", () => {
+    render(
+      <MessageList
+        messages={[message({ content: "[notes](https://example.com) and [bad](javascript:alert)" })]}
+        isLoading={false}
+        isError={false}
+        error={null}
+        onRetryLoad={() => {}}
+        generating={false}
+        liveActivity={[]}
+        activityRun={null}
+        onRetryMessage={() => {}}
+        empty={<p>empty</p>}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "notes" })).toHaveAttribute(
+      "href",
+      "https://example.com",
+    );
+    // A `javascript:` target never becomes an anchor; only its label survives.
+    expect(screen.queryByRole("link", { name: "bad" })).not.toBeInTheDocument();
+    expect(screen.getByText("bad")).toBeInTheDocument();
+  });
+
+  it("renders a markdown table with its headers and cells", () => {
+    render(
+      <MessageList
+        messages={[message({ content: "| Course | Credits |\n| --- | --- |\n| DB301 | 15 |" })]}
+        isLoading={false}
+        isError={false}
+        error={null}
+        onRetryLoad={() => {}}
+        generating={false}
+        liveActivity={[]}
+        activityRun={null}
+        onRetryMessage={() => {}}
+        empty={<p>empty</p>}
+      />,
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Course" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "DB301" })).toBeInTheDocument();
+  });
+
   it("attaches tool activity to the reply that produced it", () => {
     render(
       <MessageList

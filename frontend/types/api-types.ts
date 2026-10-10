@@ -1,3 +1,18 @@
+// ── Auth / User ──────────────────────────────────────
+
+export interface SessionUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  university: string | null;
+  department: string | null;
+  academicYear: string | null;
+  timezone: string;
+  profilePicture: string | null;
+  createdAt: string;
+}
+
 // Domain types mirroring the API response shapes (see backend/src/modules).
 
 export interface Page<T> {
@@ -246,9 +261,10 @@ export type ResourceType =
   | "OTHER";
 
 /**
- * Mirrors the API resource mapper. `UPLOAD` storage is reserved for the
- * deferred S3 phase, so the UI creates `URL` resources today and keeps the
- * file metadata fields for records that already carry them.
+ * Mirrors the API resource mapper. `URL` resources carry a `url`; `UPLOAD`
+ * resources were stored through `POST /resources/upload` and carry the file
+ * metadata plus a server-generated `fileKey` (never a client-visible path).
+ * Downloaded bytes are fetched through `GET /resources/:id/download`.
  */
 export interface ResourceRecord {
   id: string;

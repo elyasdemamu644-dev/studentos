@@ -1,6 +1,8 @@
 import { prisma } from "@/utils/prisma";
-import { NotFoundError } from "@/config/errors";
+import { ApiError, EmailNotConfiguredError, EmailProviderError, NotFoundError } from "@/config/errors";
 import type { Prisma } from "@prisma/client";
+import { getEmailProvider, type EmailSendResult } from "./email";
+import { renderNotificationEmail } from "./email-templates";
 import type { NotificationListQuery } from "../schemas/notifications";
 import type { UpdateNotificationInput } from "../schemas/notifications";
 
@@ -8,9 +10,11 @@ import type { UpdateNotificationInput } from "../schemas/notifications";
 // Service
 // ─────────────────────────────────────────────
 //
-// Notifications are system-generated (no create endpoint). This phase only
-// implements IN_APP delivery — PUSH/EMAIL/SMS/TELEGRAM records may exist in
-// the schema but external delivery is not implemented.
+// Notifications are system-generated (no create endpoint). IN_APP is the
+// baseline delivery; EMAIL is available on demand through an explicit,
+// owner-authenticated dispatch endpoint (`POST /notifications/:id/email`) that
+// sends the notification to the user's own mailbox. PUSH/SMS/TELEGRAM records
+// may exist in the schema but are not wired to any external delivery to date.
 //
 // Generation (`generateForUser`) is the foundation that makes the module
 // useful without a background worker: it derives reminders from the user's
@@ -170,6 +174,75 @@ export const notificationsService = {
       data: { status: "READ", readAt: new Date() },
     });
     return { updated: result.count };
+  },
+
+  /**
+   * Email a notification to its owner's mailbox (explicit, owner-only action).
+   *
+   * The recipient is always the authenticated user's own address from the
+   * database — never an input — so a token compromise cannot be turned into an
+   * arbitrary-mail relay. The record is only marked `delivery=EMAIL` after the
+   * provider accepts it; a refusal or timeout leaves it unmarked so a later
+   * retry still makes sense.
+   */
+  async dispatchEmail(userId: string, id: string) {
+    const provider = getEmailProvider();
+    if (!provider) {
+      throw new EmailNotConfiguredError();
+    }
+
+    const notification = await prisma.notification.findFirst({
+      where: { id, userId },
+    });
+    if (!notification) throw new NotFoundError("Notification not found");
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!user?.email) throw new NotFoundError("User not found");
+
+    const { subject, text } = renderNotificationEmail(notification);
+
+    let accepted: EmailSendResult;
+    try {
+      accepted = await provider.send({ to: user.email, subject, text });
+    } catch (error) {
+      // Typed provider errors (rejection/timeout) keep their own codes; any
+      // unwrapped throw is still a provider fault, reported as a 502, and the
+      // underlying message never leaves the process.
+      if (error instanceof ApiError) throw error;
+      throw new EmailProviderError("Email dispatch failed");
+    }
+
+    // A provider either accepts a message (queued) or refuses it. Only mark the
+    // record delivered when it accepted — a refusal leaves the record untouched
+    // so a later retry still makes sense, and says so in the response.
+    if (!accepted.accepted) {
+      return {
+        dispatched: false,
+        status: "rejected" as const,
+        delivery: notification.delivery,
+        channel: notification.channel,
+        provider: accepted.provider,
+        to: user.email,
+      };
+    }
+
+    await prisma.notification.update({
+      where: { id },
+      data: { delivery: "EMAIL", channel: "email" },
+    });
+
+    return {
+      dispatched: true,
+      status: "accepted" as const,
+      delivery: "EMAIL" as const,
+      channel: "email",
+      provider: accepted.provider,
+      to: user.email,
+      ...(accepted.messageId ? { messageId: accepted.messageId } : {}),
+    };
   },
 
   /**

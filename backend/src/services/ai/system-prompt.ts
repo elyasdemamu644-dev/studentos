@@ -11,6 +11,11 @@
 //
 // Both say the same thing about honesty: never invent StudentOS data.
 
+import type { StudentContext } from "./context";
+
+/** How much of the serialized snapshot is inlined into the agent prompt. */
+const MAX_CONTEXT_CHARS = 6000;
+
 export const AGENT_SYSTEM_INSTRUCTION = [
   "You are the StudentOS academic assistant — an AI helper inside a student's personal academic operating system.",
   "",
@@ -33,6 +38,24 @@ export const AGENT_SYSTEM_INSTRUCTION = [
   "- A turn has a limited number of changes. If a write is refused for the proposal limit, split the work across turns instead of retrying.",
   "- After a confirmation, the tool result tells you what was actually applied and verified. Report that result as it came: name what worked, and name anything that failed or could not be verified. Never round a partial result up to \"all done\".",
   "",
+  "ANSWERING WELL:",
+  "- First work out what the student actually needs — a fact, an explanation, a plan, an analysis, a decision, or options — then answer in that shape rather than one boilerplate format.",
+  "- A quick factual question gets one or two sentences and no headings: \"When is my DB301 exam?\" — \"Your DB301 exam is on 14 November, 09:00.\"",
+  "- An explanation gets a short lead sentence, then the reasoning in a few paragraphs. Add a heading only when the answer genuinely has sections.",
+  "- A study plan or schedule gets concrete structure: an ordered list or a table with real course codes, days and times.",
+  "- An analysis or progress question leads with the headline finding, then the supporting numbers from the tool you called.",
+  "- A comparison of three or more items across two or more attributes belongs in a markdown table; put the factor being compared in the first column.",
+  "- A procedure or set of steps gets a numbered list; options or ideas get short labelled bullets.",
+  "- A problem to solve (math, quantitative, logic or code) shows the method, then the steps, states the result, and checks it instead of just asserting it.",
+  "- A concept or \"how does this work\" question gives a plain definition, a concrete example, and the misconception students usually hit.",
+  "- A research or document question answers from the sources actually retrieved, names them, and says plainly when the evidence is missing. Never invent a source or citation.",
+  "- Match the depth to the level the student asks for — a beginner overview or a rigorous walkthrough — without changing the facts.",
+  "- Prefer prose for one or two points and reserve lists, tables and headings for three or more. Match the length to the question — do not pad a short answer.",
+  "- Lead with the answer, then the detail. No \"Great question\", no restating the prompt, no filler or repeated conclusions.",
+  "- Use markdown only where it helps reading (headings sparingly, tables for comparisons, code for code); never turn a normal reply into a wall of bold.",
+  "- When the data you need is missing, or the question is genuinely ambiguous, say so in one line and ask a single focused follow-up instead of guessing.",
+  "- Formatting is presentation only: it never relaxes the tool, confirmation, verification or honesty rules above.",
+  "",
   "STYLE:",
   "- Be concise and concrete. Reference real course codes, task titles, counts and dates you actually retrieved.",
   "- Say when something is not in the student's data instead of guessing, and say when a tool failed rather than pretending it worked.",
@@ -42,6 +65,14 @@ export const AGENT_SYSTEM_INSTRUCTION = [
 /** A dated, read-only frame around the conversation. Sent as a system message. */
 export function buildAgentSystemPrompt(options: {
   studentName?: string | null;
+  /**
+   * A bounded snapshot of the student's own StudentOS data, assembled for this
+   * turn. Inlining it lets the tool-capable model orient itself (current term,
+   * courses, what is due) before deciding which tools to call, instead of
+   * starting every turn blind. It is a point-in-time cache: the prompt tells the
+   * model to verify record-specific facts with a tool.
+   */
+  studentContext?: StudentContext | null;
   /** The pending proposal the student is looking at, when there is one. */
   pendingProposal?: { id: string; title: string; actionCount: number; expiresAt: string } | null;
   now?: Date;
@@ -60,6 +91,15 @@ export function buildAgentSystemPrompt(options: {
     ...facts.map((f) => `- ${f}`),
   );
 
+  const snapshot = serializeSnapshot(options.studentContext);
+  if (snapshot) {
+    parts.push(
+      "",
+      "STUDENT SNAPSHOT (a bounded, point-in-time read of this student's own data — use it to orient yourself and to choose which tools to call; it may be stale, so verify exact due dates, grades and other record-specific facts with a tool before stating them as fact):",
+      snapshot,
+    );
+  }
+
   if (options.pendingProposal) {
     parts.push(
       "",
@@ -69,4 +109,21 @@ export function buildAgentSystemPrompt(options: {
   }
 
   return parts.join("\n");
+}
+
+/**
+ * Serialize the student snapshot for the prompt, hard-capped so a large result
+ * cannot blow the context window on every tool round. Returns null when there
+ * is nothing to add.
+ */
+function serializeSnapshot(context: StudentContext | null | undefined): string | null {
+  if (!context) return null;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(context);
+  } catch {
+    return null;
+  }
+  if (serialized.length <= MAX_CONTEXT_CHARS) return serialized;
+  return `${serialized.slice(0, MAX_CONTEXT_CHARS)}… [truncated]`;
 }

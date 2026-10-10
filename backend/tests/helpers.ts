@@ -179,6 +179,8 @@ export function createDataProxy(body: any): any {
   });
 }
 
+type AuthResponse = request.Response & { data: any };
+
 /** Chained supertest wrapper — exposes .data (parsed body) instead of .body,
  *  so tests can write `res.data.id` consistently. supertest v7's `request(app)`
  *  has no `.set`, so auth is attached inside each verb method. */
@@ -216,19 +218,19 @@ export class AuthRequestChained {
     this.test = this.test.send(body);
     return this;
   }
-  expect(status: number): Promise<AuthRequestChained> {
+  expect(status: number): Promise<AuthResponse> {
     return this.test.expect(status).then((r) => {
       // attach .data for test convenience
       (r as any).data = createDataProxy(r.body);
-      return r as any;
+      return r as AuthResponse;
     });
   }
 
   // Make it thenable so `await chain` (without .expect) resolves to { data, status, ... }
-  then<T, TResult1 = AuthRequestChained, TResult2 = never>(
-    onFulfilled?: (value: AuthRequestChained) => T | TResult1 | PromiseLike<T | TResult1>,
-    onRejected?: (reason: any) => TResult2 | PromiseLike<TResult2>,
-  ): Promise<T | TResult1 | TResult2> {
+  then<TResult1 = AuthResponse, TResult2 = never>(
+    onFulfilled?: ((value: AuthResponse) => TResult1 | PromiseLike<TResult1>) | null,
+    onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
     return this.test.then(
       (res) => {
         const proxy = createDataProxy(res.body);
@@ -239,8 +241,8 @@ export class AuthRequestChained {
         (wrapped as any).headers = res.headers;
         (wrapped as any).body = res.body;
         (res as any).data = proxy;
-        if (onFulfilled) return onFulfilled(res as any);
-        return res as any;
+        if (onFulfilled) return onFulfilled(res as AuthResponse);
+        return res as AuthResponse;
       },
       onRejected,
     );

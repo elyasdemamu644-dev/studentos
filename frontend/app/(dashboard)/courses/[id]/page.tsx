@@ -12,7 +12,6 @@ import {
   Library,
   ListTodo,
   MapPin,
-  Paperclip,
   Pencil,
   Sparkles,
   StickyNote,
@@ -37,6 +36,7 @@ import { CourseFormDialog } from "@/features/courses/course-form";
 import { useNotes } from "@/features/notes/hooks";
 import { useCompleteTask, useTasks, useUpdateTask } from "@/features/tasks/hooks";
 import { DialogShell } from "@/features/tasks/task-form";
+import { CourseMaterialsPanel } from "@/features/resources/course-materials";
 import { EVENT_TYPE_LABELS } from "@/lib/labels";
 import { formatDate, formatMinutes, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -92,6 +92,7 @@ export default function CourseDetailPage() {
   // Hand the course straight to the assistant — the AI page prefills its
   // composer from ?prompt= and the panel shows StudentOS context alongside.
   const askPrompt = `Help me study ${data.name}${data.code ? ` (${data.code})` : ""}. What are the key topics, and what should I focus on in my next study session?`;
+  const askAiUrl = `/ai?prompt=${encodeURIComponent(askPrompt)}&courseId=${data.id}${data.semester?.id ? `&semesterId=${data.semester.id}` : ""}`;
 
   const toggleTask = (taskId: string, done: boolean) => {
     if (done) {
@@ -153,7 +154,7 @@ export default function CourseDetailPage() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Button asChild variant="outline" size="sm">
-                <Link href={`/ai?prompt=${encodeURIComponent(askPrompt)}`}>
+                <Link href={askAiUrl}>
                   <Sparkles className="mr-1.5 h-4 w-4" aria-hidden /> Ask AI
                 </Link>
               </Button>
@@ -398,10 +399,12 @@ export default function CourseDetailPage() {
         </Panel>
       </div>
 
+      <CourseMaterialsPanel courseId={id} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel
-          title="Resources"
-          icon={Paperclip}
+          title="Resource library"
+          icon={Library}
           tone="primary"
           href={`/resources?course=${id}`}
           linkLabel="Browse"

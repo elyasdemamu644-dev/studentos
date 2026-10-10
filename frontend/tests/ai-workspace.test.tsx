@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentType, ReactElement } from "react";
 
 import { AppShell, isWorkspaceRoute } from "@/components/layout/app-shell";
+import { ThemeProvider } from "@/lib/theme/theme-provider";
 import { setTokens } from "@/lib/api/auth-session";
 import type { Conversation, DashboardData } from "@/types/api-types";
 
@@ -561,9 +562,13 @@ describe("app shell workspace routes", () => {
 
   function renderShell() {
     return render(
-      <AppShell>
-        <p>page body</p>
-      </AppShell>,
+      <ThemeProvider>
+        <QueryClientProvider client={makeClient()}>
+          <AppShell>
+            <p>page body</p>
+          </AppShell>
+        </QueryClientProvider>
+      </ThemeProvider>,
     );
   }
 

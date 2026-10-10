@@ -5,6 +5,7 @@ import { prisma } from "@/utils/prisma";
 import { registerAndLogin, authRequestJson } from "./helpers";
 
 const BASE = "/api/v1/ai-connections";
+const AI_BASE = "/api/v1/ai";
 
 // Valid test credential strings (not real keys, just non-empty strings)
 const OPENAI_CREDS = { apiKey: "sk-test-openai-key-1234567890abcdef" };
@@ -1055,6 +1056,103 @@ describe("AI Connections — StudentOS Phase 2", () => {
       expect(r2).not.toBeNull();
 
       await prisma.aiConnection.delete({ where: { id: c.id } });
+    });
+  });
+
+  // ── Undecryptable active connection ──────────────────────────────────────────
+
+  describe("undecryptable active connection", () => {
+    async function createConversation(): Promise<string> {
+      const res = await authRequestJson("post", `${AI_BASE}/conversations`, alice.token, {});
+      return res.body.data.id as string;
+    }
+
+    it("returns a typed, actionable error instead of an unhandled 500 when the active connection cannot be decrypted", async () => {
+      const c = await createConn(alice.token, { provider: "openai", model: "gpt-4o" });
+      await authRequestJson("post", `${BASE}/${c.id}/activate`, alice.token);
+
+      // Simulate ENCRYPTION_KEY drift: the stored blob is well-formed base64 but
+      // its GCM tag only authenticates under a different key, so decryption fails.
+      const { encryptForUser } = await import("@/utils/encryption");
+      const foreignCiphertext = encryptForUser("some-other-user", jsonCreds(OPENAI_CREDS));
+      await prisma.aiConnection.update({
+        where: { id: c.id },
+        data: { credentialsEncrypted: foreignCiphertext },
+      });
+
+      const conversationId = await createConversation();
+      const res = await authRequestJson(
+        "post",
+        `${AI_BASE}/conversations/${conversationId}/messages`,
+        alice.token,
+        { content: "Explain recursion" }
+      );
+
+      // A controlled, actionable 409 — never an opaque internal 500.
+      expect(res.status).toBe(409);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("AI_CONNECTION_UNREADABLE");
+      expect(res.body.error.message).toMatch(/credentials/i);
+
+      // The response must not leak the ciphertext, the plaintext key, or crypto internals.
+      const serialized = JSON.stringify(res.body);
+      expect(serialized).not.toContain(foreignCiphertext);
+      expect(serialized).not.toContain(OPENAI_CREDS.apiKey);
+      expect(serialized).not.toContain("Unsupported state");
+
+      // Nothing was persisted: resolution fails before the user message is written.
+      const stored = await authRequestJson(
+        "get",
+        `${AI_BASE}/conversations/${conversationId}/messages`,
+        alice.token
+      );
+      expect(stored.body.data).toHaveLength(0);
+    });
+
+    it("answers the chat when the active connection decrypts", async () => {
+      const fetchMock = mockFetch({ type: "gemini" });
+      vi.stubGlobal("fetch", fetchMock);
+      const c = await createConn(alice.token, {
+        provider: "gemini",
+        model: "gemini-1.5-flash",
+        credentials: jsonCreds(GEMINI_CREDS),
+      });
+      await authRequestJson("post", `${BASE}/${c.id}/activate`, alice.token);
+
+      const conversationId = await createConversation();
+      const res = await authRequestJson(
+        "post",
+        `${AI_BASE}/conversations/${conversationId}/messages`,
+        alice.token,
+        { content: "What is recursion?" }
+      );
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.reply.content).toBe("OK");
+      expect(fetchMock).toHaveBeenCalled();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("still uses the environment-default path (not the unreadable error) when there is no active connection", async () => {
+      // A stored but inactive connection is "no active connection": resolution
+      // must keep falling through to the environment default rather than raise
+      // the unreadable-connection error.
+      await createConn(alice.token, { provider: "openai" });
+
+      const conversationId = await createConversation();
+      const res = await authRequestJson(
+        "post",
+        `${AI_BASE}/conversations/${conversationId}/messages`,
+        alice.token,
+        { content: "hi" }
+      );
+
+      // In the test worker AI is disabled, so the fallback is unusable → 503.
+      // The key point is that this is NOT the unreadable-connection error.
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe("AI_PROVIDER_NOT_CONFIGURED");
     });
   });
 

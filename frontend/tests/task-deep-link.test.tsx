@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import type { ComponentType } from "react";
 
 import type { Task } from "@/types/api-types";
 
@@ -14,8 +15,16 @@ import type { Task } from "@/types/api-types";
 const mock = vi.hoisted(() => ({
   replace: vi.fn(),
   search: "",
+  listTasks: vi.fn(),
   getTask: vi.fn(),
-  task: undefined as Task | undefined,
+  createTask: vi.fn(),
+  updateTask: vi.fn(),
+  completeTask: vi.fn(),
+  deleteTask: vi.fn(),
+  listSubtasks: vi.fn(),
+  createSubtask: vi.fn(),
+  updateSubtask: vi.fn(),
+  deleteSubtask: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -27,46 +36,18 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-vi.mock("@/features/tasks/hooks", async () => {
-  const React = await import("react");
-  return {
-    useTask: (id: string | undefined) => {
-      const [state, setState] = React.useState<{ status: "idle" | "success" | "error" }>({ status: "idle" });
-      React.useEffect(() => {
-        if (!id) return;
-        let live = true;
-        // Returning the same object lets React bail out: no re-render for a
-        // state the mock already has, and no act() warning for it either.
-        setState((prev) => (prev.status === "idle" ? prev : { status: "idle" }));
-        mock
-          .getTask(id)
-          .then(() => live && setState({ status: "success" }))
-          .catch(() => live && setState({ status: "error" }));
-        return () => {
-          live = false;
-        };
-      }, [id]);
-      return {
-        data: state.status === "success" ? mock.task : undefined,
-        isPending: state.status === "idle",
-        isError: state.status === "error",
-        error: null,
-        refetch: () => {},
-      };
-    },
-    useTasks: () => ({
-      data: { items: [], hasMore: false, nextCursor: null },
-      isPending: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    }),
-    useCompleteTask: () => ({ mutateAsync: async () => undefined }),
-    useUpdateTask: () => ({ mutateAsync: async () => undefined }),
-    useDeleteTask: () => ({ mutateAsync: async () => undefined }),
-    useCreateTask: () => ({ mutateAsync: async () => undefined, isPending: false }),
-  };
-});
+vi.mock("@/features/tasks/tasks-api", () => ({
+  listTasks: mock.listTasks,
+  getTask: mock.getTask,
+  createTask: mock.createTask,
+  updateTask: mock.updateTask,
+  completeTask: mock.completeTask,
+  deleteTask: mock.deleteTask,
+  listSubtasks: mock.listSubtasks,
+  createSubtask: mock.createSubtask,
+  updateSubtask: mock.updateSubtask,
+  deleteSubtask: mock.deleteSubtask,
+}));
 
 vi.mock("@/features/courses/hooks", () => ({
   useCourses: () => ({ data: [], isPending: false }),
@@ -91,8 +72,15 @@ const TASK: Task = {
   course: null,
 };
 
+let TasksPage: ComponentType;
+
+// The full page pulls in the task form's Radix dialog tree; importing it here,
+// before the tests' clock starts, keeps the import cost out of every test body.
+beforeAll(async () => {
+  ({ default: TasksPage } = await import("@/app/(dashboard)/tasks/page"));
+});
+
 async function renderPage() {
-  const { default: TasksPage } = await import("@/app/(dashboard)/tasks/page");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -104,14 +92,13 @@ async function renderPage() {
 afterEach(() => {
   vi.clearAllMocks();
   mock.search = "";
-  mock.task = undefined;
 });
 
 describe("task deep link", () => {
   it("opens the task's editor and strips the param from the URL", async () => {
     mock.search = "task=task-1";
-    mock.task = TASK;
     mock.getTask.mockResolvedValue(TASK);
+    mock.listTasks.mockResolvedValue({ items: [], hasMore: false, nextCursor: null });
 
     await renderPage();
 
@@ -123,6 +110,7 @@ describe("task deep link", () => {
   it("keeps the other query params and never spins on a dead id", async () => {
     mock.search = "task=gone&course=course-7";
     mock.getTask.mockRejectedValue(new Error("not found"));
+    mock.listTasks.mockResolvedValue({ items: [], hasMore: false, nextCursor: null });
 
     await renderPage();
 

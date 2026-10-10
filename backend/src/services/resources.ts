@@ -1,16 +1,30 @@
 import { prisma } from "@/utils/prisma";
-import { NotFoundError, ValidationApiError } from "@/config/errors";
+import { config } from "@/config";
+import { ApiError, NotFoundError, StorageError, ValidationApiError } from "@/config/errors";
 import type { Prisma } from "@prisma/client";
-import type { ResourceListQuery, ResourceCreate, ResourceUpdate } from "../schemas/resources";
+import {
+  assertValidFileName,
+  detectMimeType,
+  resolveUploadMimeType,
+  UPLOAD_ERROR_CODES,
+} from "@/utils/file-validation";
+import { getFileStorage, storageKeyFor, type FileStorage } from "@/services/storage";
+import type { ParsedFile } from "@/utils/multipart";
+import type {
+  ResourceListQuery,
+  ResourceCreate,
+  ResourceUpdate,
+  ResourceUploadFields,
+} from "../schemas/resources";
 
 // ─────────────────────────────────────────────
 // Service
 // ─────────────────────────────────────────────
 //
-// NOTE: S3-compatible file storage is DEFERRED (not implemented in this
-// phase). The `UPLOAD` storage type exists in the schema so the data model
-// can represent uploaded files later, but actual upload operations are
-// rejected cleanly rather than faked.
+// URL resources are created/updated through the JSON routes; uploaded files go
+// through `createFromUpload` (multipart) and are served by `getDownload`. Files
+// live behind the `FileStorage` provider (local disk by default, S3-compatible
+// when configured) and every query is scoped by `userId`.
 
 export const resourcesService = {
   /** List resources for the current user with optional filters. */
@@ -141,24 +155,159 @@ export const resourcesService = {
     return mapResource(record);
   },
 
-  /** Delete a resource. Only the owner can delete. */
+  /** Create an UPLOAD resource from a validated multipart file.
+   *
+   * The stored object is written first and the database row second; if the
+   * row insert fails the object is rolled back, so a failed upload cannot
+   * orphan a file. Course ownership is checked before anything is stored.
+   */
+  async createFromUpload(
+    userId: string,
+    fields: ResourceUploadFields,
+    file: ParsedFile,
+  ) {
+    if (file.buffer.length === 0) {
+      throw new ValidationApiError("The uploaded file is empty", UPLOAD_ERROR_CODES.EMPTY_FILE);
+    }
+
+    // Validate everything that can be validated before touching storage.
+    const fileName = assertValidFileName(file.originalName);
+    const mimeType = resolveUploadMimeType(
+      file.declaredMime,
+      detectMimeType(file.buffer),
+      new Set(config.uploadAllowedMimeTypes),
+    );
+
+    if (fields.courseId) {
+      const course = await prisma.course.findFirst({ where: { id: fields.courseId, userId } });
+      if (!course) throw new NotFoundError("Course not found");
+    }
+
+    const key = storageKeyFor(userId, fileName);
+    const storage = getFileStorage();
+
+    try {
+      await storage.put(key, file.buffer, mimeType);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new StorageError("Failed to store the uploaded file");
+    }
+
+    try {
+      const record = await prisma.resource.create({
+        data: {
+          userId,
+          courseId: fields.courseId ?? null,
+          title: fields.title,
+          description: fields.description ?? null,
+          storageType: "UPLOAD",
+          url: null,
+          fileKey: key,
+          fileName,
+          fileSize: file.buffer.length,
+          mimeType,
+          resourceType: fields.resourceType ?? inferResourceType(mimeType),
+        },
+        include: { course: { select: { id: true, code: true, name: true } } },
+      });
+      return mapResource(record);
+    } catch (error) {
+      // Roll back the stored object so a failed DB write leaves no orphan file.
+      await safeDeleteObject(storage, key);
+      throw error;
+    }
+  },
+
+  /** Fetch the bytes of an UPLOAD resource for the owner. */
+  async getDownload(userId: string, id: string) {
+    const record = await prisma.resource.findFirst({ where: { id, userId } });
+    if (!record) throw new NotFoundError("Resource not found");
+    if (record.storageType !== "UPLOAD" || !record.fileKey) {
+      throw new ValidationApiError(
+        "This resource is a link, not an uploaded file",
+        UPLOAD_ERROR_CODES.RESOURCE_NOT_A_FILE,
+      );
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await getFileStorage().get(record.fileKey);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new StorageError("Failed to read the stored file");
+    }
+
+    return {
+      buffer,
+      mimeType: record.mimeType ?? "application/octet-stream",
+      fileName: record.fileName ?? "download",
+    };
+  },
+
+  /** Delete a resource. Only the owner can delete.
+   *
+   * The stored object is removed before the row so the endpoint never leaves
+   * an orphaned file; if storage fails the request fails and the row survives
+   * unchanged, making the delete safely retryable.
+   */
   async delete(userId: string, id: string) {
     const existing = await prisma.resource.findFirst({ where: { id, userId } });
     if (!existing) throw new NotFoundError("Resource not found");
+
+    if (existing.storageType === "UPLOAD" && existing.fileKey) {
+      try {
+        await getFileStorage().delete(existing.fileKey);
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw new StorageError("Failed to delete the stored file");
+      }
+    }
 
     await prisma.resource.delete({ where: { id } });
     return { deleted: true };
   },
 };
 
+/** Best-effort object removal used on the create rollback path. */
+async function safeDeleteObject(storage: FileStorage, key: string): Promise<void> {
+  try {
+    await storage.delete(key);
+  } catch {
+    // The original database error is the one that matters; a leaked object is
+    // logged by the provider and can be swept later.
+  }
+}
+
+/** Map a resolved MIME type onto the closest resource category. */
+function inferResourceType(mimeType: string) {
+  if (mimeType === "application/pdf") return "PDF" as const;
+  if (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") {
+    return "SLIDES" as const;
+  }
+  if (mimeType === "application/vnd.ms-powerpoint") return "SLIDES" as const;
+  if (mimeType.startsWith("image/")) return "OTHER" as const;
+  if (mimeType.startsWith("video/")) return "VIDEO" as const;
+  if (mimeType.startsWith("audio/")) return "AUDIO" as const;
+  if (mimeType.startsWith("text/")) return "DOCUMENT" as const;
+  if (mimeType === "application/msword") return "DOCUMENT" as const;
+  if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return "DOCUMENT" as const;
+  }
+  return "OTHER" as const;
+}
+
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
 function assertStorageSupported(storageType: string | undefined): void {
+  // Uploaded files cannot be created through the JSON routes: the client must
+  // not be able to invent a `fileKey`/`fileSize`. They go through the
+  // multipart `POST /resources/upload` route instead. The code is retained for
+  // backward compatibility with the documented JSON contract.
   if (storageType === "UPLOAD") {
     throw new ValidationApiError(
-      "File upload storage is not yet available. Only URL resources are supported in this phase.",
+      "File uploads must be sent as multipart/form-data to POST /resources/upload",
       "UPLOAD_STORAGE_UNAVAILABLE",
     );
   }

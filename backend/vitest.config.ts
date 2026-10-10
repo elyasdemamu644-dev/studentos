@@ -46,6 +46,24 @@ testEnv.CUSTOM_AI_API_KEY = '';
 testEnv.DATABASE_URL = testEnv.TEST_DATABASE_URL ?? 'postgresql://postgres@localhost:5432/studentos_test';
 testEnv.ENCRYPTION_KEY = testEnv.ENCRYPTION_KEY ?? 'test-encryption-key-for-studentos-tests-only--32bytes!!';
 
+// Force the upload limit tiny so the "oversized file" path can be exercised
+// with a couple of KB instead of tens of MB, regardless of any local `.env`.
+// Include text/plain so the plain-text acceptance path is deterministic too.
+testEnv.UPLOAD_MAX_FILE_SIZE_BYTES = '2048';
+testEnv.UPLOAD_ALLOWED_MIME_TYPES = 'application/pdf,image/png,image/jpeg,text/plain';
+
+// Email dispatch is opt-in per environment; tests must always start from the
+// unconfigured state (→ 503 EMAIL_NOT_CONFIGURED) no matter what a local .env
+// sets, and mouse-trap any SMTP credentials so they never reach test workers.
+testEnv.EMAIL_ENABLED = 'false';
+testEnv.SMTP_HOST = '';
+testEnv.SMTP_PORT = '';
+testEnv.SMTP_SECURE = '';
+testEnv.SMTP_USER = '';
+testEnv.SMTP_PASSWORD = '';
+testEnv.SMTP_FROM = '';
+testEnv.EMAIL_TIMEOUT_MS = '';
+
 export default defineConfig({
   resolve: {
     alias: {

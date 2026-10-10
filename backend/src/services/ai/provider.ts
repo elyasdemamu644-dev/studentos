@@ -201,6 +201,33 @@ async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * `fetch` with a hard deadline.
+ *
+ * A provider that stalls — a flaky upstream, a local Ollama that never answers —
+ * must not pin a request open forever. The timer aborts the underlying request
+ * (the `AbortController` is supported by Node's global fetch and by every
+ * OpenAI-compatible/Gemini/Anthropic endpoint we target), and the abort is
+ * translated into a controlled {@link AiProviderTimeoutError} so callers get a
+ * retryable 504 instead of an opaque abort. The timer is always cleared.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number = config.aiRequestTimeoutMs
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) throw new AiProviderTimeoutError(timeoutMs);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function parseModelFromError(body: unknown): string {
   if (typeof body === "object" && body) {
     const b = body as Record<string, unknown>;
@@ -262,7 +289,7 @@ export class OpenAiAdapter implements AiProviderAdapter {
           ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
         };
 
-        const res = await fetch(base, {
+        const res = await fetchWithTimeout(base, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -306,7 +333,7 @@ export class OpenAiAdapter implements AiProviderAdapter {
 
     try {
       // Minimal chat completions call with a tiny model to test auth + connectivity
-      const res = await fetch(base, {
+      const res = await fetchWithTimeout(base, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -380,7 +407,7 @@ export class GeminiAdapter implements AiProviderAdapter {
           }));
 
         const url = `${base}/${request.model}/generateContent?key=${apiKey}`;
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -428,7 +455,7 @@ export class GeminiAdapter implements AiProviderAdapter {
       : `${GEMINI_BASE}/models/${model}/generateContent?key=${apiKey}`;
 
     try {
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -486,7 +513,7 @@ export class AnthropicAdapter implements AiProviderAdapter {
           .map((m) => ({ role: m.role, content: m.content ?? "" }));
 
         const url = `${base}/messages`;
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -540,7 +567,7 @@ export class AnthropicAdapter implements AiProviderAdapter {
     const url = `${base}/messages`;
 
     try {
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -630,7 +657,7 @@ export class OllamaAdapter implements AiProviderAdapter {
     return {
       chatCompletions: async (request) => {
         const url = `${base}/api/chat`;
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -687,10 +714,10 @@ export class OllamaAdapter implements AiProviderAdapter {
     const base = (endpoint || OLLAMA_BASE).replace(/\/+$/, "");
 
     try {
-      const res = await fetch(`${base}/api/tags`, { method: "GET" });
+      const res = await fetchWithTimeout(`${base}/api/tags`, { method: "GET" });
       if (!res.ok) {
         // Fallback: try /api/version
-        const ver = await fetch(`${base}/api/version`, { method: "GET" });
+        const ver = await fetchWithTimeout(`${base}/api/version`, { method: "GET" });
         if (!ver.ok) {
           return { success: false, message: "Ollama not reachable at " + base };
         }
@@ -834,6 +861,7 @@ export class AiProvider {
       // Provider errors become a controlled 502 (AiProviderError) instead of a
       // 500. Providers echo the offending key in their error text, so the
       // message is redacted before it can reach the client or logs.
+      if (err instanceof AiProviderTimeoutError) throw err;
       if (err instanceof AiProviderError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       const { sanitizeMessage } = await import("@/services/ai-connections");
@@ -883,6 +911,7 @@ export class AiProvider {
         finishReason: choice?.finishReason ?? null,
       };
     } catch (err) {
+      if (err instanceof AiProviderTimeoutError) throw err;
       if (err instanceof AiProviderError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       const { sanitizeMessage } = await import("@/services/ai-connections");
@@ -914,6 +943,51 @@ export class AiProviderError extends ApiError {
     super(502, "AI_PROVIDER_ERROR", message);
     this.name = "AiProviderError";
     Object.setPrototypeOf(this, AiProviderError.prototype);
+  }
+}
+
+// The provider did not answer within the configured budget. A controlled 504
+// (mirroring `EmailTimeoutError`) so the failure is distinguishable from a
+// generic 502 `AI_PROVIDER_ERROR` and clients can treat it as retryable. No
+// credentials or provider internals are included in the message.
+export class AiProviderTimeoutError extends ApiError {
+  constructor(timeoutMs: number = config.aiRequestTimeoutMs) {
+    const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+    super(
+      504,
+      "AI_PROVIDER_TIMEOUT",
+      `The AI provider did not respond within ${seconds}s. Please try again.`
+    );
+    this.name = "AiProviderTimeoutError";
+    Object.setPrototypeOf(this, AiProviderTimeoutError.prototype);
+  }
+}
+
+// The provider answered text, but it was never the JSON object the structured
+// endpoint's schema describes — even after one corrective retry. A controlled
+// 502 so clients can tell "provider is down" apart from "the model would not
+// follow the schema". The raw model text is never echoed back.
+export class AiStructuredOutputError extends ApiError {
+  constructor(message = "The AI did not return output matching the requested schema") {
+    super(502, "AI_STRUCTURED_OUTPUT_INVALID", message);
+    this.name = "AiStructuredOutputError";
+    Object.setPrototypeOf(this, AiStructuredOutputError.prototype);
+  }
+}
+
+// The user has an active AI connection, but its stored credentials could not be
+// decrypted — typically because `ENCRYPTION_KEY` changed after they were saved.
+// We deliberately do NOT fall back to the environment-default provider here: the
+// user explicitly chose a connection, so silently answering with a different one
+// would be misleading. A controlled 409 with an actionable message instead of an
+// opaque 500. The message never includes credentials or crypto internals.
+export class AiConnectionUnreadableError extends ApiError {
+  constructor(
+    message = "Your saved AI connection could not be read. Please re-enter its credentials in Settings to reconnect.",
+  ) {
+    super(409, "AI_CONNECTION_UNREADABLE", message);
+    this.name = "AiConnectionUnreadableError";
+    Object.setPrototypeOf(this, AiConnectionUnreadableError.prototype);
   }
 }
 

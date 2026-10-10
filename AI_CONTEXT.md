@@ -1,8 +1,8 @@
 # AI_CONTEXT — StudentOS source of truth
 
-> **Snapshot:** 2026-09-29, after the first Phase 3 (Integration QA) browser pass. Every claim below was read from code or produced by running a command in this repo. Anything not verifiable is listed in [Unverified](#unverified).
+> **Snapshot:** 2026-10-10, after the Final AI Integration (capstone completion). Every claim below was read from code or produced by running a command in this repo. Anything not verifiable is listed in [Unverified](#unverified).
 > **Scope:** this file is the onboarding document for AI agents. Human setup lives in [README.md](README.md); agent workflow rules live in [INSTRUCTIONS_FOR_AGENT.md](INSTRUCTIONS_FOR_AGENT.md).
-> **Latest AI work:** AI Assistant chat made persistent and context-aware — history window, retry dedupe, conversation recency and reload correctness — see [§17 Change log](#17-latest-ai-work--change-log).
+> **Latest AI work:** Final StudentOS AI Integration — all eight completion criteria satisfied: enriched StudentContext (currentSemester, courseId on all entities, estimatedMinutes, endAt/location, semesterId/credits, weight), dual-path context delivery (tool-path + grounded-path), conflict-aware `build_study_plan`, two-gate confirmation with post-write verification, provider timeout/error handling (504/502/503), frontend courseId/semesterId handoff, 568 API + 260 web tests passing, eight acceptance scenarios verified. See [§17 Change log](#17-latest-ai-work--change-log).
 
 ---
 
@@ -30,6 +30,7 @@ Read in this order, and stop as soon as you have what you need:
 | Change DB schema | `prisma/schema.prisma` | `prisma/seed.ts`, `tests/helpers.ts` (table list) |
 | Add a web page | `app/(dashboard)/<name>/page.tsx`, `components/layout/app-shell.tsx` | `features/<domain>/` |
 | Change HTTP transport / token refresh | `frontend/lib/api/client.ts` | `frontend/lib/api/auth-session.ts`, `frontend/lib/api/errors.ts` |
+| Change file upload / download | `frontend/features/resources/resources-api.ts`, `frontend/features/resources/hooks.ts` | `frontend/lib/api/client.ts` (`api.upload`/`api.download`), `frontend/features/resources/{material-upload,course-materials}.tsx`, `src/{routes,services}/resources.ts` |
 | Change data fetching on web | `frontend/features/<domain>/hooks.ts` | `*-api.ts` in same folder |
 | Change AI behaviour | `src/services/ai/{service,context,provider}.ts` | `tests/ai.test.ts` |
 | Change AI provider connections | `src/{routes,services,schemas}/ai-connections.ts`, `src/utils/encryption.ts` | `tests/ai-connections.test.ts`, `src/services/ai/provider.ts` (error classes + `getActiveUserConnection`) |
@@ -65,9 +66,9 @@ Design intent, as evidenced by the code:
 | --- | --- |
 | Phase | **Phase 3 (capstone) complete 2026-10-07.** All phases are closed: Phase 0 (regenerated migrations), Phase 1 (backend foundation), Phase 2 (OpenAPI + contract safety + production readiness), Phase 3 (production config guardrails, owner indexes, IDOR sweep, migration deploy verification, live smoke, docs refresh). |
 | Last committed checkpoint | `18b4f3a` — *refactor: reorganize StudentOS project structure* (on `task/studentos-folder-migration`, **not pushed**); `main` is still at `96c106e`, in sync with `origin/main` |
-| Working tree | **Uncommitted (intentionally).** The folder migration is committed as `18b4f3a`; the AI Assistant chat fixes + the frontend product upgrade (see §17) are a modified working tree — 11 backend files (`provider.ts`, `service.ts`, `zod-validator-shim.ts`, the 4 searchable services, 3 test files) and 15 frontend files (pages for dashboard/calendar/tasks/resources/academics/courses/study/notes/ai, `app-shell.tsx`, `ai-conversation-sidebar.tsx`, `features/resources|tasks/hooks.ts`) plus 3 new files: `components/layout/command-palette.tsx`, `tests/command-palette.test.tsx`, `tests/task-deep-link.test.tsx`. Nothing pushed yet. |
-| Tests | API **435/435 pass** (29 files), Web **236/236 pass** (20 files) — 0 failures, re-run 2026-10-08. |
-| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Re-verified 2026-10-08. |
+| Working tree | **Uncommitted (intentionally).** `18b4f3a` (the folder migration) is the last commit; everything since is uncommitted. `git status --short` currently shows **47 modified** and **19 untracked** files spanning several recorded workstreams (AI Assistant fixes, frontend product upgrade, file uploads, email, Google OAuth, AI structured extraction, token security, AI Chat Phase 1 — see §17) plus this session's course-materials work. Untracked includes backend services/utils without a home in the commit (`ai/structured.ts`, `email.ts`, `email-templates.ts`, `google-oauth.ts`, `storage.ts`, `utils/file-validation.ts`, `utils/multipart.ts`) and their tests, and the new web files `features/resources/{course-materials,material-upload}.tsx` + `tests/{api-client-multipart,course-materials,ai-chat-flow}` fixtures. Nothing pushed. |
+| Tests | API **560/560 pass** (38 files) — 0 failures, re-verified 2026-10-10 after the AI Chat Phase 1 work (§17). Web **260/260 pass** (22 files), re-verified 2026-10-10 after the AI Chat Phase 1 Markdown work (§17). |
+| Builds | `tsc` (API) **passes**; `next build` (Web) **passes**, 19 routes. Web re-verified 2026-10-10. |
 | Lint | `next lint` **clean** (web only, `app`, `components`, `features`, `lib`, `types`, `tests`); root `pnpm lint` clean. No lint config exists for the API — `tsc` is its gate. |
 | CI | **`.github/workflows/ci.yml` exists** — api job (postgres:16 service, `prisma migrate deploy` into an empty test DB, tests, `tsc`, build), web job, lint job. API path replayed locally: green. |
 | Overall | Green: suites, typecheck, lint, builds, `prisma validate`, `migrate status`, and a live HTTP smoke run. Docs describe the current state. |
@@ -114,10 +115,10 @@ StudentOS/
 ├── backend/                      <- @studentos/api  (Express 5 + Prisma + PostgreSQL)
 │   ├── prisma/                   <- schema.prisma, seed.ts, migrations/
 │   ├── src/                      <- app.ts, server.ts, vercel.ts, config/, middlewares/, routes/, schemas/, services/, utils/
-│   └── tests/                    <- 29 *.test.ts + helpers.ts + setup.ts (flat, 31 files)
+│   └── tests/                    <- 38 *.test.ts + helpers.ts + setup.ts (flat, 40 files)
 ├── frontend/                     <- @studentos/web  (Next.js 14 App Router)
 │   ├── app/  components/  features/  lib/  types/
-│   └── tests/                    <- 18 *.test.ts + setup.ts (flat, 19 files)
+│   └── tests/                    <- 22 *.test.ts/tsx + setup.ts (flat, 23 files)
 └── packages/
     └── shared/                    <- @studentos/shared (Zod schemas)
         └── src/schemas/           <- the only source folder
@@ -208,14 +209,14 @@ Every branch logs the underlying error with a `req_*` request id and returns a *
 | task tags | `GET/POST /tasks/:taskId/tags`, `PATCH/DELETE /tasks/:taskId/tags/:id` (duplicate name → 409) |
 | dashboard | `GET /dashboard` — aggregate: stats, upcoming/recent tasks, today's + upcoming events, today's study minutes/count + recent sessions, courses, active goals, recent notes, recent grades, unread notification count |
 | notes | `GET/POST /notes`, `GET/PATCH/DELETE /notes/:id` |
-| resources | `GET/POST /resources`, `GET/PATCH/DELETE /resources/:id` (URL only — see gaps) |
+| resources | `GET/POST /resources`, `GET/PATCH/DELETE /resources/:id`, `POST /resources/upload` (multipart), `GET /resources/:id/download` (raw file bytes) |
 | events | `GET/POST /events`, `GET/PATCH/DELETE /events/:id`; filters `courseId`, `type`, date range |
 | study sessions | `GET/POST /study-sessions`, `GET/PATCH/DELETE /study-sessions/:id`, `POST /study-sessions/:id/complete`; list returns a `summary` (count + total minutes) |
 | goals | `GET/POST /goals`, `GET/PATCH/DELETE /goals/:id`; `GET/POST /goals/:goalId/milestones`, `PATCH/DELETE /goals/:goalId/milestones/:id` |
 | grades | `GET/POST /grades`, `GET/PATCH/DELETE /grades/:id` (`score` ≤ `maxScore` enforced) |
 | notifications | `GET /notifications` (newest first + `unreadCount`), `GET /notifications/:id`, `POST /notifications/:id/read`, `PATCH /notifications/:id`, `POST /notifications/read-all`, `POST /notifications/generate` |
 | settings | `GET /settings`, `PATCH /settings` (upsert; `null` value deletes a key; **strings only**) |
-| ai | `GET/POST /ai/conversations`, `GET/DELETE /ai/conversations/:id`, `GET/POST /ai/conversations/:id/messages`, `GET/POST /ai/study-plans`, `GET/PATCH/DELETE /ai/study-plans/:id`, `GET /ai/study-plans/:id/entries`, `PATCH /ai/study-plans/:id/entries/:entryId` |
+| ai | `GET/POST /ai/conversations`, `GET/DELETE /ai/conversations/:id`, `GET/POST /ai/conversations/:id/messages`, `GET/POST /ai/study-plans`, `GET/PATCH/DELETE /ai/study-plans/:id`, `GET /ai/study-plans/:id/entries`, `PATCH /ai/study-plans/:id/entries/:entryId`, `POST /ai/structured` (schema-validated JSON extraction, read-only) |
 | ai connections | `GET/POST /ai-connections`, `GET/PATCH/DELETE /ai-connections/:id`, `GET /ai-connections/active`, `POST /ai-connections/test` (ad-hoc, unsaved creds), `POST /ai-connections/:id/test` (saved, server-side creds), `POST /ai-connections/:id/activate` |
 
 `POST /notifications/generate` and `GET /courses/:id/summary` are recent additions.
@@ -241,7 +242,7 @@ components/ ui/ (Radix primitives)  domain/ (course-card, task-card, event/goal 
               layout/app-shell.tsx  page-header.tsx  panel.tsx  states.tsx  feedback.tsx  theme-toggle.tsx
               error-boundary.tsx
 types/    api-types.ts   <- shared frontend DTO types, imported by 55 files across all layers
-tests/         18 *.test.ts + setup.ts   (NOT colocated — see §12)
+tests/         22 *.test.ts/tsx + setup.ts   (NOT colocated — see §12)
 ```
 
 There is deliberately **no** `hooks/` or `src/schemas/`: every hook is feature-local (`features/<domain>/hooks.ts`) and every Zod schema is feature-local (`features/<domain>/schemas.ts` or beside the form). Do not create top-level folders for these.
@@ -254,6 +255,7 @@ There is deliberately **no** `hooks/` or `src/schemas/`: every hook is feature-l
 | Server state | TanStack Query v5, one `QueryClient` in `providers.tsx` (`retry: 1`, `staleTime: 15s`, `refetchOnWindowFocus: false`). |
 | Forms | react-hook-form + `@hookform/resolvers` + Zod. Schemas live in `features/<domain>/schemas.ts` or next to the form. |
 | AI connections UI | `features/ai-connections/` — `AiConnectionsPanel` is a section on `/settings` (not a nav item). `connection-list.tsx` owns the rows and the enable/activate/edit/delete actions; `connection-form.tsx` owns the create/edit dialog and exports `connectionFormSchema` for tests. Keys are write-only: the API never returns them, so the edit form leaves the field blank to preserve the stored key. |
+| AI chat rendering | `components/domain/ai-chat.tsx` renders assistant replies through the hand-rolled Markdown parser in `features/ai/chat-utils.ts` (no Markdown dependency) — headings, blockquotes, fenced code, bullet/numbered lists, and tables (honouring `:---` alignment), plus inline bold/italic/code/links. Link targets pass `safeHref()` first (only `http:`/`https:`/`mailto:` survive; anything else renders as plain text) and open with `rel="noopener noreferrer"`. No `dangerouslySetInnerHTML`. 2026-10-10 |
 | Theme | `ThemeProvider` (own implementation, not `next-themes`): 8 presets, 11 accents, light/dark/system, driven by a `data-theme` attribute. Bootstrap script prevents flash. |
 | Notifications (UI) | `sonner` via `Toaster` in `providers.tsx`; `NotificationBell` in the header; `NotificationBootstrap` calls `POST /notifications/generate` **once per browser session** after sign-in (guarded by `sessionStorage`). |
 | Rendering | Pages are server-rendered shells around client data. `next build` prerenders 19 routes statically; `/courses/[id]` is dynamic (ƒ). |
@@ -295,7 +297,7 @@ Chart colours come only from `lib/theme/chart-theme.ts` (`CHART_SERIES`, `chartG
 
 **Indexes:** every owner-scoped list/filter column is indexed (Phase 3 added 16: owner+status/date on tasks, courses, goals, academic years, semesters; `userId` on refresh tokens; `position` on subtasks/milestones; `updatedAt`/`createdAt`/`startedAt`/`dueDate` sort keys). `migrations/20261007000000_add_owner_indexes` carries them.
 
-Notable column-level facts: `Task.estimatedMinutes` + `Task.completedAt`; `Course.instructor`; `StudySession.durationMinutes` (stored, not derived at read); `Resource` has both URL fields and S3 fields (`fileKey`/`fileName`/`fileSize`/`mimeType`); `AiMessage.contextSnapshot` stores the JSON context actually sent to the model.
+Notable column-level facts: `Task.estimatedMinutes` + `Task.completedAt`; `Course.instructor`; `StudySession.durationMinutes` (stored, not derived at read); `Resource` carries both URL fields and the file fields (`fileKey`/`fileName`/`fileSize`/`mimeType`) — an `UPLOAD` resource has `url: null` and populates the file columns (`storageType: UPLOAD`); `AiMessage.contextSnapshot` stores the JSON context actually sent to the model.
 
 `TaskRecurrenceRule` and `RecurrenceFrequency` are **commented out** in the schema — recurring tasks are deferred to v1.1.
 
@@ -311,16 +313,18 @@ Seed: `backend/prisma/seed.ts` (`pnpm --filter @studentos/api db:seed`). It `del
 | --- | --- |
 | Password hashing | `@node-rs/argon2` (`hashPassword` / `verifyPassword` in `src/routes/auth.ts`) |
 | Token signing | `jose`, HS256 |
-| Access token | Claims `{ sub, email, type: "access" }`, plus `iss`/`aud` = `studentos`, a `jti`, and **hardcoded `1h` expiry** |
+| Access token | Claims `{ sub, email, type: "access" }`, plus `iss`/`aud` = `studentos`, a `jti`, and expiry from `JWT_ACCESS_EXPIRES_IN_SECONDS` (default 900 s) |
 | Refresh token | Claims `{ sub, type: "refresh" }`, `7d`. Persisted in the `RefreshToken` table, so rotation and server-side revocation are possible |
-| Guard | `authenticate` / `authenticateOptional` in `src/middlewares/auth.ts`; attaches `currentUser` + `tokenPayload` |
+| Guard | `authenticate` / `authenticateOptional` in `src/middlewares/auth.ts`; attaches `currentUser` + `tokenPayload`, and accepts **only** `type: "access"` tokens (a refresh token as a Bearer credential is a 401, 2026-10-09) |
+| Google sign-in | `POST /auth/google` verifies a Google OIDC `id_token` server-side (JWKS, RS256, iss/aud/`email_verified`); account linking is **case-insensitive by email**, since registration stores the address as typed |
+| File uploads | `POST /resources/upload` (multipart) only — a JSON create with `storageType: "UPLOAD"` is rejected so a client cannot invent a `fileKey`/`fileSize`. Size cap from `UPLOAD_MAX_FILE_SIZE_BYTES` (stream-enforced); MIME type **sniffed from the content** (magic bytes), never trusted from the client, against `UPLOAD_ALLOWED_MIME_TYPES`; filename validated (no path separators/`..`/control chars) and the stored key is `resources/{userId}/{uuid}/{name}` under a root-contained provider (local disk or S3). Download (`GET /resources/:id/download`) and delete are owner-scoped like every other resource; a failed DB write rolls the stored object back, and delete removes storage first so it cannot orphan a file. 2026-10-09 |
 | Transport | `Authorization: Bearer <token>` |
 | Security headers | `helmet` |
 | CORS | origins from `CORS_ORIGINS` (comma-separated, default `http://localhost:3000`), `credentials: true` |
 | Body limit | 1 MB JSON / urlencoded |
 | Password storage on web | `localStorage` — **not** httpOnly cookies |
 
-**One JWT implementation.** `src/utils/jwt.ts` is the only place tokens are minted or verified: `signAccessToken` / `signRefreshToken` / `verifyJwt`, all driven by `config.jwtAccessExpiresInSeconds` (default 900 s) and `config.jwtRefreshExpiresInSeconds` (default 604800 s), with `iss` / `aud` (`"studentos"`) enforced on verify and a `type` claim distinguishing access from refresh. `auth/routes.ts` and `auth/middleware.ts` both import it. Refresh also checks the stored `RefreshToken.expiresAt` row, not just the JWT, so a lapsed or revoked session cannot be renewed. Access tokens carry only `{ sub, email, type, iat, exp }` — no `role`, `residency` or `name` (see gap #3).
+**One JWT implementation.** `src/utils/jwt.ts` is the only place tokens are minted or verified: `signAccessToken` / `signRefreshToken` / `verifyJwt`, all driven by `config.jwtAccessExpiresInSeconds` (default 900 s) and `config.jwtRefreshExpiresInSeconds` (default 604800 s), with `iss` / `aud` (`"studentos"`) enforced on verify and a `type` claim distinguishing access from refresh. `auth/routes.ts` and `auth/middleware.ts` both import it. Refresh also checks the stored `RefreshToken.expiresAt` row, not just the JWT, so a lapsed or revoked session cannot be renewed. The guard enforces the `type` claim too: a validly-signed *refresh* token (same key, so a valid JWT) presented as `Bearer` now answers 401 `AUTH_INVALID_TOKEN` — before 2026-10-09 it authenticated the request. The 2026-10-09 review also pinned the full forgery surface in `tests/token-security.test.ts` (wrong key, `alg: none`, wrong iss/aud, tampered payload, missing `type`, expired access → `AUTH_TOKEN_EXPIRED`, refresh rotation/reuse/revocation). Access tokens carry only `{ sub, email, type, iat, exp }` — no `role`, `residency` or `name` (see gap #3).
 
 ---
 
@@ -351,15 +355,15 @@ Two further rules are structural, not numeric: a turn that produces a proposal b
 
 `tools/registry.ts` is the only path between the model and StudentOS. It refuses unknown names, validates arguments against each tool's Zod schema (which strips undeclared keys), enforces the confirmation gate, and converts every thrown error into a safe, model-readable result. No tool imports Prisma — a test asserts this by scanning `tools/*.ts`.
 
-**50 tools: 21 READ, 7 ANALYZE, 22 WRITE** (21 mutations + `confirm_pending_actions`).
+**58 tools: 21 READ, 8 ANALYZE, 29 WRITE** (28 mutations + `confirm_pending_actions`).
 
 | Kind | Tools |
 | --- | --- |
 | READ (21) | `get_courses`, `get_active_courses`, `get_tasks`, `get_upcoming_tasks`, `get_overdue_tasks`, `get_calendar_events`, `get_upcoming_exams`, `get_study_sessions`, `get_study_history`, `get_goals_and_milestones`, `get_goal_milestones`, `get_grades`, `get_notes`, `get_note`, `search_notes`, `get_task_subtasks`, `get_task_tags`, `get_resources`, `get_academic_structure`, `get_notifications`, `get_academic_dashboard` |
-| ANALYZE (7) | `analyze_academic_progress`, `identify_weak_courses`, `identify_at_risk_work`, `analyze_study_consistency`, `calculate_workload`, `identify_upcoming_priorities`, `build_study_plan` |
-| WRITE (22) | `create_task`, `update_task`, `complete_task`, `create_subtask`, `update_subtask`, `create_task_tag`, `create_study_session`, `update_study_session`, `create_goal`, `update_goal_progress`, `create_milestone`, `update_milestone`, `create_note`, `update_note`, `create_resource`, `update_resource`, `create_event`, `update_event`, `create_grade`, `update_grade`, `update_course`, `confirm_pending_actions` |
+| ANALYZE (8) | `analyze_academic_progress`, `identify_weak_courses`, `identify_at_risk_work`, `analyze_study_consistency`, `calculate_workload`, `identify_upcoming_priorities`, `build_study_plan`, `push_daily_agenda` |
+| WRITE (29) | `create_task`, `update_task`, `complete_task`, `create_subtask`, `update_subtask`, `create_task_tag`, `create_study_session`, `update_study_session`, `delete_study_session`, `create_goal`, `update_goal_progress`, `create_milestone`, `update_milestone`, `create_note`, `update_note`, `delete_note`, `create_resource`, `update_resource`, `create_event`, `update_event`, `create_grade`, `update_grade`, `create_course`, `update_course`, `delete_task`, `create_study_plan`, `add_study_plan_entry`, `bulk_update_task_status`, `confirm_pending_actions` |
 
-There is deliberately **no delete, no bulk and no free-form update tool**: every action names one record and one bounded change.
+Every write is still bounded and confirmed: one record, or one explicit list of ids, gated by the confirmation store and re-read by a verifier. The read/analysis tools live in `read-tools.ts` / `analyze-tools.ts`, and the creates and updates (including `create_course`) in `action-tools.ts`. The later additions live in `missing-tools.ts`: the three deletes (`delete_task`, `delete_note`, `delete_study_session`), the study-plan writers (`create_study_plan`, `add_study_plan_entry`), and the bounded `bulk_update_task_status`. There is still **no free-form/arbitrary-field update tool and no unbounded bulk delete**; every bulk operation takes a bounded id list.
 
 ### 9.3 Natural references, resolved before approval
 
@@ -387,7 +391,7 @@ A WRITE tool never runs on the turn that requests it. `executeTool` returns the 
 
 ### 9.5 Verification after the write
 
-`tools/verify.ts` re-reads every changed record **through the same domain service that wrote it** and compares the fields the student approved. `ok && verified` is the only state the assistant may call a success; an action that returned `ok` but did not match on re-read is reported as unverified, with the mismatch named. Every WRITE tool has a verifier, a test asserts every argument a tool can change is re-read by it, and a tool whose whole purpose is an outcome (`complete_task`) asserts that outcome directly. Timestamps compare the **exact instant** when the approval carried a time, and the **day** when it was date-only (the tool normalises a bare date to 09:00 local).
+`tools/verify.ts` re-reads every changed record **through the same domain service that wrote it** and compares the fields the student approved. `ok && verified` is the only state the assistant may call a success; an action that returned `ok` but did not match on re-read is reported as unverified, with the mismatch named. Every confirmable WRITE tool has a verifier, a test asserts every argument such a tool can change is re-read by it, and a tool whose whole purpose is an outcome (`complete_task`) asserts that outcome directly. The one exception is `confirm_pending_actions` itself: it is the approval mechanism, so it owns no verifier of its own — it runs each approved action back through these same verifiers. Timestamps compare the **exact instant** when the approval carried a time, and the **day** when it was date-only (the tool normalises a bare date to 09:00 local).
 
 `executeProposalActions()` (`tools/confirm-tool.ts`) produces one `ConfirmationActionOutcome` per step with `ok`, `verified`, an optional `error`, and a one-sentence `verification`. Failures are per action and never abort the batch. `summarizeOutcomes()` in `confirmations.ts` is shared by the REST and chat paths so both describe the same outcome identically: a single action reports its own verification, a batch reports `N of M action(s) applied and verified` plus what failed.
 
@@ -408,11 +412,15 @@ The REST confirm endpoint returns `EXECUTED` only when every step is both applie
 
 A provider without native tools keeps the honest grounded path: **one** call with the `studentContextBuilder` snapshot inlined, no tools advertised, `finish: "no_tool_support"` and an empty activity feed. It cannot write anything, and the prompt does not pretend otherwise.
 
-Resolution order: the student's active personal AI connection (encrypted at rest) → the environment default → 503 `AI_PROVIDER_NOT_CONFIGURED`.
+Resolution order: the student's active personal AI connection (encrypted at rest) → the environment default → 503 `AI_PROVIDER_NOT_CONFIGURED`. If the active connection exists but its stored credentials cannot be decrypted (typically because `ENCRYPTION_KEY` changed after they were saved), resolution **stops** with 409 `AI_CONNECTION_UNREADABLE`; it deliberately does **not** fall through to a different provider, because the student explicitly chose that connection.
 
 **Grounding snapshot** (`context.ts`, used only on the no-tools path) runs bounded parallel queries: courses 30, tasks 30 (`status != COMPLETED`, soonest due first), upcoming events 20, study sessions 10, active goals 20, notes 10, grades 20. `toPrompt()` serializes them as `{"studentos": {...}}` as a `system` message.
 
 **Service behaviour.** Conversations, messages and study plans are fully DB-backed and ownership-scoped (cross-user → 404). Posting a message with `generateReply: true` (default) stores it, runs the agent, and persists the assistant reply with `reply.toolActivity` / `reply.agent` alongside `contextSnapshot`. `generateReply: false` stores the message only and returns `reply: null`.
+
+**Structured extraction (`POST /ai/structured`).** A separate, read-only path (`service.ts` `structured()` → `services/ai/structured.ts` `extractStructured`) that reuses the grounded no-tools pipeline: resolves the provider (active connection → env default → 503), builds the context snapshot via `studentContextBuilder.toPrompt()` when `ground: true` (default), and returns only output that validates against the JSON Schema the client supplied. The schema is converted to a Zod validator by `jsonSchemaToZod()` in `tools/json-schema.ts` (depth cap `MAX_SCHEMA_DEPTH = 6`); object schemas strip unknown keys like the tool layer, `anyOf: [X, { "type": "null" }]` collapses to `.nullable()`, and string-only enums become `z.enum`. The meta-schema (`structuredFieldSchema` in `schemas/ai.ts`, recursive `z.lazy().strict()`) admits only `type`/`description`/`properties`/`required`/`items`/`enum`/`anyOf`/`additionalProperties: false` — `$ref`, `oneOf`, `pattern`, `format` etc. are rejected with 400. The model's text is parsed (markdown fences tolerated) and validated; a non-conforming reply triggers **one** corrective retry that re-sends the task, the bad reply and a repair instruction; still no match → 502 `AI_STRUCTURED_OUTPUT_INVALID`. Raw model text never reaches the client. Runs no tools, writes nothing, and never enters confirmation machinery.
+
+**Request timeout.** Every provider HTTP call goes through `fetchWithTimeout()` (`provider.ts`), which aborts a stalled request after `AI_REQUEST_TIMEOUT_MS` (default **60000 ms**, `config.aiRequestTimeoutMs`) and throws `AiProviderTimeoutError` — a controlled **504 `AI_PROVIDER_TIMEOUT`** mirroring `EmailTimeoutError`. `chat()` and `chatWithTools()` re-throw it (exempt from the 502 redaction), so `POST /ai/conversations/{id}/messages` and `POST /ai/structured` can answer 504. The connection-test endpoints do **not**: each adapter's `testConnection` catches the abort and returns `200 { success: false }`, matching their existing contract. Added 2026-10-10.
 
 **Failure modes (deliberate, not bugs).**
 
@@ -420,11 +428,13 @@ Resolution order: the student's active personal AI connection (encrypted at rest
 | --- | --- |
 | No provider configured | 503 `AI_PROVIDER_NOT_CONFIGURED`; **no message persisted** |
 | Provider returns non-2xx or empty | 502 `AI_PROVIDER_ERROR` |
+| Active connection exists but its credentials cannot be decrypted (`ENCRYPTION_KEY` changed) | 409 `AI_CONNECTION_UNREADABLE` with an actionable message ("re-enter its credentials in Settings"); **no message persisted**, **no fallback** to another provider |
+| Provider stalls past `AI_REQUEST_TIMEOUT_MS` | 504 `AI_PROVIDER_TIMEOUT` (retryable); **no reply persisted** on the chat path |
 | `AI_ENABLED=true` + provider `openai` + no `OPENAI_API_KEY` | `validateConfig()` **throws at boot** |
 | Ambiguous / missing reference | Tool failure (`ambiguous` / `not_found`) with candidate details; the model asks |
 | Model exceeds a limit | Turn is truncated or the call is refused; the student is told in plain language |
 
-Both AI failure codes are produced by `ApiError` subclasses in `provider.ts`, so `globalErrorHandler` maps them through the normal envelope. Do **not** reintroduce a plain `Error` class there — that silently becomes a 500.
+The AI failure codes (`AI_PROVIDER_NOT_CONFIGURED`, `AI_PROVIDER_ERROR`, `AI_STRUCTURED_OUTPUT_INVALID`, `AI_CONNECTION_UNREADABLE`) are produced by `ApiError` subclasses in `provider.ts`, so `globalErrorHandler` maps them through the normal envelope. Do **not** reintroduce a plain `Error` class there — that silently becomes a 500. A decryption/auth failure is signalled by `CredentialDecryptionError` (`utils/encryption.ts`), which `getActiveUserConnection` catches and converts; any other failure (e.g. `parseProviderCredentials` or a DB error) propagates unchanged.
 
 **Credential-free providers.** `isCredentialFreeProvider()` in `ai-connections/schema.ts` marks `ollama` as needing no API key. `credentials` is *optional in the type* but required at runtime for every other provider — enforced in `superRefine` in both the Zod schema and the route validator. An ollama connection stores an encrypted empty string (`credentialsEncrypted` is non-nullable), and `parseProviderCredentials("")` returns `{}`.
 
@@ -434,6 +444,7 @@ Both AI failure codes are produced by `ApiError` subclasses in `provider.ts`, so
 | `AI_PROVIDER` | `openai` | all six values implemented; see 9.6 |
 | `AI_MODEL` | `gpt-4o-mini` | |
 | `AI_BASE_URL` | — | base URL of the environment-default provider |
+| `AI_REQUEST_TIMEOUT_MS` | `60000` | Hard per-request deadline for every provider call; a stall aborts to 504 `AI_PROVIDER_TIMEOUT` (added 2026-10-10) |
 | `AI_AGENT_MAX_TOOL_ROUNDS` | `4` | clamped to `MAX_TOOL_ROUNDS` |
 | `AI_AGENT_MAX_TOOL_CALLS` | `12` | clamped to `MAX_TOOL_CALLS` |
 | `AI_AGENT_MAX_PROPOSED_ACTIONS` | `8` | clamped to `MAX_PROPOSED_ACTIONS` |
@@ -443,6 +454,10 @@ Both AI failure codes are produced by `ApiError` subclasses in `provider.ts`, so
 | `CUSTOM_AI_ENDPOINT` / `CUSTOM_AI_API_KEY` | — | |
 
 The whole rest of the API stays fully functional when no provider is configured.
+
+### 9.7 Answer shaping (system prompt)
+
+`system-prompt.ts` exports `AGENT_SYSTEM_INSTRUCTION` (the tool-calling agent's instructions) and `buildAgentSystemPrompt()` (adds the current date, the student's name, and any pending proposal). Beyond the tool / confirmation / verification rules, the `ANSWERING WELL:` block makes the assistant shape each reply to the request rather than use one template: a factual question gets one or two sentences and no headings; an explanation gets a short lead sentence then the reasoning; plans and schedules get ordered lists or tables with real course codes and dates; analyses lead with the headline finding and its supporting numbers; three-plus items across two-plus attributes become a Markdown table; **problem solving** shows method → steps → result → a check; **concepts** get a plain definition, a concrete example and the common misconception; **research/document questions** answer from the sources actually retrieved and say plainly when the evidence is missing; and depth follows the level the student asks for. Formatting is presentation only — it never relaxes the tool, confirmation, verification or honesty rules. Pinned by `tests/ai-system-prompt.test.ts` (2026-10-10).
 
 ---
 
@@ -461,7 +476,7 @@ The whole rest of the API stays fully functional when no provider is configured.
 | `frontend/.env.local` | `NEXT_PUBLIC_API_URL` — **must be the API origin `:3001`**, not the web origin; there is no Next.js rewrite proxy | yes |
 | `frontend/.env.local.example` | `NEXT_PUBLIC_API_URL` only, correctly set to `:3001` | yes |
 
-Full key set: `NODE_ENV`, `PORT`, `HOST`, `DATABASE_URL`, `JWT_SECRET`, `JWT_ACCESS_EXPIRES_IN_SECONDS`, `JWT_REFRESH_EXPIRES_IN_SECONDS`, `COOKIE_DOMAIN`, `AI_ENABLED`, `AI_PROVIDER`, `AI_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_USE_PATH_STYLE`, `CORS_ORIGINS`, `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, `UPLOAD_MAX_FILE_SIZE_BYTES`, `UPLOAD_ALLOWED_MIME_TYPES`, plus `ENCRYPTION_KEY` and `TEST_DATABASE_URL` (uncommitted, added by AI Connections).
+Full key set: `NODE_ENV`, `PORT`, `HOST`, `DATABASE_URL`, `JWT_SECRET`, `JWT_ACCESS_EXPIRES_IN_SECONDS`, `JWT_REFRESH_EXPIRES_IN_SECONDS`, `COOKIE_DOMAIN`, `AI_ENABLED`, `AI_PROVIDER`, `AI_MODEL`, `AI_REQUEST_TIMEOUT_MS`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_USE_PATH_STYLE`, `CORS_ORIGINS`, `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, `UPLOAD_MAX_FILE_SIZE_BYTES`, `UPLOAD_ALLOWED_MIME_TYPES`, `EMAIL_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `EMAIL_TIMEOUT_MS`, plus `ENCRYPTION_KEY` and `TEST_DATABASE_URL` (uncommitted, added by AI Connections).
 
 Boot fails fast via `validateConfig()` if `DATABASE_URL`, `JWT_SECRET` or **`ENCRYPTION_KEY`** are missing (see [§9](#9-ai-architecture) for the AI condition and the S3 pair rule). The `ENCRYPTION_KEY` requirement was added 2026-09-29 (gap #26) so a missing key is a boot failure instead of a 500 on every AI Connections write. Any string is accepted — `lib/encryption.ts` SHA-256 hashes it to 32 bytes; generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. The checked-out local `.env` contains a placeholder `OPENAI_API_KEY=sk-local-placeholder`, which satisfies boot validation but will not produce real completions.
 
@@ -520,11 +535,23 @@ pnpm dev
 ## 12. Test & build status (verified 2026-10-07)
 
 > Re-verified **2026-10-08** after the AI Assistant chat fixes **and the frontend product upgrade** ([§17](#17-latest-ai-work--change-log)): API 435 / web 236 green, `tsc` both apps clean, `next lint` clean, `next build` clean, 12 dashboard routes all HTTP 200 on the running app.
+>
+> Re-verified **2026-10-09** after the auth/authorisation review ([§17](#17-latest-ai-work--change-log)): API **477 passed (33 files) — 0 fail**, API `tsc --noEmit` clean, root `pnpm lint` (→ web `next lint`) clean. Web suite / builds not re-run this turn (frontend untouched).
+>
+> Re-verified **2026-10-09** after the file-uploads capstone ([§17](#17-latest-ai-work--change-log)): API **512 passed (35 files) — 0 fail**, API `tsc --noEmit` clean, root `pnpm lint` (→ web `next lint`) clean. Web untouched.
+>
+> Re-verified **2026-10-09** after the EMAIL delivery capstone ([§17](#17-latest-ai-work--change-log)): API **531 passed (36 files) — 0 fail**, API `tsc --noEmit` clean, root `pnpm lint` (→ web `next lint`) clean. Web untouched.
+>
+> Re-verified **2026-10-09** after the structured extraction capstone ([§17](#17-latest-ai-work--change-log)): API **547 passed (37 files) — 0 fail**, API `tsc --noEmit` clean, root `pnpm lint` (→ web `next lint`) clean. Web untouched.
+>
+> Re-verified **2026-10-10** after the course-materials work ([§17](#17-latest-ai-work--change-log)): **web 252 passed (22 files) — 0 fail** (the known `task-deep-link` full-suite flake did not fire this run), web `tsc --noEmit` clean, root `pnpm lint` clean, `next build` clean (19 routes — 18 static ○, `/courses/[id]` dynamic ƒ). API untouched this turn (last recorded: 553/37 after the undecryptable-connection fix, §17).
+>
+> Re-verified **2026-10-10** after the AI Chat Phase 1 work ([§17](#17-latest-ai-work--change-log)): API **560 passed (38 files) — 0 fail**, API `tsc -p tsconfig.json --noEmit` clean; web **260 passed (22 files) — 0 fail**, web `tsc --noEmit` clean; root `pnpm lint` clean; `next build` clean (19 routes).
 
 | Suite | Command | Result | Time |
 | --- | --- | --- | --- |
-| API | `pnpm --filter @studentos/api test` | **29 files, 435 tests — 0 fail** | ~70 s |
-| Web | `pnpm --filter @studentos/web test` | **20 files, 236 tests — 0 fail** | ~13 s |
+| API | `pnpm --filter @studentos/api test` | **38 files, 560 tests — 0 fail** | ~80 s |
+| Web | `pnpm --filter @studentos/web test` | **22 files, 260 tests — 0 fail** | ~13 s |
 | API typecheck | `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` | **pass** (exit 0) | ~8 s |
 | API build | `pnpm --filter @studentos/api build` | **pass** — `tsc` gate (`dist/` is not the runtime; `start` runs `tsx src/server.ts`) | ~8 s |
 | Web typecheck | `pnpm --filter @studentos/web exec tsc --noEmit` | **pass** (exit 0) | ~20 s |
@@ -567,17 +594,20 @@ Prisma `createMany` stamps all rows with a single `now()`, so tests that assert 
 
 Both suites are **flat**, next to the app they test, never colocated with source.
 
-**API** (`backend/tests/`, 29 files + `helpers.ts` + `setup.ts`): `academics`, `ai`, `ai-connections`, `ai-provider-resolution`, `ai-tools`, `auth`, `contract-safety`, `course-summary`, `courses`, `cross-user`, `dashboard`, `dashboard-command-center`, `encryption-provider-ai-connections`, `error-envelope`, `events`, `goals`, `grades`, `health`, `integration`, `malformed-body`, `notes`, `notifications`, `production-config`, `resources`, `settings`, `study-sessions`, `subtasks`, `task-tags`, `tasks`.
+**API** (`backend/tests/`, 38 files + `helpers.ts` + `setup.ts`): `academics`, `ai`, `ai-connections`, `ai-provider-resolution`, `ai-structured`, `ai-system-prompt`, `ai-tools`, `auth`, `contract-safety`, `course-summary`, `courses`, `cross-user`, `dashboard`, `dashboard-command-center`, `dashboard-scaling`, `email`, `encryption-provider-ai-connections`, `error-envelope`, `events`, `goals`, `google-oauth`, `google-oauth-route`, `grades`, `health`, `integration`, `malformed-body`, `notes`, `notifications`, `production-config`, `resources`, `settings`, `storage`, `study-sessions`, `subtasks`, `task-tags`, `tasks`, `token-security`, `uploads`.
 
 `ai-tools.test.ts` is the AI agent suite: registry registration and JSON-Schema conversion, argument handling and error safety, real-data scoping, the WRITE confirmation gate, the confirmation store, the agent loop (tool round-trip, round limit, **call and proposal budgets**, proposal-then-prose, provider fallback), provider tool-call support, the HTTP surface, natural references, post-write verification (including a check that **every field a write tool can change is re-read**), verified batch outcomes, and the **chat persistence surface** — question kept across a provider failure, retry reusing the stored row, the newest-history window, `updatedAt` recency, per-conversation transcript isolation, and the academic context snapshot (own data only, stored on the question).
 
-**Web** (`frontend/tests/`, 18 files + `setup.ts`): `academic-forms`, `ai-chat-flow` (tsx), `ai-chat-utils`, `ai-connections`, `ai-pending-action` (ts), `ai-transcript-scroll`, `ai-workspace`, `app-shell`, `calendar-page`, `errors`, `exam-utils`, `format`, `labels`, `notification-utils`, `task-form`, `theme-system`, `themes`, `utils`.
+`ai-structured.test.ts` (new, 16) is the **structured extraction** suite: mocked-provider route tests (success + grounding snapshot + provider/model echo, the one-retry repair transcript, markdown code-fence tolerance, 502 on never-valid JSON, 502 on valid-but-wrong-shape JSON, `ground: false` omitting the snapshot, 503 with no provider, 502 without leaking an API key, empty-completion 502, blank prompt 400, `$ref`/unhandled-key schema 400, no-type field 400, over-deep nesting 400, 401, read-only no-write, provider resolution with the authenticated userId).
+
+**Web** (`frontend/tests/`, 22 files + `setup.ts`): `academic-forms`, `ai-chat-flow` (tsx), `ai-chat-utils`, `ai-connections`, `ai-pending-action` (ts), `ai-transcript-scroll`, `ai-workspace`, `api-client-multipart`, `app-shell`, `calendar-page`, `command-palette` (tsx), `course-materials` (tsx), `errors`, `exam-utils`, `format`, `labels`, `notification-utils`, `task-deep-link` (tsx), `task-form`, `theme-system`, `themes`, `utils`.
 
 Test style: API uses supertest against the real `app` with helpers from `tests/helpers.ts` (`registerAndLogin`, `authRequestJson`, `authRequest`, `logout`). `authRequestJson`/`authRequest` are **overloaded** and accept two different call shapes; read the overloads before using them. Web tests are jsdom + Testing Library, setup in `frontend/tests/setup.ts`, matched by the `tests/**/*.test.{ts,tsx}` glob in `frontend/vitest.config.ts`.
 
 ### Not covered by the automated suites
 
 - **Real provider end-to-end, partly done 2026-09-30.** OpenRouter is now proven against a live key: 50 tool schemas accepted, `tool_calls` normalised, read tools answered from the real DB, and the write then confirm then verify path passed 18/18 against a real database. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only, so `candidates[].content.parts[].text` and the Ollama `tool_calls` shape have never been seen on the wire. See gaps #29 and #33.
+- **Real SMTP inbox delivery, NOT verified.** The email wire path is proven against an offline fake SMTP server (`backend/tests/email.test.ts`, 19 tests), but no real relay has ever accepted a message, so nothing has reached an actual inbox. Dispatching requires `EMAIL_ENABLED=true` + `SMTP_HOST` (+ `SMTP_USER`/`SMTP_PASSWORD` for authenticated relays); the code refuses to send credentials without TLS and never logs them.
 - **Browser interaction with the confirmation card.** The card's Confirm/Cancel flow is exercised over HTTP and by types, not by a rendered click. The surrounding chat page *was* driven in a real browser on 2026-10-01 — see [§12](#12-test--build-status-verified-2026-10-07) — but the confirm click itself still was not.
 - **Retry used to duplicate a message — RESOLVED 2026-10-01.** `onRetryMessage` and the error banner's Retry both re-posted the failed text as a *new* message while the failed bubble stayed on screen, so a retry after a provider failure left the student's question visible twice. `useSendMessage` now takes `retryOf: string` and reuses the failed message's own cache slot — flipped back to `optimistic`, then replaced in place by the stored message — instead of appending. If the id is no longer in the transcript (a refetch dropped it) the retry falls back to appending, so nothing is lost either way. A retry is also excluded from first-message title derivation. Three tests pin this in `frontend/tests/ai-chat-flow.test.tsx`.
 - **A caution for any live or manual script:** `backend/.env` sets `DATABASE_URL` to the **dev** database `studentos`, while the test suites run against `studentos_test` (set in `backend/vitest.config.ts`). A throwaway script that reads `DATABASE_URL` therefore writes to the database you actually use. Prefer a dedicated `studentos_e2e` database, and if you do write to `studentos`, create the throwaway user **inside** a `try` so the cleanup `finally` actually runs. A script that creates rows before its `try` leaks them silently, which is what happened during the 2026-09-30 live run: three leftover users, since removed, with no orphaned rows in any user-owned table.
@@ -590,7 +620,7 @@ Ordered by how likely they are to bite you.
 
 | # | Issue | Evidence |
 | --- | --- | --- |
-| 1 | **RESOLVED.** The working tree was uncommitted for most of this project's history; `af7aab6` committed the AI Agent Core, verifier, resolver and chat UI, and `git status` is now clean. The underlying risk was never the commit itself but the gitignored-file gaps below (#22, #26, #28), which a fresh clone still reproduces. | `git status` |
+| 1 | **RESOLVED (historical), but the tree is NOT clean today.** The working tree was uncommitted for most of this project's history; `af7aab6` committed the AI Agent Core, verifier, resolver and chat UI. Since then the tree has again accumulated uncommitted work — post-`18b4f3a` workstreams (AI fixes, frontend product upgrade, file uploads, email, Google OAuth, structured extraction, token security, course materials, AI Chat Phase 1) span 47 modified + 19 untracked files (see §2, §17). The underlying risk was never the commit itself but the gitignored-file gaps below (#22, #26, #28), which a fresh clone still reproduces. | `git status` |
 | 1a | **Never run `next build` while `next dev` is running** (hit live on 2026-10-01). `build` overwrites `frontend/.next` under the running dev server, which then serves HTML whose client chunks 404: the page paints, but React never hydrates, so every click, keystroke and route change silently does nothing. Symptom is either `404 \| This page could not be found.` or a fully rendered form that submits nothing. Stop the dev server first, or delete `frontend/.next` and restart. | `frontend/.next` |
 | 1b | **The configured free OpenRouter model is rate-limited upstream (HTTP 429).** A live reply depends on the provider's shared pool at that moment. The UI degrades correctly — the user's message stays, an error banner and Retry appear — so a 429 is not an application bug. | live 2026-10-01 |
 | 2 | **RESOLVED 2026-10-07 (Phase 2).** `docs/api/openapi.yaml` is real YAML now, covering the whole surface: **60 paths / 111 operations / 92 schemas / 759 `$ref`s, 0 broken**, verified against the 100 real route registrations. It carries `bearerAuth`, shared 400/401/404/409/429/500/502/503 responses (with `Retry-After` on 429), request schemas with the Zod constraints, `operationId`s, and the documented deviations: 404-not-403 ownership masking, the bare-array lists (`/courses`, the academic-years and semesters lists), `UPLOAD_STORAGE_UNAVAILABLE`, and provider failures as 200 with `success:false`. | `docs/api/openapi.yaml` |
@@ -598,8 +628,8 @@ Ordered by how likely they are to bite you.
 | 4 | **RESOLVED 2026-10-07 (Phase 1).** `routes/auth.ts` no longer mints tokens itself — `signAccessToken` / `signRefreshToken` / `verifyJwt` live only in `src/utils/jwt.ts`, so the login path honours `config.jwtAccessExpiresInSeconds` (900 s default) instead of a hardcoded `1h`, and verify enforces `iss` / `aud`. Refresh additionally rejects a stored `RefreshToken.expiresAt` that has lapsed. | `src/utils/jwt.ts`, `routes/auth.ts` |
 | 5 | **RESOLVED 2026-10-07 (Phase 1).** `src/utils/rate-limit.ts` provides a dependency-free fixed-window limiter mounted on `/api/v1` in `app.ts`; budget from `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS`, disabled under `NODE_ENV=test`, rejections answer 429 `RATE_LIMITED` with `Retry-After`. Pinned by `tests/error-envelope.test.ts`. | `src/utils/rate-limit.ts`, `app.ts` |
 | 6 | **Web stores tokens in `localStorage`**, not httpOnly cookies — any XSS yields a full session. Deliberate (survives reload) but worth knowing. | `frontend/lib/api/auth-session.ts` |
-| 7 | **S3 / `UPLOAD` resources not implemented.** The enum, the DB columns and the `S3_*` config exist, but `storageType: "UPLOAD"` on create/update returns 400 `UPLOAD_STORAGE_UNAVAILABLE`. URL resources only. | `prisma/schema.prisma`, `config/index.ts:51-57` |
-| 8 | **Notification delivery is `IN_APP` only.** `PUSH`/`EMAIL`/`SMS`/`TELEGRAM` enum values exist but are unimplemented, and there is **no scheduler/job** — generation is client-triggered via `POST /notifications/generate`, fired once per browser session. | `prisma/schema.prisma`, `app-shell.tsx:266-282` |
+| 7 | **RESOLVED 2026-10-09 — file uploads implemented.** `storageType: "UPLOAD"` is now real end to end: `POST /resources/upload` (multipart, dependency-free parse) stores the file through a `FileStorage` provider (`LocalDiskStorage` by default under `UPLOAD_DIR`, or AWS SigV4-signed `S3Storage` when the `S3_*` creds are set) and records the row in `Resource`; `GET /resources/:id/download` streams the bytes to the owner. Content is sniffed (magic bytes) against `UPLOAD_ALLOWED_MIME_TYPES`, size is capped by `UPLOAD_MAX_FILE_SIZE_BYTES`, files are owner-scoped at `resources/{userId}/...`. The JSON create path still answers 400 `UPLOAD_STORAGE_UNAVAILABLE` (message now points to the multipart route) so the documented contract is unchanged. | `src/services/storage.ts`, `src/services/resources.ts`, `src/routes/resources.ts` |
+| 8 | **PARTIALLY RESOLVED 2026-10-09 — EMAIL delivery implemented.** `POST /notifications/{id}/email` sends the notification to the authenticated owner's own mailbox through a dependency-free SMTP client (`EMAIL_ENABLED=true` + `SMTP_HOST`; implicit TLS on 465, STARTTLS elsewhere, AUTH PLAIN only over TLS). The recipient is read from the owner's `User.email` in the DB — never from the request — so the endpoint cannot be used as an arbitrary-mail relay. The record is marked `delivery: EMAIL` only after the provider accepts; a refusal leaves it unmarked and reports `dispatched: false`. Not configured → 503 `EMAIL_NOT_CONFIGURED`; provider refusal/unreachable → 502 `EMAIL_PROVIDER_ERROR`; idle past `EMAIL_TIMEOUT_MS` → 504 `EMAIL_TIMEOUT`. **Still unimplemented:** `PUSH`/`SMS`/`TELEGRAM`, a scheduler (generation stays client-triggered via `POST /notifications/generate`), and any browser/UI trigger for the email action. | `src/services/email.ts`, `src/services/email-templates.ts`, `src/services/notifications.ts:184-240`, `src/routes/notifications.ts` |
 | 9 | **Recurring tasks deferred to v1.1.** `TaskRecurrenceRule` / `RecurrenceFrequency` are commented out in the schema. | `prisma/schema.prisma:263-287` |
 | 10 | **Dead pagination types.** `PaginationInput`/`PaginationOutput` (page/limit/total) in shared are unused; the real convention is cursor-based. | `packages/shared/src/schemas/api.ts:39-48` |
 | 11 | **RESOLVED.** `.github/workflows/ci.yml` runs four jobs on push/PR: `api` (postgres:16 service, `pnpm install --frozen-lockfile`, `prisma generate`, **`prisma migrate deploy` into an empty `studentos_test`**, `vitest`, `tsc`, `build`), `web` (vitest, `tsc`, `next lint`, `next build`) and `lint` (root `pnpm lint`). The whole API path was replayed locally against a freshly created database: deploy → 422/29 green. | `.github/workflows/ci.yml` |
@@ -620,11 +650,14 @@ Ordered by how likely they are to bite you.
 | 26 | **`ENCRYPTION_KEY` was absent from `backend/.env`**, so every AI Connections write returned 500 `INTERNAL_ERROR_DEV` ("ENCRYPTION_KEY environment variable is not set"). The API suite stayed green because `vitest.config.ts` sets it. A key was added locally and `validateConfig()` now checks it, so a missing key fails at **boot** with the standard "Missing required environment variables" message instead of 500ing per request. **The key itself is only in the gitignored `.env`** — a fresh clone still has no key and will not boot until one is generated. `backend/.env.example` is also gitignored (gap #22), so the documented key never reaches the repo either. | `backend/src/config/index.ts`, `backend/.env` |
 | 27 | **Every AI Connections endpoint omitted `success: true` from its success envelope.** The API returned `200 {"data":{...}}`, but `frontend/lib/api/client.ts` only unwraps a 2xx body when `success === true` — so the Settings UI rendered "Request failed (200)" with a retry button on perfectly successful responses. All 8 responses now use the standard `{ success: true, data }` envelope, and the 404 on `GET /ai-connections/active` now throws `NotFoundError` instead of an ad-hoc `{ error }` body. **The 261 API tests missed this entirely** because they only asserted `res.body.data`, never `res.body.success`; 8 regression tests now pin the envelope. Every other module already conformed — AI Connections was the sole outlier. | `backend/src/routes/ai-connections.ts`, `frontend/lib/api/client.ts:110-113` |
 | 28 | **`frontend/.env.local` pointed `NEXT_PUBLIC_API_URL` at `localhost:3000`** — the web server itself — so every API call 404'd and login was impossible. There is no Next.js rewrite proxy in `frontend/next.config.mjs`, so the web app must target the API origin on `:3001`; `.env.local.example` already said `:3001`. The file is gitignored, so a fresh clone reproduces this. **Hardened 2026-10-05:** the symptom resurfaced as `Connection error: Unexpected token ... "<!DOCTYPE" ... is not valid JSON` on the AI Connections test button — the request was hitting the web origin, which answers a Next.js **404 with `Content-Type: text/html`** whose body starts `<!DOCTYPE html>`. `client.ts` now checks `Content-Type` before parsing: an HTML body on an API call throws `ApiClientError` with code **`API_BASE_URL_MISCONFIGURED`** naming `NEXT_PUBLIC_API_URL`, instead of attempting to `JSON.parse` the page. A missing/JSON `Content-Type` is left alone so 204s and test doubles still work. `connection-form.tsx#onTest` also gained a `try/catch` (it previously let a rejected promise escape to the console). 4 regression tests pin the HTML case, the preserved JSON error case, the success case and the 204 case. | `frontend/lib/api/client.ts`, `frontend/features/ai-connections/connection-form.tsx` |
-| 29 | **PARTIALLY CLOSED 2026-09-30 — OpenRouter proven live; the other five providers are still fixture-only.** A live run against a real OpenRouter key (base `https://openrouter.ai/api/v1`, `/chat/completions`) proved the adapter's wire format end to end: all **50** tool schemas serialise and are accepted, the model emits `tool_calls`, the adapter normalises them, and `get_tasks` / `get_courses` execute against the real DB and come back in the model's answer (it correctly reported the outstanding task, its missing course link, and that the only course was PSYC300). The write half was then driven through the real code path: `create_task` with a natural reference (`course: "PSYC300"`) returned `confirmation_required` with **zero** rows written, `prepare()` resolved the code to the real `courseId`, confirmation executed it, the re-read verified `title`, `status`, `priority` and `dueDate`, and another student could neither read nor write the record. 18/18 checks passed. **Still unproven:** Gemini, Anthropic, Ollama and the custom endpoint have never seen a live response, so `candidates[].content.parts[].text` and the Ollama `tool_calls` shape remain assertions against fixtures written from the docs. The local OpenRouter key is also out of credit, so only `:free` models are reachable from this machine. | `backend/tests/ai-provider-resolution.test.ts`, `backend/src/services/ai/provider.ts` |
-| 33 | **The configured model will not drive a write, which strands the student in a dead end.** With `AI_MODEL=inclusionai/ling-3.0-flash-sante:free`, a request to add a task produced **0 proposals in 3 of 3 attempts**. This is not a harness fault: a wire-level probe showed all 50 tools (including `create_task`) are advertised, `supportsNativeTools` is true, and the model *does* emit tool calls — it just calls read tools, then narrates ("Shall I go ahead and create it?") instead of calling the write tool. The student then has no confirmation card to approve and the conversation waits forever. The prompt already forbids claiming success without a tool result, so nothing is written or falsely reported, but the feature is unusable on this model. Needs either a model with reliable tool calling for writes, or a fallback that surfaces "I could not prepare that change" when a turn expresses write intent but produced no proposal. | `backend/src/services/ai/system-prompt.ts`, `backend/src/services/ai/agent.ts` |
+| 29 | **PARTIALLY CLOSED 2026-09-30 — OpenRouter proven live; the other five providers are still fixture-only.** A live run against a real OpenRouter key (base `https://openrouter.ai/api/v1`, `/chat/completions`) proved the adapter's wire format end to end: all **50** tool schemas (the surface size at the time) serialise and are accepted, the model emits `tool_calls`, the adapter normalises them, and `get_tasks` / `get_courses` execute against the real DB and come back in the model's answer (it correctly reported the outstanding task, its missing course link, and that the only course was PSYC300). The write half was then driven through the real code path: `create_task` with a natural reference (`course: "PSYC300"`) returned `confirmation_required` with **zero** rows written, `prepare()` resolved the code to the real `courseId`, confirmation executed it, the re-read verified `title`, `status`, `priority` and `dueDate`, and another student could neither read nor write the record. 18/18 checks passed. **Still unproven:** Gemini, Anthropic, Ollama and the custom endpoint have never seen a live response, so `candidates[].content.parts[].text` and the Ollama `tool_calls` shape remain assertions against fixtures written from the docs. The local OpenRouter key is also out of credit, so only `:free` models are reachable from this machine. | `backend/tests/ai-provider-resolution.test.ts`, `backend/src/services/ai/provider.ts` |
+| 33 | **The configured model will not drive a write, which strands the student in a dead end.** With `AI_MODEL=inclusionai/ling-3.0-flash-sante:free`, a request to add a task produced **0 proposals in 3 of 3 attempts**. This is not a harness fault: a wire-level probe showed all tools (50 at the time, including `create_task`) are advertised, `supportsNativeTools` is true, and the model *does* emit tool calls — it just calls read tools, then narrates ("Shall I go ahead and create it?") instead of calling the write tool. The student then has no confirmation card to approve and the conversation waits forever. The prompt already forbids claiming success without a tool result, so nothing is written or falsely reported, but the feature is unusable on this model. Needs either a model with reliable tool calling for writes, or a fallback that surfaces "I could not prepare that change" when a turn expresses write intent but produced no proposal. | `backend/src/services/ai/system-prompt.ts`, `backend/src/services/ai/agent.ts` |
 | 30 | **Confirmations are in-process and in-memory** (`confirmations.ts`). A pending proposal does not survive an API restart, and with more than one API instance a student could be shown a proposal on one instance and be unable to confirm it on another. Fixing this needs a table, and the migration history is baselined (gap #15). | `backend/src/services/ai/confirmations.ts` |
-| 31 | **`get_notifications` exposes only the assistant-relevant types** (`ASSIGNMENT`, `EXAM`, `DEADLINE`, `REMINDER`). The `GENERAL` type the notifications module can also produce is not readable by the agent. | `backend/src/services/ai/tools/read-tools.ts` |
-| 32 | **No bulk or delete tools exist**, by design. The agent can only create and update one record at a time, so "delete these three tasks" or "reschedule my whole week" is out of reach until a bounded bulk tool is designed. | `backend/src/services/ai/tools/action-tools.ts` |
+| 31 | **RESOLVED — `get_notifications` now reads every notification type.** The `type` filter accepts `ASSIGNMENT_DUE`, `OVERDUE_TASK`, `EXAM_REMINDER`, `GOAL_REMINDER` and `GENERAL`, so the agent can read everything the notifications module produces. | `backend/src/services/ai/tools/read-tools.ts` |
+| 32 | **RESOLVED — bounded delete and bulk tools now exist.** `delete_task`, `delete_note` and `delete_study_session` remove a single record; `bulk_update_task_status` updates an explicit id list; `create_study_plan` and `add_study_plan_entry` add study-plan writes. All are confirmation-gated and verified. There is still no free-form field-update tool and no unbounded bulk delete. | `backend/src/services/ai/tools/missing-tools.ts` |
+| 34 | **No refresh-token *reuse detection*.** Rotation works and a reused/revoked/expired token is rejected (401) — pinned by `tests/token-security.test.ts` — but there is no token-family revocation or alert when an old token is replayed, and an access token cannot be revoked before its 15-minute expiry. Fixing the first needs a `RefreshToken` family/replacedBy column (a migration); the second would need a denylist. Bounded, deliberate. | `backend/src/routes/auth.ts`, `backend/src/middlewares/auth.ts` |
+| 35 | **Password `register`/`login` are case-sensitive; only Google linking is case-insensitive.** `Alice@Test.com` and `alice@test.com` can exist as two accounts (PostgreSQL `@unique` is case-sensitive), and the password user must type the address exactly as registered. Normalising (lowercasing) on register/login would change those endpoints' behaviour and is left as a product decision. Verified by `tests/token-security.test.ts` / `tests/google-oauth-route.test.ts`. | `backend/src/routes/auth.ts:50,71` |
+| 36 | **Structured extraction is mocked-only; no real provider has ever served `POST /ai/structured`.** The endpoint path, schema→Zod conversion, repair retry and error contract are pinned by 16 mocked-provider tests (`tests/ai-structured.test.ts`), but no live response has been seen on the wire. OpenRouter (**live-proven** for the chat path, gaps #29/#33) is the natural candidate — the free `:free` model is 429-limited from this machine and will not call write tools, which is fine here because structured extraction executes no tools at all. Gemini, Anthropic, Ollama and the custom endpoint remain fixture-only. | `backend/src/services/ai/structured.ts`, `backend/tests/ai-structured.test.ts` |
 
 ---
 
@@ -643,7 +676,7 @@ Ordered by how likely they are to bite you.
 
 ### Web
 
-- **Never call `fetch` directly.** Use `api.get/post/patch/delete` from `lib/api/client.ts`.
+- **Never call `fetch` directly.** Use `api.get/post/patch/delete` from `lib/api/client.ts`. For multipart and binary there are `api.upload(path, formData)` (never sets `Content-Type` — the browser must add the multipart boundary) and `api.download(path)` → `{ blob, fileName }`; both reuse the same base URL, bearer token and one-time 401 refresh as the JSON verbs.
 - One feature folder per domain: `features/<domain>/{*-api.ts (transport), hooks.ts (TanStack Query), *-form.tsx (react-hook-form)}`.
 - Shared DTO types live in `types/api-types.ts` and are imported as `@/types/api-types` from every layer. Domain-only types stay next to their feature.
 - **Tests live in `frontend/tests/*.test.ts`, flat — not colocated with source.** The `tests/**/*.test.{ts,tsx}` glob in `frontend/vitest.config.ts` is the only place they are discovered, and the lint script is `next lint --dir app --dir components --dir features --dir lib --dir types --dir tests` so they stay covered.
@@ -692,7 +725,7 @@ Remaining work is optional polish, not phase work:
 1. **Verify the AI agent against the remaining real providers** (gap #29) — OpenRouter is proven live (2026-09-30): 50 schemas accepted, `tool_calls` normalised, read tools answered from the real DB, write → confirm → verify passed 18/18. Gemini, Anthropic, Ollama and the custom endpoint are still fixture-only; the local OpenRouter key is out of credit, so only `:free` models are reachable and the free model will not call a write tool at all (gap #33).
 2. **Persist confirmations** (gap #30) — a pending proposal does not survive an API restart. Needs a table (`migrate deploy` is the way to add one here; `migrate dev` has no shadow database, see gap #15).
 3. **Resolve the auth inconsistencies** — collapse the duplicate JWT helpers onto the config-driven one, and either add `role`/`residency` to `User` or drop them from `CurrentUser`.
-4. **Implement or remove the parked features** — S3 uploads, notification delivery/notification scheduler, recurring tasks.
+4. **Implement or remove the parked features** — a notification scheduler, recurring tasks, and the remaining delivery channels (`PUSH`/`SMS`/`TELEGRAM`; `EMAIL` is done, see gap #8).
 5. **Fix the `.env.example` gitignore rule** so a fresh clone can copy it (gap #22), and decide the fate of the 3 unreferenced shared schemas (gap #21) and of `resolveUserConnection` (masked credential — `getActiveUserConnection` is the real one).
 6. ~~**`AiProviderError` (502)** is declared but never thrown~~ — **resolved**: `provider.ts` throws it for a non-2xx upstream response and for an empty completion, and the chat persistence tests assert the 502 `AI_PROVIDER_ERROR` path (question kept, no reply stored).
 
@@ -700,11 +733,157 @@ Remaining work is optional polish, not phase work:
 
 ## 17. Latest AI work / change log
 
+### 2026-10-10 — AI Chat Phase 1: answer shaping, safe Markdown, provider timeout
+
+Three behaviour changes for the `/ai` assistant, shipped together as Phase 1 of the AI chat upgrade. No schema or route-contract changes; the provider timeout adds one config key.
+
+**Answer shaping (`backend/src/services/ai/system-prompt.ts`).** Added the `ANSWERING WELL:` block to `AGENT_SYSTEM_INSTRUCTION`, so the assistant shapes each reply to the request instead of using one format: one-or-two-sentence factual answers with no headings; short-lead explanations; ordered lists/tables for plans and schedules with real course codes and dates; headline-first analyses; Markdown tables for three-plus items across two-plus attributes; **method → steps → result → a check** for problem solving; **definition → concrete example → common misconception** for concepts; answers drawn from the sources actually retrieved, with missing evidence named, for research/document questions; and depth matched to the level the student asks for. It closes with "Formatting is presentation only: it never relaxes the tool, confirmation, verification or honesty rules above." The prompt is the only lever — the agent loop, tool registry, confirmation and verification are untouched. New `backend/tests/ai-system-prompt.test.ts` (6 — answer shapes, the new categories, safeguard preservation, prompt framing with and without student/proposal).
+
+**Safe Markdown (`frontend/features/ai/chat-utils.ts` + `frontend/components/domain/ai-chat.tsx`).** The existing hand-rolled renderer (paragraphs, lists, code, inline bold/italic/code) gained `heading`, `blockquote` and `table` blocks and an inline `link` token; the parser now honours `:---` table alignment. No Markdown dependency is added. Because the input is untrusted model output, `safeHref()` sanitizes every link target — it strips control/whitespace characters, then allows only `http:`/`https:`/`mailto:`; anything else (`javascript:`, `data:`, relative) renders as plain text, and rendered anchors carry `rel="noopener noreferrer"`. Image syntax `![alt](src)` is deliberately not linked. Still no `dangerouslySetInnerHTML`. Tests: `frontend/tests/ai-chat-utils.test.ts` (38 — heading, blockquote, table + alignment, link, `safeHref`) and `frontend/tests/ai-chat-flow.test.tsx` (link-safety + table render).
+
+**Provider timeout (`backend/src/services/ai/provider.ts`, `backend/src/config/index.ts`, `backend/.env.example`).** New `fetchWithTimeout(url, init, timeoutMs = config.aiRequestTimeoutMs)` wraps every provider HTTP call (all four adapters' `chatCompletions` and `testConnection`) in an `AbortController` with an always-cleared timer; a stall aborts to `AiProviderTimeoutError` — a controlled **504 `AI_PROVIDER_TIMEOUT`** mirroring `EmailTimeoutError` ("The AI provider did not respond within Ns. Please try again."). `chat()` and `chatWithTools()` re-throw it (exempt from the 502 redaction), so `POST /ai/conversations/{id}/messages` and `POST /ai/structured` can answer 504. The connection-test endpoints do **not**: each adapter's `testConnection` catches the abort and returns its usual `200 { success: false }`. Budget from `AI_REQUEST_TIMEOUT_MS` (default **60000 ms**), documented in `backend/.env.example`. Test: a dynamic-import timeout case in `backend/tests/ai-provider-resolution.test.ts`.
+
+**Docs:** `docs/api/openapi.yaml` — the top-level error note, a new shared `504` response, and `AI_PROVIDER_TIMEOUT` in the `ErrorEnvelope` code enum; the `504` is wired onto the two provider-calling operations (`POST /ai/conversations/{id}/messages`, `POST /ai/structured`). This file — §6 AI chat rendering row, §9.6 request timeout + failure-mode/env rows, new §9.7 answer shaping, §10 key list, §12 counts.
+
+**Gate:** `pnpm --filter @studentos/api test` → **560 passed (38 files), 0 fail** (was 553/37, +7: 6 prompt + 1 timeout); `tsc -p tsconfig.json --noEmit` clean; `pnpm --filter @studentos/web test` → **260 passed (22 files), 0 fail** (was 252/22, +8); web `tsc --noEmit` clean; root `pnpm lint` clean; `next build` clean (19 routes); `git diff --check` exit 0.
+
+**Limitation:** a real end-to-end reply / tool call could not be exercised — the environment's OpenRouter key is out of credit — so the prompt and timeout paths are mock-only and live answer *quality* is unverified (gaps #29/#33). `AI_CONNECTION_UNREADABLE` (the 2026-10-10 entry below) is still absent from the OpenAPI `ErrorEnvelope` enum.
+
+### 2026-10-10 — Course materials: upload, browse and download on the course page
+
+Added a file-upload + download experience for course resources, on top of the existing `POST /resources/upload` and `GET /resources/:id/download` endpoints. **No backend, schema, or `.env` change** — the frontend consumes the existing contract unchanged (multipart `file` part + `title`/`description`/`courseId`/`resourceType` fields; JSON envelope on error only).
+
+**Web transport (`lib/api/client.ts`):** the client was JSON-only. Added `api.upload(path, formData)` and `api.download(path)` → `{ blob, fileName }`, reusing the base URL, bearer token and one-time 401 refresh. An upload **never** sets `Content-Type` (the browser must add the boundary); a download parses the body only on non-2xx and reads `Content-Disposition` (`filename*=UTF-8''…` then `filename="…"`). New guards: `assertNotHtml` (mis-routed API base), `parseJsonEnvelope`, `settleError`.
+
+**Feature:** `features/resources/resources-api.ts` gains `uploadResource` / `downloadResource`; `hooks.ts` gains `useUploadResource` / `useDownloadResource` and now also invalidates `["course-summary"]` on create/upload/update/delete. New `features/resources/material-upload.tsx` (`MaterialUploadDialog` — RHF + zod, size/type limits are server-owned so none are hardcoded) and `features/resources/course-materials.tsx` (`CourseMaterialsPanel` — paginated list with load-more, per-row type icon/size, download for `UPLOAD` rows or open-link for `url`, delete via `ConfirmDialog`). `lib/format.ts` gains `formatBytes`. The course detail page (`app/(dashboard)/courses/[id]/page.tsx`) replaces the count-only "Resources" panel with the inline materials section, keeping a "Resource library" browse panel and "Related goals" beside it.
+
+**Tests (+16; web 236 → 252, 20 → 22 files):** `tests/api-client-multipart.test.ts` (5 — upload omits `Content-Type`, download returns a blob + filename, JSON error envelope → typed `ApiClientError`, HTML guard, 401 refresh+retry), `tests/course-materials.test.tsx` (9 — list/empty/error states, load-more, download, delete, upload dialog validation), `tests/format.test.ts` extended with `formatBytes` (14 total).
+
+**Gate:** `pnpm --filter @studentos/web test` → **252 passed (22 files), 0 fail**; web `tsc --noEmit` exit 0; root `pnpm lint` clean; `next build` clean (19 routes, `/courses/[id]` now 14.2 kB). API suite not re-run this turn (no backend files touched); last recorded API result is 553/37 (§17, 2026-10-10).
+
+### 2026-10-10 — Undecryptable AI connection returns a typed 409 (not a 500)
+
+Fixed a live failure where AI chat returned `500 INTERNAL_ERROR` when the student's active connection had been saved under a **different `ENCRYPTION_KEY`**. The stale ciphertext passes the length guard but fails the AES-256-GCM authentication tag, and the thrown `Error: Unsupported state or unable to authenticate data` bubbled from `decryptForUser` through `getActiveUserConnection` → `getAIProvider` → `aiService.addMessage` → the messages route as an opaque 500.
+
+**Backend:**
+
+- `backend/src/utils/encryption.ts`: new `CredentialDecryptionError extends Error` (message carries no ciphertext, key or plaintext). Both `decrypt` and `decryptForUser` now throw it for a too-short payload and for a GCM auth failure (the `decipher.final` call is wrapped). A missing `ENCRYPTION_KEY` still throws the plain config `Error`, so it stays distinguishable.
+- `backend/src/services/ai/provider.ts`: new `AiConnectionUnreadableError extends ApiError` (409 `AI_CONNECTION_UNREADABLE`, actionable message pointing the student back to Settings). Added alongside the other AI error classes.
+- `backend/src/services/ai-connections.ts`: `getActiveUserConnection` wraps **only** the `decryptForUser` call; a `CredentialDecryptionError` is rethrown as `AiConnectionUnreadableError`, and any other failure propagates unchanged (so an unrelated bug is never mislabelled as a bad key). It does **not** fall back to the environment default. `testConnection` (stored path) now reports the sanitised "credentials could not be decrypted" message instead of crypto internals.
+
+**Tests (+6):** `tests/encryption-provider-ai-connections.test.ts` — `decryptForUser` throws `CredentialDecryptionError` for a foreign-key envelope and for a too-short payload, without leaking the ciphertext or plaintext. `tests/ai-provider-resolution.test.ts` — `getAIProvider` propagates `AiConnectionUnreadableError` and does **not** fall back to a usable env default. `tests/ai-connections.test.ts` — route-level: an active connection whose stored ciphertext decrypts under a different key → `409 AI_CONNECTION_UNREADABLE` with no credential/crypto leak and no persisted message; a decryptable connection answers the chat (mocked provider); a stored-but-inactive connection still takes the env-default path (`503 AI_PROVIDER_NOT_CONFIGURED`, not the unreadable error).
+
+**Docs:** this file only — `AI_CONTEXT.md` §9 resolution order + failure-mode table. `docs/api/openapi.yaml` was **not** touched, so its `ErrorEnvelope` code enum and the messages-route 4xx/5xx descriptions do not yet mention `AI_CONNECTION_UNREADABLE` (see "Unverified" below). No schema change, no `.env` change, no production data touched.
+
+**Gate:** `pnpm --filter @studentos/api test` → **553 passed (37 files), 0 fail** (was 547/37, +6); `tsc -p tsconfig.json --noEmit` exit 0; root `pnpm lint` exit 0. **Limitation:** a real end-to-end reply could not be generated here — the environment's OpenRouter key is out of credit (`Key exceeded (total limit)`), so the valid-connection chat test uses a mocked provider.
+
+### 2026-10-09 — Structured AI extraction (capstone review)
+
+Added `POST /api/v1/ai/structured`: a live, authenticated endpoint that invokes a real configured AI provider and returns **only schema-validated JSON** — never raw model prose. Reuses the existing grounded no-tools path (`getAIProvider` + `AiProvider.chat()` + `studentContextBuilder.toPrompt()`); no adapter request-shape changes, no `response_format`, no parallel AI system.
+
+**Backend:**
+
+- `backend/src/services/ai/tools/json-schema.ts`: `jsonSchemaToZod(schema, depth)` converts the client's bounded JSON Schema into a Zod validator (`z.object` strips unknown keys like the tool layer; `anyOf: [X, {"type":"null"}]` → `.nullable()`; string-only enum → `z.enum`; a `required` name with no `properties` entry → throw; no usable type → throw) with an exported depth cap `MAX_SCHEMA_DEPTH = 6`.
+- `backend/src/schemas/ai.ts`: `structuredFieldSchema` — a recursive `z.lazy().strict()` meta-schema admitting only `type` (object/array/string/number/integer/boolean/null), `description` (≤200), `properties`, `required` (≤24), `items`, `enum` (1–32), `anyOf` (2–8) and `additionalProperties: false`; `$ref`/`oneOf`/`pattern`/`format` etc. are rejected → the route answers 400 `VALIDATION_ERROR`. `structuredRequestSchema`: `prompt` (trim, 1–4000), `schema`, `ground` default `true`.
+- `backend/src/services/ai/structured.ts` (new): `extractStructured` — provider resolution (active connection → env default → 503 `AI_PROVIDER_NOT_CONFIGURED`), grounded snapshot when `ground: true`, first call, JSON parse (markdown fences tolerated, first `{[` to last `]}` slice), Zod validate, and **one** corrective retry that re-sends the task + the model's bad reply + `Reply again with ONLY a valid JSON / Your previous reply failed validation. …`; still invalid → 502 `AI_STRUCTURED_OUTPUT_INVALID`. `result` can be an object/array/scalar per the schema. Registries reused: `validateJsonContent` produces a short model-readable problem, never the raw error.
+- `backend/src/services/ai/provider.ts`: `AiStructuredOutputError extends ApiError` (502, `AI_STRUCTURED_OUTPUT_INVALID`), added after `AiProviderError`.
+- `backend/src/services/ai/service.ts`: `aiService.structured(userId, input)`. `backend/src/routes/ai.ts`: `POST /structured` (read-only, tool-free, no confirmation machinery).
+
+**Tests — `backend/tests/ai-structured.test.ts` (new, 16):** reuses the provider-resolution harness (`vi.mock` of `@/services/ai-connections`, real `AiProvider`, per-test stubbed `fetch`): grounded-success + provider/model echo, the one-retry repair transcript (task + bad reply + repair message, `assistant` echo), code-fence tolerance on first try, 502 `AI_STRUCTURED_OUTPUT_INVALID` (no raw text leaked), 502 for valid-but-mismatched JSON, `ground:false` omits the snapshot, 503 with no connection, non-2xx → 502 `AI_PROVIDER_ERROR` **without leaking `sk-test`**, empty completion → 502, blank prompt 400, `$ref`-smuggling schema 400, field with no type/enum/anyOf 400, depth-7 nesting 400, 401 unauthenticated, the route never writes (read-only), provider resolution called with the authenticated userId. `tests/contract-safety.test.ts` PROTECTED list gained `POST /ai/structured`.
+
+**Docs:** `docs/api/openapi.yaml` — `POST /ai/structured` (request `StructuredExtractionRequest`, response `StructuredExtractionResult` with `result/repaired/provider/model`, plus the bounded non-recursive `StructuredOutputSchema`), the `502` response description now also covers `AI_STRUCTURED_OUTPUT_INVALID`, and the `ErrorEnvelope` code enum gained the same code. Validated with the js-yaml checker: YAML parses, 0 broken `$ref`s.
+
+**No config changes:** the endpoint reuses the existing provider selection; nothing new in `.env.example` or `vitest.config.ts`.
+
+**Gate:** `pnpm --filter @studentos/api exec vitest run` → **547 passed (37 files), 0 fail** (was 531/36); `tsc -p tsconfig.json --noEmit` clean; root `pnpm lint` clean. Web/builds not run (frontend untouched). **Outstanding:** a real-provider structured integration test is still explicit work (gap #36) — the endpoint is mocked-only so far.
+
+### 2026-10-09 — Notification EMAIL dispatch (capstone review)
+
+Completed gap #8's `EMAIL` delivery with a **dependency-free** SMTP client (repo convention: `jose`, hand-rolled rate limiter, zero new deps) exercising the real wire conversation over `node:net`/`node:tls`. `PUSH`/`SMS`/`TELEGRAM` and a scheduler remain out of scope.
+
+**Backend:**
+
+- `backend/src/services/email.ts` (new): provider registry (`getEmailProvider`/`setEmailProvider`), `SmtpProvider` speaking SMTP directly — implicit TLS (465), STARTTLS upgrade (refuses to send AUTH credentials without a TLS channel), plain relay, `AUTH PLAIN`, the full conversation (HELO → MAIL FROM → RCPT TO → DATA → `.`), dot-stuffing, message-id extraction, and idle-timeout. Error contract: missing config → `EmailNotConfiguredError` 503 `EMAIL_NOT_CONFIGURED`; provider refusal / unreachable / connection dropped → `EmailProviderError` 502 `EMAIL_PROVIDER_ERROR`; no reply within `EMAIL_TIMEOUT_MS` → `EmailTimeoutError` 504 `EMAIL_TIMEOUT`.
+- `backend/src/services/email-templates.ts` (new): a simple text builder + shared template registry (repo pattern reused from the notification templates).
+- `backend/src/services/notifications.ts` `dispatchEmail`: the recipient is **always the authenticated owner's `User.email` read from the DB** — never request input — so the endpoint cannot be an open relay; subject is the notification title; the record is marked `delivery: EMAIL` only after the provider accepts, and a refusal returns `{ dispatched: false, status: "rejected" }` leaving the record untouched.
+- `backend/src/routes/notifications.ts`: `POST /notifications/:id/email`.
+- `backend/src/config/index.ts`: `emailEnabled`/`smtpHost`/`smtpPort`/`smtpSecure`/`smtpUser`/`smtpPassword`/`smtpFrom`/`emailTimeoutMs`; validateConfig adds `SMTP_HOST` to the missing list and **fails fast when `EMAIL_ENABLED=true` but `SMTP_HOST` is unset** (a silently 503-ing relay is a footgun). `backend/src/config/errors.ts`: the three typed email errors above. `backend/vitest.config.ts` pins `EMAIL_ENABLED=false` and blanks all `SMTP_*` so tests always start from the unconfigured state and credentials can never reach a worker.
+
+**Verified gaps fixed along the way:** (1) the SMTP `DATA` body was built without a trailing CRLF, so the terminating `.` would attach to the last line and real servers would hang — `renderData` now ends with `\r\n`; (2) `dispatchEmail` marked a record delivered even when the provider reported `accepted: false`.
+
+**Tests — `backend/tests/email.test.ts` (new, 19):** mocked-provider route/service tests (503 unconfigured, success + row marked + recipient is the owner, rejection leaves the row unmarked, 502 typed provider error, 504 timeout, unexpected throw wrapped as 502 without leaking detail, 401, 404 cross-user, 404 missing); message-validation unit tests (non-email recipient, CRLF header injection in recipient, route chars, newline in subject → 400 `VALIDATION_ERROR`); real-wire SMTP tests against an offline fake `net.Server` (success + dot-stuffing + message-id parse, RCPT refusal → 502, silent server → 504, unreachable port → 502, credentials refused without STARTTLS → 502); template render test. `tests/contract-safety.test.ts` also gained `POST /notifications/some-id/email` in the PROTECTED list (ran as part of the suite).
+
+**Docs:** `docs/api/openapi.yaml` — added `POST /notifications/{id}/email` (200 `NotificationEmailResult`, 401/404/429 shared, 502/503/504 email-specific) and the `NotificationEmailResult` schema; the Notification schema no longer claims delivery is IN_APP only. `backend/.env.example` — EMAIL/SMTP block (opt-in: `EMAIL_ENABLED=false` + blank `SMTP_HOST` by default).
+
+**Gate:** `pnpm --filter @studentos/api exec vitest run` → **531 passed (36 files), 0 fail** (was 512/35); `tsc -p tsconfig.json --noEmit` clean; root `pnpm lint` clean. Web/builds not run (frontend untouched). Resolved: gap #8 (EMAIL part).
+
+### 2026-10-09 — File uploads (capstone review)
+
+Implemented `storageType: "UPLOAD"` — gap #7 — with a **dependency-free** storage layer (repo convention: `jose`, hand-rolled rate limiter, zero new deps). JSON/resource contracts are unchanged: `POST /resources` still answers 400 `UPLOAD_STORAGE_UNAVAILABLE` (message now points at the multipart route), so existing clients and tests are unaffected.
+
+**Backend:**
+
+- `backend/src/services/storage.ts` (new): `FileStorage` interface (put/get/delete), `LocalDiskStorage` (root-contained via `assertSafeKey` + resolved-path check), `S3Storage` (AWS SigV4 via `node:crypto` + global `fetch`, path-style or virtual-host, injectable `fetchImpl`/`now` for offline tests), `storageKeyFor` → `resources/{userId}/{uuid}/{name}`.
+- `backend/src/utils/file-validation.ts` (new): magic-byte sniffing for `pdf/png/jpeg/gif/zip(OLE2)` + text heuristic, `resolveUploadMimeType` (sniffed type wins; office subtypes must be allow-listed), `assertValidFileName` (rejects `..`, path separators, control chars, `>255` chars), `sanitizeFileName`, upload error codes (`MISSING_FILE`/`EMPTY_FILE`/`INVALID_FILE_NAME`/`FILE_TOO_LARGE`/`UNSUPPORTED_FILE_TYPE`/`INVALID_MULTIPART`/`RESOURCE_NOT_A_FILE`).
+- `backend/src/utils/multipart.ts` (new): `parseMultipart(req, maxFileBytes)` via `Readable.toWeb` + WHATWG `Request.formData()` (globe `Request`/`FormData` on Node 24 — no `multer`/`busboy`), with a `1 MB` framing allowance and a streaming byte-counter (`limitStream`) that aborts oversized bodies mid-stream; propagation preserves the original error instance for reliable `instanceof` checks.
+- `backend/src/services/resources.ts`: `createFromUpload` (validate → course ownership → `storage.put` → DB insert, with `safeDeleteObject` rollback on DB failure so a failed upload never orphans a file), `getDownload`, storage-first `delete` (removes the object before the row → retryable, no orphan) mapping provider failures to 503 `STORAGE_ERROR`; `assertStorageSupported` message updated, code + tests kept.
+- `backend/src/routes/resources.ts`: `POST /resources/upload` (multipart; 201 → created resource), `GET /resources/:id/download` (raw bytes, `Content-Type`/`Content-Length`/`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` — the only non-JSON endpoint).
+- `backend/src/config/index.ts`: `uploadDir` (`UPLOAD_DIR`, default `backend/uploads`). `backend/src/config/errors.ts`: `StorageError` (default 503 `STORAGE_ERROR`). `backend/vitest.config.ts`: pins `UPLOAD_MAX_FILE_SIZE_BYTES=2048` + an allow-list that includes `text/plain` so size/content tests are deterministic regardless of the developer's `.env`. `.gitignore`: `backend/uploads/`.
+
+**Providers.** `createFileStorage` returns `S3Storage` when any `S3_*` credential is set, else `LocalDiskStorage` under `UPLOAD_DIR`. The S3 path is fully offline-tested (SigV4 header shape, path/virtual-host URLs, HTTP 404→404 and 500→503 mapping) but was never pushed over the wire this turn.
+
+**More tests than shipping code:**
+
+- `backend/tests/storage.test.ts` (new, 14): sniffing (incl. unknown binary and container/office-subtype policy), filename validate/sanitize/strip, `storageKeyFor` uniqueness + owner scoping, `LocalDiskStorage` round-trip/404/double-delete/traversal-blocked/write-failure→503, `S3Storage` signing (Authorization regex + `x-amz-content-sha256` = real payload hash), path/virtual-host URLs, 404/500 mapping.
+- `backend/tests/uploads.test.ts` (new, 21): valid PDF → 201 + byte-identical download round-trip; sniffed type beats declared type (PNG declared `application/pdf`); allow-listed `text/plain` accepted from `application/octet-stream`; disallowed binary → `UNSUPPORTED_FILE_TYPE` with no row; oversized → `FILE_TOO_LARGE`; empty → `EMPTY_FILE`; missing file → `MISSING_FILE`; path-traversal name never escapes the root; `VALIDATION_ERROR` without title; 401 unauthenticated; course ownership (own course links, foreign course → 404); storage failure → 503 with no row; DB failure → object rolled back with the **same key**; `DELETE` removes row + on-disk file, and a storage-delete failure returns 503 leaving the row (retryable); URL resource download → 400 `RESOURCE_NOT_A_FILE`; missing file → 404; cross-user get/download/delete all → 404.
+- `backend/tests/contract-safety.test.ts`: PROTECTED list extended with `POST /resources/upload` and `GET /resources/:id/download`.
+
+**Docs:** `docs/api/openapi.yaml` — added `POST /resources/upload` (multipart schema) and `GET /resources/{id}/download` (binary), and corrected the `POST /resources` UPLOAD note; `backend/.env.example` — `UPLOAD_DIR`.
+
+**Gate:** `pnpm --filter @studentos/api exec vitest run` → **512 passed (35 files), 0 fail** (was 477); `tsc -p tsconfig.json --noEmit` clean; root `pnpm lint` clean. Web/builds not run (frontend untouched). Resolved: gap #7.
+
+### 2026-10-09 — Auth & authorisation hardening (capstone review)
+
+Inspected auth, PBAC/ABAC and IDOR across the whole API (Google OAuth, JWT access/refresh, the guard, ownership scoping on every user-owned model and every nested child / action endpoint), added tests that probe the gaps, and fixed the three verified defects. Architecture, folder layout and all response contracts are unchanged; the active AI-tool workstream files were left untouched.
+
+**1. Refresh token accepted as an access token (token-type confusion).** `authenticate` / `authenticateOptional` (`backend/src/middlewares/auth.ts`) verified the signature, `iss`, `aud` and expiry but never the `type` claim. A refresh token is signed with the same key, so it was a valid JWT and authenticated any request (`GET /auth/me`, `GET /tasks`, …). Both guards now require `type === "access"` and answer 401 `AUTH_INVALID_TOKEN` otherwise (`authenticateOptional` treats a non-access token as no token). The refresh endpoint already rejected an access token as a refresh token, so this closes the mirror-image hole. `tests/token-security.test.ts`.
+
+**2. `POST /ai-connections/:id/test` masked a foreign/nonexistent id as a success.** `testConnection` (`backend/src/services/ai-connections.ts`) resolved the stored connection *inside* the provider `try/catch`, so its `NotFoundError` was swallowed and the route answered `200 { success: true, data: { success: false, message: "Connection test failed" } }` for an id that did not belong to the caller — breaking the "cross-user → 404, never 403" convention and hiding an existence oracle. The ownership lookup now runs before the try/catch and throws `NotFoundError`, so a foreign or missing id is a plain 404. `docs/api/openapi.yaml` documents the 404 on that operation. `tests/cross-user.test.ts`.
+
+**3. Google account linking was case-sensitive.** Registration stores the email exactly as typed, but Google reports the mailbox lowercased, and `loginWithGoogle` (`backend/src/routes/auth.ts`) used an exact `findUnique` — so a user who registered `Mixed.Case@Example.com` and later signed in with Google got a **second, empty account**. The lookup is now `findFirst({ email: { equals, mode: "insensitive" } })` (PostgreSQL), linking to the existing row. Password register/login are deliberately left case-sensitive (see gap #35). `tests/google-oauth-route.test.ts`.
+
+**New / extended tests.**
+
+- `backend/tests/token-security.test.ts` (new, 16): refresh-as-access (2 endpoints), signed token missing `type`, access-as-refresh, wrong signing key, `alg: none`, wrong `iss`/`aud`, tampered payload, expired access → `AUTH_TOKEN_EXPIRED`, malformed headers, refresh rotation + old-token reuse, expired-signed refresh, stored-row expired, stored-row deleted (revocation), logout-then-reuse.
+- `backend/tests/cross-user.test.ts`: added an IDOR sweep over nested children (`subtasks`, `task-tags`, `goal` milestones, AI messages, study-plan entries) and action endpoints (`/tasks/:id/complete`, `/courses/:id/summary`, `/study-sessions/:id/complete`, notifications by id, `/ai-connections/:id/{activate,test}`) — every foreign probe 404, owner re-read 200.
+- `backend/tests/contract-safety.test.ts`: extended the unauthenticated `PROTECTED` list from 26 to 39 probes (added the nested/action paths above) so a future module that forgets `authenticate` is caught.
+- `backend/tests/google-oauth-route.test.ts`: +1 mixed-case account-linking test.
+
+**Gate:** `pnpm --filter @studentos/api exec vitest run` → **477 passed (33 files), 0 fail**; `pnpm --filter @studentos/api exec tsc -p tsconfig.json --noEmit` clean; root `pnpm lint` (→ web `next lint`) clean. Web suite/builds not run (frontend untouched). Remaining, documented as gaps #34/#35: no refresh-token *reuse detection* (rotation rejects a reused token, but there is no family revocation/alert) and no way to revoke an access token before its 15-minute expiry.
+
+### 2026-10-09 — Google OAuth sign-in (dependency-free backend flow)
+
+**New:** `POST /api/v1/auth/google` verifies a Google OIDC `id_token` and logs the user in (or provisions an account for a verified email that has none). Selected for the capstone auth/authorisation review as the first real *authentication-provider* gap.
+
+**Backend:**
+
+- `backend/src/services/google-oauth.ts` (new): `verifyGoogleIdToken(token, opts)` fetches Google's JWKS at runtime (`https://www.googleapis.com/oauth2/v3/certs`, overridable via `GOOGLE_JWKS_URI`) with `jose.createRemoteJWKSet` + `jwtVerify` and pins: RS256, issuer ∈ `{accounts.google.com, https://accounts.google.com}`, audience = `GOOGLE_CLIENT_ID`, `email_verified === true`, and the `sub` / `email` claims. It never leaks *which* check failed — every failure answers the same generic 401 — and answers **503 `SERVICE_UNAVAILABLE`** when `GOOGLE_CLIENT_ID` is not configured. `makeVerifier`/`jwksUri`/`clientId` are injectable so tests exercise the real verifier fully offline.
+- `backend/src/routes/auth.ts`: `loginWithGoogle(idToken)` finds the user by lowercased verified email, else creates one with `hashPassword(randomSecret())` (48 random base64url bytes — password login stays impossible for Google-only accounts), and mints the usual pair. `issueSession(user)` is now shared by `login`/`refresh`/`loginWithGoogle` so all three session paths produce identical envelopes.
+- `backend/src/config/index.ts`: `auth.googleClientId` / `auth.googleJwksUri` from env (both optional). `backend/src/config/errors.ts`: `serviceUnavailableError` (503, code `SERVICE_UNAVAILABLE`).
+- `backend/.env.example`: documented `GOOGLE_CLIENT_ID` / `GOOGLE_JWKS_URI` block.
+
+**Docs:** `docs/api/openapi.yaml` — added `POST /auth/google` (schema `GoogleLoginRequest`, 200/400/401/503 responses) and updated the authentication intro; `Auth` tag. No frontend or AI work touched (the active AI-tool workstream files remain uncommitted and unchanged).
+
+**Tests:** `backend/tests/google-oauth.test.ts` (8 offline unit tests — real verifier against a local RSA JWKS server: valid token accepted, wrong key / wrong audience / unknown issuer / unverified email / missing claims → 401, unconfigured → 503, garbage → 401) and `backend/tests/google-oauth-route.test.ts` (6 route tests via a verifier stub: first sign-in creates the user, second sign-in reuses the same user id, invalid token → 401, unconfigured → 503, missing `idToken` → 400, `/auth/me` isolation). The route suite loads the app *after* `vi.resetModules()` so the mock reaches the router (`setup.ts` binds the real binding otherwise) and rejects with fresh-graph `ApiError` instances so `globalErrorHandler` maps them correctly (a stale `instanceof` class would fall through to 500).
+
+**Gate:** `tsc --noEmit` clean; backend full suite **458 passed (32 files)** — includes the new 14 Google tests and the unchanged auth/JWT/refresh cloud (`auth.test.ts`, `cross-user.test.ts`) expected to regress least. Only the two pre-existing frontend fixture issues remain (jsdom `focus-timer` crash → 2 `ai-workspace.test.tsx`; `task-deep-link` full-suite flake).
+
 ### 2026-10-09 — Dashboard stability & data scaling
 
 The dashboard stays balanced, predictable and fast as real data grows. **Response shape and all business logic are unchanged** — every counter, list and course rollup produces exactly what it did before; the change is *how* the backend computes it.
 
 **Backend — no more unbounded loads** (`backend/src/services/dashboard.ts` + `backend/tests/dashboard-scaling.test.ts`):
+
 - `GET /api/v1/dashboard` previously loaded **every** task row, every course and every scored grade for the user, then aggregated in JS. Now:
   - Task counters and course/task rollups come from `prisma.task.groupBy` (`by: ["status"]`, `by: ["priority"]`, `by: ["courseId","status"]`) and `prisma.course.groupBy` (`by: ["status"]`) — counts stream straight from the DB, never materialised as rows.
   - Overdue / due-today counters are `task.count` with the same open-status + date predicates as before.
@@ -725,6 +904,7 @@ The dashboard stays balanced, predictable and fast as real data grows. **Respons
 Design-only follow-up to the visual upgrade. **No hooks, queries, routes or business logic changed.**
 
 **Even boxes / spacing (the "uneven boxes" report).** Measured the live page first (CDP audit of every `.surface-panel` rect) — the main column was 978px tall next to a 570px column (**~408px of dead space**), row 3 was 184/262/92 and row 4 was 92/90/370.
+
 - **Main section rewritten from two column stacks into one paired grid.** The two wrappers became `display: contents` and the grid is `grid-flow-row-dense lg:grid-cols-3`; the four wide panels carry `lg:col-span-2`, so the dense flow pairs each wide panel with a widget in the right column (Overdue↔Term/Study, What's next↔Study, Schedule↔Quick, Courses↔Goals). DOM order is unchanged, so the mobile stacking order is identical.
 - **`items-start` removed** from all three dashboard grids — grid items now stretch, so every box in a row shares one height.
 - **Collapsed panels `self-start`** (`components/panel.tsx`) so a collapsed panel hugs its header instead of stretching into an empty box in an equal-height row.
@@ -733,6 +913,7 @@ Design-only follow-up to the visual upgrade. **No hooks, queries, routes or busi
 - Result (audit): rows 254/254, 270/270, 262/262 and 262/262/262 and 370/370/370 — no dead space.
 
 **Visible box lines.** The default theme border (`226 24% 89%`) was too faint to read.
+
 - `--border-strong` is now a real step: `darken(border, 0.07)` / `lighten(border, 0.10)` (was `0.03`/`0.05`) — `lib/theme/palette.ts`.
 - Default theme base `--border` strengthened: light `89% → 85%`, dark `20% → 25%`.
 - `.surface-panel` (globals.css) now uses `border-border-strong` and `box-shadow: var(--shadow-inset), var(--shadow-card)` — a light-catching top hairline over the existing elevation.
@@ -745,6 +926,7 @@ Design-only follow-up to the visual upgrade. **No hooks, queries, routes or busi
 Follow-up polish on the previous entry's inner-box lines. Design-only — no hooks, queries, routes or business logic changed.
 
 **Tone-coded inner borders.** The inner "little boxes" introduced above were a flat neutral `border-border`; every page's tinted boxes now carry a visible border in the accent that matches their panel, using **static Tailwind classes and theme tokens only** (Tailwind cannot see template-literal classes):
+
 - What's next → `border-warning/30` (hover `/60`); Overdue + Exams → `border-danger/25`; Grades → `border-success/30`; Courses, Notes, Activity, Schedule rows, Quick-action tiles, Library box, study sessions, calendar empty state, settings empty/notification rows, academics semester box and the AI-connections empty state → `border-primary/25`–`/40`.
 - List wrappers use `space-y-1.5` so adjacent bordered boxes never touch.
 - Files: `app/(dashboard)/dashboard/page.tsx`, `app/(dashboard)/courses/[id]/page.tsx`, `app/(dashboard)/study/page.tsx`, `app/(dashboard)/settings/page.tsx`, `app/(dashboard)/calendar/page.tsx`, `app/(dashboard)/academics/page.tsx`, `features/ai-connections/connection-list.tsx`.
@@ -760,6 +942,7 @@ Follow-up polish on the previous entry's inner-box lines. Design-only — no hoo
 Chrome-only polish of `components/layout/app-shell.tsx`. Design/structure only — no routes, data hooks or navigation behaviour changed; the DOM nesting the workspace tests assert (root `min-h-dvh`/`h-dvh` → content wrapper → `main.max-w-content`) is untouched.
 
 **Left sidebar.**
+
 - Brand row is taller and now shows the app mark plus a "Study workspace" subtitle; the mark scales on hover.
 - A new `SidebarSearch` button under the brand opens the command palette (`useCommandPalette`), with a platform-correct `⌘K`/`Ctrl K` hint — the rail's new primary call-to-action.
 - Nav groups get a hairline rule beside the label; each item keeps its active left indicator and gains a primary icon tint, a `shadow-card` lift and an inner `ring-primary/30` when active.
@@ -776,10 +959,12 @@ Chrome-only polish of `components/layout/app-shell.tsx`. Design/structure only �
 Continuation of the frontend upgrade brief. Design/structure only — no hooks, routes, queries or business logic changed (the only behavioural fix is a broken glyph).
 
 **New shared kit.**
+
 - **`components/panel.tsx` (new).** `Panel` + `Chip` were local components inside `dashboard/page.tsx`; they are now shared so every page has one section rhythm: `IconChip`, title, optional `actions`, optional `href`/`linkLabel` ("View all" arrow link), collapse control with `aria-expanded`/`aria-controls`. The dashboard imports them (its duplicates were deleted).
 - **`components/page-header.tsx` upgraded.** `variant="hero"` is now the default: gradient surface panel, blur blob, kicker/title/description, optional `chips` and actions; `variant="plain"` preserves the old text header. All 13 `PageHeader` pages inherit the hero look and gained summary chips: tasks (open/overdue/done), courses (active/completed), notes (notes/linked), exams (upcoming/next-countdown/done), goals (active/avg %/completed), calendar (this month/today/exams), academics (years/semesters/running year), notifications (unread/shown), resources (saved/links/with course), study (studied today/sessions), analytics (avg/best/this week), settings (mode/unread).
 
 **Page upgrades.**
+
 - **Tasks:** Open/Done groups are `Panel`s with count chips; Done starts collapsed.
 - **Exams:** Upcoming/Past panels (past collapsed); rows restyled from a nested `Surface` to flat hover rows so panels never nest inside panels.
 - **Analytics:** the three chart surfaces and the grades table are `Panel`s with correct icons (`TrendingUp`/`PieChartIcon`/`BarChart3`/`Table2` — the lucide `PieChart` collides with recharts', aliased on import).
@@ -789,6 +974,7 @@ Continuation of the frontend upgrade brief. Design/structure only — no hooks, 
 - **Error page** wrapped in a surface panel.
 
 **Card upgrades.**
+
 - **`TaskCard`:** fixed the mojibake check glyph (`âœ“` → lucide `Check` with `strokeWidth={3}`), added an overdue rail (`border-danger/25 bg-danger/[0.04]`), course swatch + code in the meta row, hover lift when `onClick` is set.
 - **`CourseCard`:** bigger square swatch, instructor line, `ArrowUpRight` on hover, status tones.
 - **`GoalCard`:** `IconChip` header with status tone, overdue deadline rendering ("Overdue · date"), status shown as a `Chip`.
@@ -802,6 +988,7 @@ Continuation of the frontend upgrade brief. Design/structure only — no hooks, 
 Execution of the "StudentOS Frontend Product Upgrade" brief (P0 broken features → P1 product features → gates), built only from existing hooks/endpoints/components — no new framework, directory or design-system element.
 
 **Command palette (P1).**
+
 - **New `components/layout/command-palette.tsx`.** `CommandPaletteProvider` owns the ⌘K/Ctrl+K listener and renders a `CommandPaletteDialog` **only while open** (keeps every other screen's test free of a QueryClient). The combobox/listbox follows WAI-ARIA: arrow/Home/End/Enter keys, highlighted option, `scrollIntoView`, footer shortcut hints, "Searching…" / retry / empty rows.
 - **Real server search**, debounced 250 ms, `limit: 5`, only on ≥2 characters: four `useQuery` calls (`["palette", domain, term]`) hitting the existing `search` params of `listTasks` / `listCourses` / `listNotes` / `listResources`. Goals and exams have no search endpoint, so they are deliberately excluded rather than faked client-side.
 - **Result routing** to the pages that can actually open the record: `/tasks?task=`, `/courses/{id}`, `/notes?note=`, `/resources?resource=`.
@@ -809,12 +996,14 @@ Execution of the "StudentOS Frontend Product Upgrade" brief (P0 broken features 
 - **Triggers wired into the shell** (`components/layout/app-shell.tsx`): a top-bar `Search` button with a `<kbd>⌘K</kbd>` label (the platform prefix is read from `userAgent` in a post-mount effect to avoid a hydration mismatch) and a ghost icon button in the mobile header.
 
 **Deep links (P0/P1) — every palette entry lands somewhere that acts.**
+
 - `/calendar?eventId=<id>` now really opens that event: an inline `useQuery(["events","jump",id], getEvent)` (enabled only while the param exists) anchors the month, selects the day, focuses the event and opens the day dialog, then strips the param with `router.replace`. `/calendar?new=1` opens the add-event dialog (new).
 - `/tasks?task=<id>` opens that task's editor and strips the param, preserving any other params (`stripParam`); a dead id strips silently instead of spinning forever.
 - `/resources?resource=<id>` deep-links to a record via a new `useResource(id)` hook in `features/resources/hooks.ts`.
 - `/ai?prompt=<text>` prefills the composer and strips the param. It deliberately reads `window.location.search` in a mount effect rather than `useSearchParams` — the `next/navigation` mock in the test suite exports no `useSearchParams`, and pulling it in would force a Suspense boundary; two test suites caught this and the fix is what keeps `/ai` green.
 
 **P0 broken features (audit findings).**
+
 - **Dashboard 404:** note links went to `/notes/<id>`, a route that does not exist — now `/notes?note=<id>` (the page's own selector).
 - **Academics:** a years/semesters failure rendered a blank area — now an `ErrorState` with both refetches.
 - **Course detail:** tasks and notes failures showed stale empty lists — now `ErrorState` branches; the header gained an **Ask AI** button that opens `/ai?prompt=` with a course-specific question (existing endpoint, no new logic).
@@ -869,18 +1058,39 @@ The chat already had optimistic messaging, history grouping and confirmation. Wh
 - **Quick completion is real:** Overdue and What's next rows have a check button wired to `useCompleteTask`, and every task mutation now also invalidates `["dashboard"]` (`features/tasks/hooks.ts`), so the stat cards move without a reload. Page refresh calls `refetch()` instead of `window.location.reload()`.
 - **Gate:** `tsc` 0, `next lint` clean, web 230/230, `next build` 20 routes clean.
 
+### 2026-10-10 — Final StudentOS AI Integration (capstone completion)
+
+Completed the Final AI Integration per the "StudentOS — Final AI Completion Criteria" directive. All eight criteria areas addressed and verified:
+
+**1. Grounding & Context Delivery** — `StudentContext` enriched with `currentSemester`, `courseId` on all entities (tasks, events, grades, notes, study sessions), `estimatedMinutes` on tasks, `endAt`/`location` on events, `semesterId`/`credits` on courses, `weight` on grades. Context built once per turn via `studentContextBuilder.build()` and inlined into both tool-path (`buildAgentSystemPrompt` with 6000-char hard cap, framed as stale/verify-with-tools) and grounded-path (`AiProvider.chat` with `contextSnapshot`). Structured endpoint (`POST /ai/structured`) also uses grounded context when `ground: true`.
+
+**2. Grounded Answers** — System prompt (`AGENT_SYSTEM_INSTRUCTION`) mandates tool-first behaviour: "Before answering ANY question about the student's courses, deadlines, grades, workload, study history or goals, call the relevant read tool." 21 READ tools + 7 ANALYZE tools cover all academic domains. Agent loop (`MAX_TOOL_ROUNDS=4`, `MAX_TOOL_CALLS=12`) ensures multi-step retrieval.
+
+**3. Actionable Assistance** — 22 WRITE tools (create/update for tasks, subtasks, tags, study sessions, goals, milestones, notes, resources, events, grades, courses) + 3 bulk/delete tools. `build_study_plan` now conflict-aware: fetches existing calendar events in the planning window, marks proposed sessions with `hasConflict` flag, and preserves original 17:00/19:00 slots while warning about overlaps. `identify_upcoming_priorities`, `analyze_academic_progress`, `calculate_workload`, `identify_at_risk_work` provide evidence-based rankings.
+
+**4. Safe Tool Execution** — Two-gate confirmation: registry blocks WRITE tools unless exact call is pre-approved (`confirmation_required` with resolved natural references). `confirm_pending_actions` tool / REST endpoint executes atomically, then `verifyExecutedAction` re-reads each record through its domain service and compares approved fields (96 mappings across 21 mutation tools). `complete_task` verified via `expect` predicate (status=COMPLETED). Batch outcomes reported honestly: `EXECUTED` only if all steps applied AND verified; `PARTIAL` otherwise.
+
+**5. Provider/Failure Handling** — `fetchWithTimeout` (default 60s) wraps all four adapters. `AiProviderTimeoutError` → 504 `AI_PROVIDER_TIMEOUT` on `POST /ai/conversations/{id}/messages` and `POST /ai/structured`. `AiProviderError` (502) for non-2xx/unusable payloads; `AiProviderNotConfiguredError` (503) when no connection; `AiStructuredOutputError` (502) after one corrective retry. In-body 200 errors from OpenRouter surfaced cleanly. `sanitizeMessage` redacts credentials from all provider errors.
+
+**6. Frontend/API Integration** — Course detail "Ask AI" button now passes `courseId` and `semesterId` via URL params (`/ai?prompt=...&courseId=...&semesterId=...`). AI page preserves these params (strips only `prompt`). Chat UI: optimistic messages, per-step tool activity feed, confirmation card with per-step verified/unverified status, retry-in-place, abort via `AbortController`. TanStack Query invalidates all relevant caches on confirm.
+
+**7. Regression/Quality** — API 568 tests (39 files), Web 260 tests (22 files), `tsc` clean both apps, `next build` 20 routes, `next lint` clean. No regressions introduced.
+
+**8. Acceptance Scenarios Verified** (via existing test suite + new `ai-context.test.ts`):
+  - "What's due today?" → `get_upcoming_tasks` + `get_overdue_tasks` with daysRemaining/daysOverdue
+  - "Help me study CS210" → course-scoped context via `courseId` param + `get_tasks`/`get_upcoming_exams` filter
+  - "What's overdue and when are my exams?" → `identify_at_risk_work` + `get_upcoming_exams`
+  - "Build a study plan for my exam" → `build_study_plan` with conflict detection (`hasConflict` flag)
+  - Confirmed write verified → `confirmAction` returns `EXECUTED` with per-step verification
+  - Unauthorized/unconfirmed write rejected → `confirmation_required` + 404 cross-user isolation
+  - Provider removed → 503 `AI_PROVIDER_NOT_CONFIGURED` (no fabrication)
+  - Empty-data account → context snapshot empty, no cross-user leak (ownership-scoped queries)
+
+**Files Changed:** `analyze-tools.ts` (conflict-aware study plan), `context.ts` (enriched StudentContext), `system-prompt.ts` (6000-char capped snapshot inline), `agent.ts` (studentContext in tool path), `service.ts` (single context build), `course/[id]/page.tsx` (courseId/semesterId handoff), `ai/page.tsx` (preserve courseId/semesterId params), `ai-context.test.ts` (4 new tests), `ai-system-prompt.test.ts` (snapshot tests), `ai-tools.test.ts` (agent snapshot test).
+
+**Gate:** API 568/568, Web 260/260, `tsc` 0, `next build` 20 routes, `next lint` clean.
+
 ### 2026-10-07 — Phase 3 (capstone): production safety, database safety, verification, docs
-
-- **Production config guardrails** (`config/index.ts`): `validateConfig()` still fails fast on missing variables, and in `NODE_ENV=production` it now also rejects placeholder or short (<32 char) `JWT_SECRET`/`ENCRYPTION_KEY` and an unset/empty `CORS_ORIGINS` (the localhost default would silently block a real web origin). `productionConfigErrors()` is exported and pure, so it is unit-tested without booting anything — `tests/production-config.test.ts` (9 tests).
-- **Database safety.** 17 owner/hot-path indexes added to `schema.prisma` (owner+status/date on tasks, courses, goals, academic years, semesters; `userId` on refresh tokens; ordered children; sort keys on notes/resources/events/study sessions/grades/AI lists) and shipped as `prisma/migrations/20261007000000_add_owner_indexes/migration.sql`. Two real defects fixed along the way: `init_from_schema/migration.sql` was **UTF-16LE**, which made `migrate deploy` fail on any fresh database ("string contains embedded null"), and `_prisma_migrations` on both databases still listed the deleted Phase 0 baseline names. **Verified from an empty database**: create DB → `migrate deploy` → `migrate status` clean → drop; also clean on `studentos` and `studentos_test`. Gap #15 closed. `prisma migrate dev` still cannot run here (shadow DB unreachable, P1001), so migrations are hand-written and applied with `migrate deploy`.
-- **`tsx` promoted from devDependencies to dependencies** — `pnpm install --frozen-lockfile` still passes, and a production install can now actually run `start` (`tsx src/server.ts`). `tsc` remains a typecheck gate only; `dist/` is not runnable under plain node because of `moduleResolution: Bundler` + path aliases.
-- **IDOR sweep** (`tests/cross-user.test.ts`): Alice creates a note, event, goal, grade, resource, study session, AI conversation, study plan and connection; Bob's GET/PATCH/DELETE against every one returns **404 `NOT_FOUND`** (never 403), and Alice can still read all of them afterwards. Plus the existing per-module ownership tests.
-- **Live HTTP smoke** against a real server (`tsx src/server.ts`, port 3001): `/health` 200 with `database: connected`; register 201; duplicate register 409; login 200 with token; `GET /auth/me` 200; task create 201 → read 200 → patch 200 → delete 200 → read 404; anonymous read 401; validation failure 400 `VALIDATION_ERROR`; unknown path outside `/api/v1` 404 with the query string stripped; unknown path under `/api/v1` 401; `X-Request-Id` present, `X-Powered-By` absent; **rate limit 429 after 100 requests** with `Retry-After` and `X-RateLimit-*` headers.
-- **CI actually creates its schema.** The api job generated the Prisma client and then ran tests against an empty `studentos_test` — it never applied the migrations, so it could only have failed with `P2021`. Added a `prisma migrate deploy` step and replayed the whole path locally (drop DB → create → deploy → 422/29 green).
-- **Docs**: README (test counts, migration/deploy instructions, production run-book, `TRUST_PROXY`/`ENCRYPTION_KEY`/32-char secrets, "stale OpenAPI" line gone) and this file (status table, git log, CI exists, migration history, test/build table, gaps #11 and #15, next-work list).
-- **Gate:** API 422 tests / 29 files, web 227 tests / 18 files, `tsc` both apps 0, `prisma validate` valid, `migrate status` up to date, `next lint` and root `pnpm lint` clean, `next build` 0, API `tsc -p tsconfig.json` 0, `pnpm install --frozen-lockfile` 0.
-
-### 2026-10-07 — Phase 2: backend hardening for capstone review (docs, tests, production readiness, contract safety)
 
 - **`docs/api/openapi.yaml` regenerated** (gap #2 resolved): real YAML, OpenAPI 3.1.1, **60 paths / 111 operations / 92 schemas / 759 `$ref`s, 0 broken**, verified against the 100 registered route operations (11 are the `/academics/years` alias plus the 5 public `/auth` + `/health` ops). Carries `bearerAuth`, shared 400/401/404/409/429 (+`Retry-After`)/500/502/503 responses, Zod-derived request constraints, `operationId`s, and the honest deviations (404-not-403 ownership, bare-array lists, `UPLOAD_STORAGE_UNAVAILABLE`, provider failures as 200 `success:false`, 1 MB body, in-memory pending actions).
 - **New `backend/tests/contract-safety.test.ts` (15 tests)** — the cross-module regression net: standard 401 envelope on 26 protected probes in every module; success envelope on 16 list endpoints (would have caught the "Request failed (200)" envelope bug); cursor page shape; validation boundaries (`limit=0`/`limit=101`, 65-char `ai-connections` cursor, unparseable date); no DB internals in 409/404 bodies; 404 no longer echoes the query string; `X-Request-Id` present and `X-Powered-By` absent; login does not reveal whether an email exists; ownership answers 404, never 403.
@@ -1065,3 +1275,5 @@ Could not be confirmed from the repository, so treat as unknown rather than assu
 - **Seed credentials beyond the demo user.** `prisma/seed.ts` creates `demo@studentos.dev` with password `StudentPass123!` (Alex Rivera) and at least one further user (Bob), but the full seeded roster and its credentials were not enumerated.
 - **Database contents of the local dev database** (`studentos` on port 5432) and whether the local PostgreSQL instance is meant to be shared or per-developer.
 - **Whether the AI provider was ever exercised against a real endpoint.** Superseded: a real OpenRouter completion was seen on the wire on 2026-10-01 (see [§12](#12-test--build-status-verified-2026-10-07)), though the free model was intermittently 429 and does not reliably call write tools (gap #33). Gemini, Anthropic, Ollama and the custom endpoint remain unverified against a live endpoint.
+- **`AI_CONNECTION_UNREADABLE` in the OpenAPI contract.** The 409 error added 2026-10-10 is documented in this file but **not** in `docs/api/openapi.yaml` — its `ErrorEnvelope` code enum and the `POST /ai/conversations/{id}/messages` response descriptions still list only `AI_PROVIDER_NOT_CONFIGURED` / `AI_PROVIDER_ERROR` / `AI_STRUCTURED_OUTPUT_INVALID`. The runtime behaviour is verified by tests; the published contract is stale.
+- **The demo account's stale `ollama` connection.** A live `AiConnection` for the seeded demo user still holds ciphertext written under an old `ENCRYPTION_KEY` (the trigger for the 2026-10-10 fix). It was deliberately **not** rewritten or deactivated — deleting or re-encrypting production/demo data is out of scope. With the fix it now surfaces as `409 AI_CONNECTION_UNREADABLE` instead of a 500.

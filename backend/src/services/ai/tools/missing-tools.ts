@@ -4,9 +4,9 @@ import { tasksService } from "@/services/tasks";
 import { notesService } from "@/services/notes";
 import { studySessionsService } from "@/services/study-sessions";
 import { aiService } from "@/services/ai/service";
-import { NotFoundError } from "@/config/errors";
 
-import { ok, toIsoTimestamp } from "./types";
+import { ok } from "./types";
+import type { AiToolDefinition } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WRITE tools (action tools)
@@ -154,7 +154,7 @@ export const createStudyPlanTool: AiToolDefinition = {
 };
 
 const addStudyPlanEntryArgs = z.object({
-  studyPlanId: z
+  planId: z
     .string()
     .min(1)
     .describe("The id of the study plan to add an entry to."),
@@ -185,7 +185,7 @@ export const addStudyPlanEntryTool: AiToolDefinition = {
   parameters: addStudyPlanEntryArgs,
   async execute(args, ctx) {
     const input = addStudyPlanEntryArgs.parse(args);
-    const result = await aiService.addEntry(ctx.userId, input.studyPlanId, {
+    const entry = await aiService.addEntry(ctx.userId, input.planId, {
       dayNumber: input.dayNumber,
       title: input.title,
       description: input.description,
@@ -193,7 +193,9 @@ export const addStudyPlanEntryTool: AiToolDefinition = {
       taskId: input.taskId,
       courseId: input.courseId,
     });
-    return ok(result, `Added entry to study plan`);
+    // The verifier re-reads the *plan* to find this entry, so the payload
+    // carries the plan id, not the entry id.
+    return ok({ id: input.planId, entry }, `Added entry to study plan`);
   },
 };
 
@@ -202,7 +204,7 @@ export const addStudyPlanEntryTool: AiToolDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const pushDailyAgendaArgs = z.object({
-  studyPlanId: z
+  planId: z
     .string()
     .min(1)
     .describe("The id of the study plan to build the agenda from."),
@@ -216,29 +218,27 @@ const pushDailyAgendaArgs = z.object({
 export const pushDailyAgendaTool: AiToolDefinition = {
   name: "push_daily_agenda",
   description:
-    "Generate a day-by-day daily agenda for a study plan. Walks the plan day-by-day and assigns study slots, so the student has a concrete schedule to follow. Requires the student's confirmation first.",
-  kind: "WRITE",
-  activityLabel: "Pushing a daily agenda",
+    "Build a day-by-day agenda from a study plan the student can already see: each plan entry mapped to a concrete date with its duration. Changes nothing. Use when the student asks what to do and when.",
+  kind: "ANALYZE",
+  activityLabel: "Building your daily agenda",
   parameters: pushDailyAgendaArgs,
   async execute(args, ctx) {
     const input = pushDailyAgendaArgs.parse(args);
-    const cursor = { take: 101, cursor: null };
-    const { items: planItems, hasMore } = await aiService.listStudyPlans(
-      ctx.userId,
-      { limit: 1, cursor: null },
-    );
-    const plan = planItems[0];
-    if (!plan) throw new NotFoundError("Study plan not found");
+    // The plan the student named is the one read — never the newest plan.
+    const plan = await aiService.getStudyPlan(ctx.userId, input.planId);
 
-    const planEntries = await aiService.listStudyPlanEntries(
-      ctx.userId,
-      plan.id,
-    );
+    const sortedEntries = [...plan.entries].sort((a, b) => a.dayNumber - b.dayNumber);
 
-    const agenda = [];
+    const agenda: Array<{
+      dayNumber: number;
+      studyDate: string;
+      title: string;
+      description: string | null;
+      durationMinutes: number;
+      status: string;
+      taskId: string | null;
+    }> = [];
     const usedDayNumbers = new Set<number>();
-    const sortedEntries = [...planEntries].sort((a, b) => a.dayNumber - b.dayNumber);
-
     for (const entry of sortedEntries) {
       let targetDay = entry.dayNumber;
       while (usedDayNumbers.has(targetDay)) targetDay += 1;
@@ -246,9 +246,7 @@ export const pushDailyAgendaTool: AiToolDefinition = {
 
       agenda.push({
         dayNumber: targetDay,
-        studyDate: input.date
-          ? new Date(new Date(input.date).getTime() + (targetDay - 1) * 24 * 60 * 60 * 1000).toISOString()
-          : null,
+        studyDate: new Date(new Date(input.date).getTime() + (targetDay - 1) * 24 * 60 * 60 * 1000).toISOString(),
         title: entry.title,
         description: entry.description,
         durationMinutes: entry.durationMinutes,
@@ -257,17 +255,18 @@ export const pushDailyAgendaTool: AiToolDefinition = {
       });
     }
 
-    const result = {
-      studyPlanId: plan.id,
-      title: plan.title,
-      date: input.date,
-      hoursPerDay: input.hoursPerDay,
-      entries: agenda,
-      totalDays: usedDayNumbers.size,
-      totalMinutes: agenda.reduce((sum, e) => sum + e.durationMinutes, 0),
-    };
-
-    return ok(result, `Built daily agenda for study plan`);
+    return ok(
+      {
+        studyPlanId: plan.id,
+        title: plan.title,
+        date: input.date,
+        hoursPerDay: input.hoursPerDay,
+        entries: agenda,
+        totalDays: usedDayNumbers.size,
+        totalMinutes: agenda.reduce((sum, e) => sum + e.durationMinutes, 0),
+      },
+      `Built daily agenda for study plan`,
+    );
   },
 };
 
@@ -279,12 +278,6 @@ const bulkUpdateTaskStatusArgs = z.object({
   status: z
     .enum(["TODO", "IN_PROGRESS", "COMPLETED", "CANCELLED"])
     .describe("The new status to apply to all listed tasks."),
-  courseId: z
-    .string()
-    .min(1)
-    .nullable()
-    .optional()
-    .describe("Optional course to scope the update to."),
 });
 
 export const bulkUpdateTaskStatusTool: AiToolDefinition = {
@@ -296,14 +289,36 @@ export const bulkUpdateTaskStatusTool: AiToolDefinition = {
   parameters: bulkUpdateTaskStatusArgs,
   async execute(args, ctx) {
     const input = bulkUpdateTaskStatusArgs.parse(args);
-    const results = await Promise.all(
-      input.taskIds.map((taskId) =>
-        tasksService.update(ctx.userId, taskId, { status: input.status }),
-      ),
+
+    // Settled per task, never all-or-nothing: one id that does not exist or
+    // belongs to another student must not roll back the rest, and it must not
+    // be reported as a success either. Each outcome is named so the student
+    // sees exactly which tasks changed.
+    const settled = await Promise.all(
+      input.taskIds.map(async (taskId) => {
+        try {
+          const task = await tasksService.update(ctx.userId, taskId, { status: input.status });
+          return { taskId, ok: true as const, title: task.title };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unknown error";
+          return { taskId, ok: false as const, error: message };
+        }
+      }),
     );
+
+    const updated = settled.filter((r) => r.ok);
+    const failed = settled.filter((r) => !r.ok);
+
     return ok(
-      { updated: results.length, results: results.map((r) => r.id) },
-      `Updated ${results.length} task(s) to ${input.status}`,
+      {
+        status: input.status,
+        requested: input.taskIds.length,
+        updated: updated.map((r) => r.taskId),
+        updatedCount: updated.length,
+        failed: failed.map((r) => ({ taskId: r.taskId, error: r.error })),
+        failedCount: failed.length,
+      },
+      `Updated ${updated.length} of ${input.taskIds.length} task(s) to ${input.status}`,
     );
   },
 };

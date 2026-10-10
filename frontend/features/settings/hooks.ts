@@ -1,9 +1,17 @@
-"use client";
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Settings } from "@/types/api-types";
 import * as api from "./settings-api";
+
+export type CompanionCharacter = "wall-e" | "eve";
+
+export function getCompanionPreference(settings: Settings | undefined): CompanionCharacter {
+  return (settings?.["ai.companion"] as CompanionCharacter) ?? "wall-e";
+}
+
+export function setCompanionPreference(settings: Settings, character: CompanionCharacter): Settings {
+  return { ...settings, "ai.companion": character };
+}
 
 export function useSettings() {
   return useQuery({
@@ -21,6 +29,26 @@ export function useUpdateSettings() {
       toast.success("Preferences saved");
     },
     onError: () => toast.error("Could not save preferences"),
+  });
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Parameters<typeof api.updateProfile>[0]) => api.updateProfile(data),
+    onSuccess: (updatedUser) => {
+      qc.setQueryData(["auth", "user"], updatedUser);
+      toast.success("Profile updated");
+    },
+    onError: () => toast.error("Could not update profile"),
+  });
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (data: { currentPassword: string; newPassword: string }) => api.changePassword(data),
+    onSuccess: () => toast.success("Password changed"),
+    onError: () => toast.error("Could not change password"),
   });
 }
 

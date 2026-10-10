@@ -112,9 +112,9 @@ export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[keyof typeof AUTH_ERROR_CO
  *
  * The middleware:
  *  1. Reads the `Authorization: Bearer <token>` header.
- *  2. Verifies the JWT signature and expiration.
+ *  2. Verifies the JWT signature, expiration and that it is an access token.
  *  3. Attaches `currentUser` and `tokenPayload` to the request.
- *  4. Returns 401 / 403 on failure.
+ *  4. Returns 401 on failure.
  *
  * Usage:
  *  ```ts
@@ -159,6 +159,14 @@ export async function authenticate(
 
   try {
     const payload = await serialize.verifyJwt(token, config.auth.algorithm);
+
+    // A refresh token is signed with the same key and is therefore a valid
+    // JWT — but it must never authenticate an API call. Only `type: "access"`
+    // is accepted; a missing claim is rejected too.
+    if (payload.type !== "access") {
+      sendUnauthorized(res, AUTH_ERROR_CODES.INVALID_TOKEN, "Invalid access token");
+      return;
+    }
 
     const currentUser: CurrentUser = {
       id: payload.sub,
@@ -220,6 +228,14 @@ export async function authenticateOptional(
 
   try {
     const payload = await serialize.verifyJwt(token, config.auth.algorithm);
+
+    // Treat a non-access token exactly like no token at all.
+    if (payload.type !== "access") {
+      (req as AuthRequest).currentUser = null as unknown as CurrentUser;
+      (req as AuthRequest).tokenPayload = null as unknown as TokenPayload;
+      next();
+      return;
+    }
 
     const currentUser: CurrentUser = {
       id: payload.sub,
