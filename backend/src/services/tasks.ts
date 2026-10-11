@@ -193,7 +193,7 @@ export const tasksService = {
     }
 
     const task = await prisma.task.update({
-      where: { id },
+      where: { id, userId },
       data: updateData,
       include: {
         course: {
@@ -220,7 +220,7 @@ export const tasksService = {
     }
 
     const task = await prisma.task.update({
-      where: { id },
+      where: { id, userId },
       data: {
         status: "COMPLETED",
         completedAt: new Date(),
@@ -246,7 +246,7 @@ export const tasksService = {
     }
 
     await prisma.task.delete({
-      where: { id },
+      where: { id, userId },
     });
 
     return { deleted: true };

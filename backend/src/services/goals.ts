@@ -73,7 +73,7 @@ export const goalsService = {
     if (!existing) throw new NotFoundError("Goal not found");
 
     const goal = await prisma.goal.update({
-      where: { id },
+      where: { id, userId },
       data: {
         ...(input.title !== undefined && { title: input.title }),
         ...(input.description !== undefined && { description: input.description }),

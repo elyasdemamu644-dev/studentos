@@ -25,6 +25,7 @@ import { Button, LoadingButton } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import {
   CHAT_SUGGESTIONS,
   composerState,
@@ -39,6 +40,7 @@ import {
 import { formatTime, formatBytes } from "@/lib/format";
 import type { AiActionOutcome, AiMessage, AiToolActivity, PendingAction } from "@/types/api-types";
 import { useUploadAttachment } from "@/features/ai/hooks";
+import { api } from "@/lib/api/client";
 
 // ── Markdown ─────────────────────────────────
 //
@@ -641,6 +643,8 @@ export function ChatComposer({
   const state = composerState(draft, { busy, disabled });
 
   const uploadAttachment = useUploadAttachment();
+  const [linkInputValue, setLinkInputValue] = useState("");
+  const [showLinkInput, setShowLinkInput] = useState(false);
 
   // Grow with the content, then shrink back. Capped so the composer can never
   // eat the transcript on a phone.
@@ -714,11 +718,64 @@ export function ChatComposer({
     }
   }, [attachments, uploadAttachments]);
 
+const validateAndAddLink = useCallback(async (url: string) => {
+  // Validate the URL
+  try {
+    const validatedUrl = safeHref(url);
+    if (!validatedUrl) {
+      toast.error("Invalid URL");
+      return;
+    }
+
+    // Basic SSRF prevention: block loopback, private, link-local addresses
+    try {
+      const parsed = new URL(validatedUrl);
+      if (
+        parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname.startsWith("10.") ||
+        parsed.hostname.startsWith("192.168.") ||
+        parsed.hostname.startsWith("172.16.") ||
+        parsed.hostname.startsWith("172.31.") ||
+        parsed.protocol === "file:" ||
+        parsed.protocol === "ftp:"
+      ) {
+        toast.error("URL is not allowed for security reasons");
+        return;
+      }
+    } catch {
+      // If URL parsing fails, proceed but may be blocked by server
+    }
+
+    setShowLinkInput(false);
+
+    // Save as a link resource using the existing API
+    const result = await api.post<{ resourceId: string }>(
+      `/resources`,
+      { title: validatedUrl, description: "", storageType: "URL", url: validatedUrl, resourceType: "LINK" }
+    );
+
+    onAttachmentsChange([
+      ...attachments,
+      {
+        id: `link-${Date.now()}`,
+        file: new File([], "link", { type: "text/plain" }),
+        preview: undefined,
+        uploading: false,
+        progress: 100,
+        resourceId: result.resourceId,
+      },
+    ]);
+} catch {
+    toast.error("Could not add the link");
+  }
+}, [attachments, onAttachmentsChange]);
+
   const hasAttachments = attachments.length > 0;
   const allUploaded = attachments.every((a) => a.resourceId || a.error);
   const anyUploading = attachments.some((a) => a.uploading);
 
-  return (
+return (
     <div className="surface-blur shrink-0 border-t border-border bg-ai px-3 py-3 sm:px-4">
       {/* The reading column, matched to the transcript so the input sits under
           the messages it continues rather than at the far edge of a wide screen. */}
@@ -776,7 +833,7 @@ export function ChatComposer({
         )}
 
         <div className="flex items-end gap-2">
-          <div className="relative flex-1">
+<div className="relative flex-1">
             <Textarea
               ref={textareaRef}
               value={draft}
@@ -798,56 +855,97 @@ export function ChatComposer({
             {/* Attachment button */}
             <label
               htmlFor={fileInputRef.current?.id ?? ""}
-              className="absolute right-2 bottom-2 shrink-0 rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="absolute left-2 bottom-2 shrink-0 rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
               <input
                 ref={fileInputRef}
                 id={`file-input-${conversationId}`}
                 type="file"
                 className="sr-only"
-                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
+                accept=".pdf,.docx,.pptx,.txt,.md,.csv,.png,.jpg,.jpeg"
                 multiple
                 onChange={(e) => handleFileSelect(e.target.files)}
                 disabled={disabled || busy}
               />
               <Paperclip className="h-5 w-5" aria-hidden />
             </label>
+
+            {/* Link input */}
+            {showLinkInput && (
+              <div className="absolute left-2 bottom-43 shrink-0 rounded-lg p-2 w-full sm:w-64 text-sm text-muted-foreground border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors disabled:opacity-50 disabled:pointer-events-none">
+                <label htmlFor={`link-input-${conversationId}`} className="block text-[10px] uppercase tracking-widest mb-1.font-semibold opacity-60">
+                  URL or link
+                </label>
+                <input
+                  id={`link-input-${conversationId}`}
+                  type="text"
+                  value={linkInputValue}
+                  onChange={(e) => setLinkInputValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && linkInputValue.trim()) {
+                      e.preventDefault();
+                      validateAndAddLink(linkInputValue.trim());
+                    }
+                  }}
+                  placeholder="Enter a URL..."
+                  disabled={disabled || busy}
+                  className="w-full bg-transparent border-0 py-1.5 pr-8 focus:text-foreground placeholder:text-muted-foreground"
+                />
+                <button
+                  type="button"
+                  onClick={() => validateAndAddLink(linkInputValue.trim())}
+                  disabled={!linkInputValue.trim() || disabled || busy}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-primary px-2 py-1 text-xs text-primary-foreground opacity-0 hover:opacity-100 group-focus:opacity-100"
+                  aria-label="Add link"
+                >
+                  <Check className="h-3 w-3" aria-hidden />
+                </button>
+              </div>
+            )}
+
+            {showLinkInput && (
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                Paste a URL to extract its content for the AI
+              </p>
+            )}
+</div>
+
+          <div>
+            {busy ? (
+              <Button
+                variant="outline"
+                size="icon"
+                className="shrink-0"
+                onClick={onStop}
+                aria-label="Stop generating"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" aria-hidden />
+              </Button>
+            ) : (
+              <LoadingButton
+                size="icon"
+                className="shrink-0"
+                loading={anyUploading}
+                disabled={!state.canSend || anyUploading || !allUploaded}
+                onClick={onSend}
+                aria-label="Send message"
+              >
+                <Send className="h-4 w-4" aria-hidden />
+              </LoadingButton>
+            )}
+
+            <p
+              id={hintId}
+              className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-muted-foreground"
+            >
+              <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
+              <span className="sm:hidden">Enter sends</span>
+              <span className={cn("tabular-nums", state.overLimit && "font-medium text-danger")}>
+                {draft.length > MAX_MESSAGE_LENGTH - 200 ? `${state.remaining}` : ""}
+              </span>
+            </p>
           </div>
-
-          {busy ? (
-            <Button
-              variant="outline"
-              size="icon"
-              className="shrink-0"
-              onClick={onStop}
-              aria-label="Stop generating"
-            >
-              <Square className="h-3.5 w-3.5 fill-current" aria-hidden />
-            </Button>
-          ) : (
-            <LoadingButton
-              size="icon"
-              className="shrink-0"
-              loading={anyUploading}
-              disabled={!state.canSend || anyUploading || !allUploaded}
-              onClick={onSend}
-              aria-label="Send message"
-            >
-              <Send className="h-4 w-4" aria-hidden />
-            </LoadingButton>
-          )}
         </div>
-
-        <p
-          id={hintId}
-          className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-muted-foreground"
-        >
-          <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
-          <span className="sm:hidden">Enter sends</span>
-          <span className={cn("tabular-nums", state.overLimit && "font-medium text-danger")}>
-            {draft.length > MAX_MESSAGE_LENGTH - 200 ? `${state.remaining}` : ""}
-          </span>
-        </p>
       </div>
     </div>
   );

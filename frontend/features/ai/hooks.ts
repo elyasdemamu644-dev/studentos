@@ -400,9 +400,14 @@ export function useStructuredExtraction() {
 }
 
 export function useUploadAttachment() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: api.UploadAttachmentInput) => api.uploadAttachment(input),
     onError: (error) => toast.error(formatApiError(error)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resources"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 

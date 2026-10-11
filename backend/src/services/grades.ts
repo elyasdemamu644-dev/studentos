@@ -91,7 +91,7 @@ export const gradesService = {
     }
 
     const grade = await prisma.grade.update({
-      where: { id },
+      where: { id, userId },
       data: {
         ...(input.title !== undefined && { title: input.title }),
         ...(input.score !== undefined && { score: input.score }),
@@ -112,7 +112,7 @@ export const gradesService = {
     const existing = await prisma.grade.findFirst({ where: { id, userId } });
     if (!existing) throw new NotFoundError("Grade not found");
 
-    await prisma.grade.delete({ where: { id } });
+    await prisma.grade.delete({ where: { id, userId } });
     return { deleted: true };
   },
 };

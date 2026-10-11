@@ -5,13 +5,12 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
   ArrowRight,
-  ArrowUpRight,
   Award,
   Bell,
   Book,
-  BookOpen,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Flame,
   GraduationCap,
@@ -28,12 +27,10 @@ import {
 } from "lucide-react";
 import { format, isToday, isTomorrow } from "date-fns";
 
-import { StatCard } from "@/components/domain/stat-card";
 import { CourseSwatch } from "@/components/domain/course-swatch";
 import { PriorityBadge } from "@/components/domain/priority-badge";
-import { EmptyState, GridSkeleton } from "@/components/feedback";
+import { EmptyState } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { IconChip } from "@/components/ui/surface";
@@ -44,41 +41,13 @@ import { useAuth } from "@/features/auth/auth-provider";
 import type {
   ActivityKind,
   DashboardActivity,
+  DashboardData,
   DashboardEvent,
   DashboardTask,
 } from "@/types/api-types";
 import { dueLabel, formatMinutes, relativeTime } from "@/lib/format";
 import { TASK_STATUS_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-
-/** Circular progress ring for the term card. Colours come from theme tokens. */
-function ProgressRing({ value, label }: { value: number; label: string }) {
-  const radius = 36;
-  const circumference = 2 * Math.PI * radius;
-  const clamped = Math.min(100, Math.max(0, value));
-
-  return (
-    <div className="relative h-24 w-24 shrink-0">
-      <svg viewBox="0 0 88 88" className="h-24 w-24 -rotate-90" role="img" aria-label={label}>
-        <circle cx="44" cy="44" r={radius} fill="none" strokeWidth="8" className="stroke-primary/15" />
-        <circle
-          cx="44"
-          cy="44"
-          r={radius}
-          fill="none"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - clamped / 100)}
-          className="stroke-primary transition-[stroke-dashoffset]"
-        />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-lg font-bold tabular-nums">
-        {clamped}%
-      </span>
-    </div>
-  );
-}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -89,6 +58,35 @@ function greeting(): string {
 
 function daysUntil(iso: string): number {
   return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000));
+}
+
+/** Academic context selector - shows current semester and allows switching */
+function AcademicContextSelector({ 
+  currentSemester, 
+  currentAcademicYear
+}: { 
+  currentSemester: DashboardData["currentSemester"]; 
+  currentAcademicYear: DashboardData["currentAcademicYear"];
+}) {
+  if (!currentSemester || !currentAcademicYear) return null;
+  
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-muted/50 border border-border">
+      <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{currentSemester.name}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {currentAcademicYear.name} · {format(new Date(currentSemester.startDate), "MMM d")} – {format(new Date(currentSemester.endDate), "MMM d, yyyy")}
+        </p>
+      </div>
+      <Button variant="ghost" size="sm" asChild>
+        <Link href="/academics" className="flex items-center gap-1">
+          <span className="text-xs font-medium">Manage</span>
+          <ChevronDown className="h-3 w-3" aria-hidden />
+        </Link>
+      </Button>
+    </div>
+  );
 }
 
 // ─── Task row (quick complete) ────────────────────────
@@ -232,37 +230,6 @@ function ActivityRow({ item }: { item: DashboardActivity }) {
   );
 }
 
-// ─── Quick action tile ────────────────────────────────
-
-function QuickAction({
-  icon: Icon,
-  label,
-  href,
-  chip,
-}: {
-  icon: LucideIcon;
-  label: string;
-  href: string;
-  /** Background/tint classes for the icon chip only. */
-  chip: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group flex min-w-0 items-center gap-2.5 rounded-lg border border-primary/30 bg-muted/30 px-3 py-2.5 transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:bg-muted/60"
-    >
-      <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", chip)}>
-        <Icon className="h-4 w-4" aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-      <ArrowUpRight
-        className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-        aria-hidden
-      />
-    </Link>
-  );
-}
-
 // ─── Dashboard page ───────────────────────────────────
 
 export default function DashboardPage() {
@@ -275,51 +242,28 @@ export default function DashboardPage() {
         <span className="sr-only">Loading dashboard</span>
         <div aria-hidden className="space-y-4">
           <div className="surface-panel p-6">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="mt-3 h-9 w-80 max-w-full" />
-            <Skeleton className="mt-3 h-4 w-96 max-w-full" />
-            <div className="mt-5 flex gap-2">
-              <Skeleton className="h-6 w-24 rounded-badge" />
-              <Skeleton className="h-6 w-28 rounded-badge" />
-              <Skeleton className="h-6 w-32 rounded-badge" />
-            </div>
-          </div>
-          <GridSkeleton cards={4} />
-          <div className="grid grid-flow-row-dense gap-4 lg:grid-cols-3">
-            <div className="surface-panel p-5 lg:col-span-2">
-              <Skeleton className="h-5 w-32" />
-              <div className="mt-4 space-y-3">
-                <Skeleton className="h-14 rounded-lg" />
-                <Skeleton className="h-14 rounded-lg" />
-              </div>
-            </div>
-            <div className="surface-panel p-5">
-              <Skeleton className="h-5 w-32" />
-              <div className="mt-4 flex items-center gap-4">
-                <Skeleton className="h-24 w-24 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-1/2" />
-                  <Skeleton className="h-3 w-2/3" />
-                </div>
-              </div>
-            </div>
-            <div className="surface-panel p-5 lg:col-span-2">
-              <Skeleton className="h-5 w-40" />
-              <div className="mt-4 space-y-3">
-                <Skeleton className="h-14 rounded-lg" />
-                <Skeleton className="h-14 rounded-lg" />
-                <Skeleton className="h-14 rounded-lg" />
-              </div>
-            </div>
-            <div className="surface-panel p-5">
-              <Skeleton className="h-5 w-28" />
-              <div className="mt-4 space-y-2">
-                <Skeleton className="h-9 rounded-lg" />
-                <Skeleton className="h-9 rounded-lg" />
-                <Skeleton className="h-9 rounded-lg" />
-              </div>
-            </div>
+            <svg
+              viewBox="0 0 88 88"
+              className="h-24 w-24 -rotate-90 text-muted-foreground"
+              role="img"
+              aria-label="Loading"
+            >
+              <circle
+                cx="44"
+                cy="44"
+                r="36"
+                fill="none"
+                strokeWidth="8"
+                strokeLinecap="round"
+              />
+              <path
+                fill="none"
+                strokeWidth="8"
+                strokeLinecap="round"
+                d="M33.94 37.9 a 12.16 12.16 0 0 1 0 24.23"
+              />
+            </svg>
+            <p className="mt-4 text-center text-muted-foreground">Loading dashboard</p>
           </div>
         </div>
       </div>
@@ -327,7 +271,12 @@ export default function DashboardPage() {
   }
 
   if (dashboard.isError) {
-    return <ErrorState error={dashboard.error} retry={() => dashboard.refetch()} />;
+    return (
+      <ErrorState
+        error={dashboard.error}
+        retry={() => void dashboard.refetch()}
+      />
+    );
   }
 
   const data = dashboard.data!;
@@ -340,13 +289,6 @@ export default function DashboardPage() {
   const dueToday = data.tasks.dueToday;
   const unread = data.notifications.unreadCount;
   const nextExam = data.exams.upcoming[0];
-
-  const summary = [
-    `${todoCount} todo`,
-    `${inProgress} in progress`,
-    ...(dueToday > 0 ? [`${dueToday} due today`] : []),
-    ...(overdue > 0 ? [`${overdue} overdue`] : []),
-  ].join(" · ");
 
   const hasAlerts = overdue > 0 || dueToday > 0 || unread > 0 || nextExam !== undefined;
 
@@ -403,7 +345,6 @@ export default function DashboardPage() {
             <AcademicContextSelector 
               currentSemester={data.currentSemester} 
               currentAcademicYear={data.currentAcademicYear}
-              academicYears={data.academicYears}
             />
             <Button asChild>
               <Link href="/tasks?new=1">
@@ -512,380 +453,196 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* ── Stats ──────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in" style={{ animationDelay: "60ms" }}>
-        <StatCard
-          icon={ListTodo}
-          label="Todo"
-          value={todoCount}
+{/* ── Primary workspace: today's work ────────────────────────── */}
+      <section className="lg:col-span-2 space-y-4">
+        <Panel
+          title="Overdue"
+          icon={AlertTriangle}
+          tone="danger"
           href="/tasks"
-          action={<ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-hidden />}
-          hint={
-            todoCount === 0
-              ? "All caught up"
-              : `${dueToday} due today${overdue > 0 ? ` · ${overdue} overdue` : ""}`
-          }
-          tone={todoCount > 0 ? (overdue > 0 ? "danger" : "warning") : "success"}
-        />
-        <StatCard
-          icon={BookOpen}
-          label="Active courses"
-          value={data.courses.active}
-          href="/courses"
-          action={<ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-hidden />}
-          hint={`${data.courses.total} total${data.courses.completed > 0 ? ` · ${data.courses.completed} done` : ""}`}
-          tone="primary"
-        />
-        <StatCard
-          icon={CalendarClock}
-          label="Next exam"
-          value={nextExam ? format(new Date(nextExam.startAt), "MMM d") : "—"}
-          href="/exams"
-          action={<ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-hidden />}
-          hint={
-            nextExam
-              ? data.exams.nextInDays === 0
-                ? "Today"
-                : data.exams.nextInDays === 1
-                  ? "Tomorrow"
-                  : `In ${data.exams.nextInDays} days`
-              : "Nothing scheduled"
-          }
-          tone={data.exams.nextInDays !== null && data.exams.nextInDays <= 3 ? "danger" : "primary"}
-        />
-        <StatCard
-          icon={Flame}
-          label="Studied today"
-          value={formatMinutes(data.studySessions.todayMinutes)}
-          href="/study"
-          action={<ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-hidden />}
-          hint={`${formatMinutes(data.studySessions.weekMinutes)} last 7 days`}
-          tone="primary"
-        />
-      </div>
-
-      {/* ── Main columns ───────────────────────────── */}
-      <div className="grid grid-flow-row-dense gap-4 lg:grid-cols-3">
-        <div className="contents">
-          {/* Overdue — the first question a command center has to answer. */}
-          <Panel
-            title="Overdue"
-            icon={AlertTriangle}
-            tone="danger"
-            href="/tasks"
-            linkLabel="All tasks"
-            className="lg:col-span-2"
-          >
-            {overdue === 0 ? (
-              <EmptyState
-                icon={CheckCircle2}
-                title="Nothing overdue"
-                description="Every deadline is still ahead of you."
-                className="py-6"
-              />
-            ) : (
-              <ul className="space-y-1.5">
-                {data.overdueTasks.slice(0, 6).map((task) => (
-                  <TaskRow key={task.id} task={task} variant="overdue" />
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          {/* What's next */}
-          <Panel
-            title="What's next"
-            icon={Clock}
-            tone="warning"
-            href="/tasks"
-            linkLabel="All tasks"
-            className="lg:col-span-2"
-          >
-            {data.upcomingTasks.length === 0 ? (
-              <EmptyState
-                icon={CheckCircle2}
-                title="All caught up"
-                description="Nothing due. Enjoy the calm."
-                className="py-6"
-              />
-            ) : (
-              <ul className="space-y-1.5">
-                {data.upcomingTasks.slice(0, 5).map((task) => (
-                  <TaskRow key={task.id} task={task} variant="upcoming" />
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          {/* Schedule — today's agenda plus what's just over the horizon. */}
-          <Panel
-            title="Schedule"
-            icon={CalendarClock}
-            href="/calendar"
-            linkLabel="Calendar"
-            className="lg:col-span-2"
-          >
-            {data.events.today.length === 0 && data.events.upcoming.length === 0 ? (
-              <EmptyState
-                icon={CalendarClock}
-                title="Nothing scheduled"
-                description="Your calendar is clear for now."
-                className="py-6"
-              />
-            ) : (
-              <div className="space-y-4">
-                {data.events.today.length > 0 && (
-                  <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Today
-                    </p>
-                    <ul className="space-y-1.5">
-                      {data.events.today.slice(0, 4).map((e) => (
-                        <ScheduleRow key={e.id} event={e} />
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {data.events.upcoming.length > 0 && (
-                  <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Coming up
-                    </p>
-                    <ul className="space-y-1.5">
-                      {data.events.upcoming.slice(0, 4).map((e) => (
-                        <ScheduleRow key={e.id} event={e} upcoming />
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </Panel>
-
-          {/* Courses — where each subject stands, straight from the payload. */}
-          <Panel
-            title="Courses"
-            icon={BookOpen}
-            href="/courses"
-            linkLabel="All courses"
-            className="lg:col-span-2"
-          >
-            {data.courses.recent.length === 0 ? (
-              <EmptyState
-                icon={BookOpen}
-                title="No courses yet"
-                description="Add a course to connect tasks, notes and grades to it."
-                className="py-6"
-              />
-            ) : (
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                {data.courses.recent.slice(0, 6).map((course) => (
-                  <Link
-                    key={course.id}
-                    href="/courses"
-                    className="group flex items-center gap-3 rounded-lg border border-primary/30 bg-muted/20 px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:bg-muted/50"
-                  >
-                    <CourseSwatch id={course.id} className="h-10 w-10 shrink-0 rounded-lg" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {course.code ? `${course.code} · ` : ""}
-                        {course.name}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {course.taskCompleted}/{course.taskTotal} tasks
-                        {course.gradeAverage !== null ? ` · ${course.gradeAverage.toFixed(0)}%` : ""}
-                      </span>
-                      {course.taskProgress !== null && (
-                        <Progress
-                          className="mt-1.5 h-1.5"
-                          label={`${course.name} task progress`}
-                          value={course.taskProgress}
-                          valueText={`${course.taskProgress}% of tasks done`}
-                        />
-                      )}
-                    </span>
-                    <ArrowUpRight
-                      className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                      aria-hidden
-                    />
-                  </Link>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        <div className="contents">
-          {/* Term */}
-          {termValid && termStart && termEnd && term && (
-            <section className="surface-panel p-5">
-              <div className="flex items-center gap-2.5">
-                <IconChip icon={CalendarClock} />
-                <h2 className="min-w-0 flex-1 truncate font-semibold">Term progress</h2>
-                <span className="shrink-0 text-xs text-muted-foreground">Current term</span>
-              </div>
-              <div className="mt-4 flex items-center gap-4">
-                <ProgressRing
-                  value={termStarted ? termPct : 0}
-                  label={`${term.name} progress, ${termStarted ? `${termPct}%` : "not started"}`}
-                />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{term.name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {!termStarted
-                      ? `Starts ${format(termStart, "MMM d, yyyy")}`
-                      : termDaysLeft <= 0
-                        ? `Ended ${format(termEnd, "MMM d, yyyy")}`
-                        : termDaysLeft === 1
-                          ? "1 day left"
-                          : `${termDaysLeft} days left`}
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {format(termStart, "MMM d")} – {format(termEnd, "MMM d, yyyy")}
-                  </p>
-                  {term.academicYear && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      AY {format(new Date(term.academicYear.startDate), "yyyy")}–
-                      {format(new Date(term.academicYear.endDate), "yyyy")}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </section>
+          linkLabel="All tasks"
+        >
+          {overdue === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="Nothing overdue"
+              description="Every deadline is still ahead of you."
+              className="py-6"
+            />
+          ) : (
+            <ul className="space-y-1.5">
+              {data.overdueTasks.slice(0, 6).map((task) => (
+                <TaskRow key={task.id} task={task} variant="overdue" />
+              ))}
+            </ul>
           )}
+        </Panel>
 
-          {/* Study */}
-          <section className="surface-panel p-5">
+        <Panel
+          title="What's next"
+          icon={Clock}
+          tone="warning"
+          href="/tasks"
+          linkLabel="All tasks"
+        >
+          {data.upcomingTasks.length === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="All caught up"
+              description="Nothing due. Enjoy the calm."
+              className="py-6"
+            />
+          ) : (
+            <ul className="space-y-1.5">
+              {data.upcomingTasks.slice(0, 5).map((task) => (
+                <TaskRow key={task.id} task={task} variant="upcoming" />
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel title="Schedule" icon={CalendarClock} href="/calendar" linkLabel="Calendar">
+          {data.events.today.length === 0 && data.events.upcoming.length === 0 ? (
+            <EmptyState
+              icon={CalendarClock}
+              title="Nothing scheduled"
+              description="Your calendar is clear for now."
+              className="py-6"
+            />
+          ) : (
+            <div className="space-y-4">
+              {data.events.today.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Today
+                  </p>
+                  <ul className="space-y-1.5">
+                    {data.events.today.slice(0, 4).map((e) => (
+                      <ScheduleRow key={e.id} event={e} />
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {data.events.upcoming.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Coming up
+                  </p>
+                  <ul className="space-y-1.5">
+                    {data.events.upcoming.slice(0, 4).map((e) => (
+                      <ScheduleRow key={e.id} event={e} upcoming />
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </Panel>
+      </section>
+
+      {/* ── Semester overview ───────────────────────────────────────── */}
+      <section className="space-y-4">
+        {/* Term progress */}
+        {termValid && termStart && termEnd && term && (
+          <div className="surface-panel p-5">
             <div className="flex items-center gap-2.5">
-              <IconChip icon={Flame} tone="warning" />
-              <h2 className="min-w-0 flex-1 truncate font-semibold">Study momentum</h2>
-              <Button asChild variant="ghost" size="sm" className="-mr-1.5 shrink-0">
-                <Link href="/study">
-                  Open
-                  <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-                </Link>
-              </Button>
+              <IconChip icon={CalendarClock} />
+              <h2 className="min-w-0 flex-1 truncate font-semibold">Term progress</h2>
+              <span className="shrink-0 text-xs text-muted-foreground">Current term</span>
             </div>
-            <div className="mt-4 flex items-end justify-between gap-3">
-              <div>
-                <p className="text-3xl font-bold tabular-nums tracking-tight">
-                  {formatMinutes(data.studySessions.todayMinutes)}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  today · {data.studySessions.todayCount} session
-                  {data.studySessions.todayCount !== 1 ? "s" : ""}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-lg font-bold tabular-nums">
-                  {formatMinutes(data.studySessions.weekMinutes)}
-                </p>
-                <p className="text-xs text-muted-foreground">last 7 days</p>
-              </div>
-            </div>
-            {data.studySessions.weekMinutes > 0 ? (
+            <div className="mt-4 flex items-center gap-4">
               <Progress
-                className="mt-3"
-                label="Share of the last 7 days studied today"
-                value={Math.min(
-                  100,
-                  Math.round((data.studySessions.todayMinutes / data.studySessions.weekMinutes) * 100),
-                )}
-                valueText={`${formatMinutes(data.studySessions.todayMinutes)} of ${formatMinutes(data.studySessions.weekMinutes)}`}
+                className="flex-1 h-1.5 max-w-xs"
+                label={`${term.name} progress`}
+                value={termStarted ? termPct : 0}
+                valueText={
+                  !termStarted
+                    ? "Not started"
+                    : termDaysLeft <= 0
+                      ? "Finished"
+                      : `${termPct}% through, ${termDaysLeft} days left`
+                }
               />
-            ) : (
-              <p className="mt-3 text-xs text-muted-foreground">
-                No study time logged in the last 7 days.
+              <span className="text-sm font-medium tabular-nums text-muted-foreground shrink-0">
+                {termStarted ? `${termPct}%` : "Not started"}
+              </span>
+              {termStarted && termDaysLeft > 0 && (
+                <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
+                  {termDaysLeft === 1 ? "1 day left" : `${termDaysLeft} days left`}
+                </span>
+              )}
+            </div>
+            {term.academicYear && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                AY {format(new Date(term.academicYear.startDate), "yyyy")}–
+                {format(new Date(term.academicYear.endDate), "yyyy")}
               </p>
             )}
-            {data.studySessions.recent.length > 0 && (
-              <ul className="mt-4 space-y-1.5 border-t border-border/60 pt-3">
-                {data.studySessions.recent.slice(0, 3).map((s) => (
-                  <li key={s.id} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="min-w-0 truncate font-medium">{s.topic ?? "Untagged session"}</span>
-                    <span className="shrink-0 text-muted-foreground">
-                      {formatMinutes(s.durationMinutes)} · {relativeTime(s.startedAt)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          </div>
+        )}
 
-          {/* Quick actions */}
-          <section className="surface-panel p-5">
-            <div className="mb-4 flex items-center gap-2.5">
-              <IconChip icon={Sparkles} />
-              <h2 className="min-w-0 flex-1 truncate font-semibold">Quick actions</h2>
-              <Button asChild variant="ghost" size="sm" className="-mr-1.5 shrink-0">
-                <Link href="/ai">
-                  Ask AI
-                  <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-                </Link>
-              </Button>
+        {/* Study */}
+        <div className="surface-panel p-5">
+          <div className="flex items-center gap-2.5">
+            <IconChip icon={Flame} tone="warning" />
+            <h2 className="min-w-0 flex-1 truncate font-semibold">Study momentum</h2>
+            <Button asChild variant="ghost" size="sm" className="-mr-1.5 shrink-0">
+              <Link href="/study">
+                Open
+                <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+              </Link>
+            </Button>
+          </div>
+          <div className="mt-4 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-3xl font-bold tabular-nums tracking-tight">
+                {formatMinutes(data.studySessions.todayMinutes)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                today · {data.studySessions.todayCount} session
+                {data.studySessions.todayCount !== 1 ? "s" : ""}
+              </p>
             </div>
-            {/* Every one of these lands somewhere that acts: `?new=1` / `?note=new`
-                open the editor on the target page, the rest open the tool itself. */}
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <QuickAction icon={Plus} label="Add task" href="/tasks?new=1" chip="bg-primary/10 text-primary" />
-              <QuickAction icon={BookOpen} label="Add note" href="/notes?note=new" chip="bg-blue-500/10 text-blue-500" />
-              <QuickAction icon={Target} label="Add goal" href="/goals?new=1" chip="bg-violet-500/10 text-violet-500" />
-              <QuickAction icon={GraduationCap} label="Add course" href="/courses?new=1" chip="bg-amber-500/10 text-amber-600" />
-              <QuickAction icon={Timer} label="Start study" href="/study" chip="bg-green-500/10 text-green-600" />
-              <QuickAction icon={CalendarClock} label="Calendar" href="/calendar" chip="bg-orange-500/10 text-orange-600" />
+            <div className="text-right">
+              <p className="text-lg font-bold tabular-nums">
+                {formatMinutes(data.studySessions.weekMinutes)}
+              </p>
+              <p className="text-xs text-muted-foreground">last 7 days</p>
             </div>
-          </section>
-
-          {/* Goals */}
-          <Panel title="Goals" icon={Target} href="/goals" linkLabel="All goals">
-            {data.activeGoals.length === 0 ? (
-              <EmptyState
-                compact
-                icon={Target}
-                title="No active goals"
-                description="Set a goal to track your progress."
-              />
-            ) : (
-              <ul className="space-y-3.5">
-                {data.activeGoals.slice(0, 5).map((g) => {
-                  const goalOverdue =
-                    g.deadline !== null && new Date(g.deadline).getTime() < Date.now();
-                  return (
-                    <li key={g.id}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="min-w-0 truncate text-sm font-medium">{g.title}</p>
-                        <span className="shrink-0 text-xs font-bold tabular-nums">{g.progress}%</span>
-                      </div>
-                      <Progress
-                        className="mt-1.5 h-1.5"
-                        label={`${g.title} progress`}
-                        value={g.progress}
-                        valueText={`${g.progress}%`}
-                      />
-                      <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                        {g.milestoneTotal > 0 && (
-                          <span>
-                            {g.milestoneCompleted}/{g.milestoneTotal} milestones
-                          </span>
-                        )}
-                        {g.deadline && (
-                          <span className={goalOverdue ? "font-medium text-danger" : ""}>
-                            {goalOverdue ? "Overdue · " : "Due "}
-                            {format(new Date(g.deadline), "MMM d")}
-                          </span>
-                        )}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Panel>
+          </div>
+          {data.studySessions.weekMinutes > 0 ? (
+            <Progress
+              className="mt-3"
+              label="Share of the last 7 days studied today"
+              value={Math.min(
+                100,
+                Math.round((data.studySessions.todayMinutes / data.studySessions.weekMinutes) * 100),
+              )}
+              valueText={`${formatMinutes(data.studySessions.todayMinutes)} of ${formatMinutes(data.studySessions.weekMinutes)}`}
+            />
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground">
+              No study time logged in the last 7 days.
+            </p>
+          )}
+          {data.studySessions.recent.length > 0 && (
+            <ul className="mt-4 space-y-1.5 border-t border-border/60 pt-3">
+              {data.studySessions.recent.slice(0, 3).map((s) => (
+                <li key={s.id} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="min-w-0 truncate font-medium">{s.topic ?? "Untagged session"}</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {formatMinutes(s.durationMinutes)} · {relativeTime(s.startedAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      </div>
+      </section>
 
-      {/* ── Tasks · exams · grades ─────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* ── Supporting information and quick access ───────────────────── */}
+      <section className="grid gap-4 lg:grid-cols-3">
+        {/* Tasks overview */}
         <Panel title="Tasks" icon={ListTodo} href="/tasks" linkLabel="Open">
           <div
             role="img"
@@ -919,6 +676,7 @@ export default function DashboardPage() {
           )}
         </Panel>
 
+        {/* Exams */}
         <Panel title="Exams" icon={GraduationCap} tone="danger" href="/exams" linkLabel="All exams">
           {data.exams.upcoming.length === 0 ? (
             <EmptyState
@@ -975,6 +733,7 @@ export default function DashboardPage() {
           )}
         </Panel>
 
+        {/* Grades */}
         <Panel title="Grades" icon={Award} tone="success" href="/analytics" linkLabel="Analytics">
           {data.recentGrades.length === 0 ? (
             <EmptyState
@@ -1025,49 +784,8 @@ export default function DashboardPage() {
             </ul>
           )}
         </Panel>
-      </div>
 
-      {/* ── Notes · activity · library & AI ────────── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Panel title="Recent notes" icon={Book} href="/notes" linkLabel="All notes">
-          {data.recentNotes.length === 0 ? (
-            <EmptyState
-              compact
-              icon={BookOpen}
-              title="No notes yet"
-              description="Create your first note or import a resource."
-            />
-          ) : (
-            <ul className="space-y-1.5">
-              {data.recentNotes.slice(0, 5).map((n) => (
-                <li key={n.id}>
-                  <Link
-                    href={`/notes?note=${n.id}`}
-        className="flex items-center gap-3 rounded-lg border border-primary/20 px-2 py-2 transition-colors hover:bg-muted/50"
-                  >
-                    {n.course ? (
-                      <CourseSwatch id={n.course.id} className="h-7 w-7 shrink-0 rounded-md" />
-                    ) : (
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
-                        aria-hidden
-                      >
-                        <BookOpen className="h-3.5 w-3.5" />
-                      </span>
-                    )}
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">{n.title}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {n.updatedAt ? format(new Date(n.updatedAt), "MMM d · h:mm") : "No updated date"}
-                      </span>
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
+        {/* Recent activity */}
         <Panel title="Recent activity" icon={History} tone="neutral">
           {data.activity.length === 0 ? (
             <EmptyState
@@ -1085,6 +803,7 @@ export default function DashboardPage() {
           )}
         </Panel>
 
+        {/* Library & quick actions */}
         <Panel title="Library" icon={Library} href="/resources" linkLabel="Open" collapsible={false}>
           <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-muted/20 px-3 py-3">
             <div>
@@ -1104,7 +823,53 @@ export default function DashboardPage() {
             </Button>
           )}
         </Panel>
-      </div>
+
+        {/* Goals */}
+        <Panel title="Goals" icon={Target} href="/goals" linkLabel="All goals">
+          {data.activeGoals.length === 0 ? (
+            <EmptyState
+              compact
+              icon={Target}
+              title="No active goals"
+              description="Set a goal to track your progress."
+            />
+          ) : (
+            <ul className="space-y-3.5">
+              {data.activeGoals.slice(0, 5).map((g) => {
+                const goalOverdue =
+                  g.deadline !== null && new Date(g.deadline).getTime() < Date.now();
+                return (
+                  <li key={g.id}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="min-w-0 truncate text-sm font-medium">{g.title}</p>
+                      <span className="shrink-0 text-xs font-bold tabular-nums">{g.progress}%</span>
+                    </div>
+                    <Progress
+                      className="mt-1.5 h-1.5"
+                      label={`${g.title} progress`}
+                      value={g.progress}
+                      valueText={`${g.progress}%`}
+                    />
+                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                      {g.milestoneTotal > 0 && (
+                        <span>
+                          {g.milestoneCompleted}/{g.milestoneTotal} milestones
+                        </span>
+                      )}
+                      {g.deadline && (
+                        <span className={goalOverdue ? "font-medium text-danger" : ""}>
+                          {goalOverdue ? "Overdue · " : "Due "}
+                          {format(new Date(g.deadline), "MMM d")}
+                        </span>
+                      )}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+      </section>
     </div>
   );
 }

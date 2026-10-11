@@ -2,7 +2,7 @@
 // Document text extraction.
 // ─────────────────────────────────────────────────────────────────────
 //
-// Supported formats: PDF, DOCX, TXT, Markdown
+// Supported formats: PDF, DOCX, PPTX, XLSX/CSV, TXT, Markdown
 // Returns extracted text with page/section boundaries where available.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ export interface ExtractedDocument {
   fullText: string;
   pageCount: number;
   charCount: number;
-  format: "pdf" | "docx" | "txt" | "md";
+  format: "pdf" | "docx" | "pptx" | "xlsx" | "csv" | "txt" | "md";
 }
 
 // Configuration limits
@@ -159,6 +159,129 @@ export function extractTextText(buffer: Buffer, format: "txt" | "md"): Extracted
 }
 
 /**
+ * Extract text from a PPTX (PowerPoint) buffer.
+ */
+export async function extractPptxText(buffer: Buffer): Promise<ExtractedDocument> {
+  try {
+    // pptx is ESM with poor types; use dynamic require
+    let pptxParse: any = null;
+    try {
+      pptxParse = require("pptxjs");
+    } catch {
+      throw new DocumentExtractionError("PPTX extraction library not available");
+    }
+    if (!pptxParse) {
+      throw new DocumentExtractionError("PPTX extraction library not available");
+    }
+
+    const workbook = pptxParse.parse(buffer);
+    const fullTexts: string[] = [];
+
+    workbook.Slide.forEach((slide, slideIndex) => {
+      const slideText: string[] = [];
+      slide.Shapes.forEach((shape: any) => {
+        if (shape.TextFrame && shape.TextFrame.Text) {
+          slideText.push(shape.TextFrame.Text);
+        }
+      });
+      fullTexts.push(`Slide ${slideIndex + 1}: ${slideText.join(" ")}`);
+    });
+
+    const rawText = fullTexts.join("\n\n");
+    const truncated = truncateText(rawText);
+
+    const pages: ExtractedPage[] = fullTexts.length > 0
+      ? fullTexts.map((text, index) => ({ pageNumber: index + 1, text }))
+      : [{ pageNumber: 1, text: "" }];
+
+    return {
+      pages: pages.slice(0, MAX_PAGES_TO_EXTRACT),
+      fullText: truncated,
+      pageCount: Math.min(workbook.Slide.length, MAX_PAGES_TO_EXTRACT),
+      charCount: truncated.length,
+      format: "pptx",
+    };
+  } catch (error) {
+    if (error instanceof DocumentExtractionError) throw error;
+    throw new DocumentExtractionError("Failed to extract text from PPTX: " + (error as Error).message);
+  }
+}
+
+/**
+ * Extract text from an XLSX or CSV buffer.
+ */
+export async function extractXlsxText(buffer: Buffer, mimeType: string): Promise<ExtractedDocument> {
+  try {
+    let xlsxParse: any = null;
+    try {
+      xlsxParse = require("xlsx");
+    } catch {
+      throw new DocumentExtractionError("XLSX extraction library not available");
+    }
+    if (!xlsxParse) {
+      throw new DocumentExtractionError("XLSX extraction library not available");
+    }
+
+    const workbook = xlsxParse.read(buffer, { type: "buffer" });
+
+    // Handle CSV (single sheet)
+    if (mimeType === "text/csv" || mimeType === "application/csv") {
+      const rawText = workbook.SheetNames.length > 0 ? workbook.Sheets[workbook.SheetNames[0]] : {};
+      const cellData: string[] = [];
+      Object.values(rawText).forEach((row: any) => {
+        row ? cellData.push(String(row)) : null;
+      });
+      const text = cellData.join("\n");
+      const truncated = truncateText(text);
+
+      return {
+        pages: [{ pageNumber: 1, text }],
+        fullText: truncated,
+        pageCount: 1,
+        charCount: truncated.length,
+        format: "csv",
+      };
+    }
+
+    // Handle XLSX (multiple sheets)
+    const sheetNames = workbook.SheetNames;
+    const sheetTexts: string[] = [];
+
+    sheetNames.forEach((sheetName) => {
+      const sheet = workbook.Sheets[sheetName];
+      const rows: any[] = [];
+      for (const [cellAddr, cell] of Object.entries(sheet as any)) {
+        if (cellAddr.endsWith("")) { // header row marker
+          const rowVal = (cell as any).v ?? (cell as any).t ?? "";
+          rows.push(String(rowVal));
+        }
+      }
+      if (rows.length > 0) {
+        sheetTexts.push(`Sheet: ${sheetName}\n${rows.join("\n")}`);
+      }
+    });
+
+    const rawText = sheetTexts.length > 0 ? sheetTexts.join("\n\n") : "";
+    const truncated = truncateText(rawText);
+
+    const pages: ExtractedPage[] = sheetTexts.length > 0
+      ? sheetTexts.map((text, index) => ({ pageNumber: index + 1, text }))
+      : [{ pageNumber: 1, text: "" }];
+
+    return {
+      pages: pages.slice(0, MAX_PAGES_TO_EXTRACT),
+      fullText: truncated,
+      pageCount: Math.min(sheetNames.length, MAX_PAGES_TO_EXTRACT),
+      charCount: truncated.length,
+      format: "xlsx",
+    };
+  } catch (error) {
+    if (error instanceof DocumentExtractionError) throw error;
+    throw new DocumentExtractionError("Failed to extract text from XLSX/CSV: " + (error as Error).message);
+  }
+}
+
+/**
  * Main entry point: extract text from a buffer based on MIME type.
  * Throws DocumentExtractionError for unsupported types or extraction failures.
  */
@@ -184,6 +307,11 @@ export async function extractDocumentText(
       return extractPdfText(buffer);
     case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
       return extractDocxText(buffer);
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      return extractPptxText(buffer);
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+    case "text/csv":
+      return extractXlsxText(buffer, mimeType);
     case "text/plain":
       return extractTextText(buffer, "txt");
     case "text/markdown":
@@ -211,6 +339,9 @@ export function isExtractionSupported(mimeType: string): boolean {
   return [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/csv",
     "text/plain",
     "text/markdown",
   ].includes(mimeType);
@@ -225,6 +356,11 @@ export function getFormatName(mimeType: string): string {
       return "PDF";
     case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
       return "DOCX";
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      return "PPTX";
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+    case "text/csv":
+      return "XLSX";
     case "text/plain":
       return "TXT";
     case "text/markdown":
