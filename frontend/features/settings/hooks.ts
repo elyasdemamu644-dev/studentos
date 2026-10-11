@@ -3,16 +3,6 @@ import { toast } from "sonner";
 import type { Settings } from "@/types/api-types";
 import * as api from "./settings-api";
 
-export type CompanionCharacter = "wall-e" | "eve";
-
-export function getCompanionPreference(settings: Settings | undefined): CompanionCharacter {
-  return (settings?.["ai.companion"] as CompanionCharacter) ?? "wall-e";
-}
-
-export function setCompanionPreference(settings: Settings, character: CompanionCharacter): Settings {
-  return { ...settings, "ai.companion": character };
-}
-
 export function useSettings() {
   return useQuery({
     queryKey: ["settings"],
@@ -24,8 +14,8 @@ export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (settings: Settings) => api.updateSettings(settings),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] });
+    onSuccess: (settings) => {
+      qc.setQueryData(["settings"], settings);
       toast.success("Preferences saved");
     },
     onError: () => toast.error("Could not save preferences"),

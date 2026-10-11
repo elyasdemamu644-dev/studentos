@@ -2,7 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { zValidator } from "@/utils/zod-validator-shim";
 import { authenticate, type AuthRequest } from "@/routes/auth";
+import { config } from "@/config";
+import { ValidationApiError, NotFoundError } from "@/config/errors";
+import { parseMultipart } from "@/utils/multipart";
 import { aiService } from "../services/ai/service";
+import { resourcesService } from "../services/resources";
 import {
   createConversationSchema,
   createMessageSchema,
@@ -13,6 +17,7 @@ import {
   updateStudyPlanEntrySchema,
   queryConversationSchema,
   queryStudyPlanSchema,
+  uploadAttachmentFieldsSchema,
   type CreateConversationInput,
   type CreateMessageInput,
   type CreateStudyPlanInput,
@@ -20,7 +25,11 @@ import {
   type UpdateConversationInput,
   type UpdateStudyPlanInput,
   type UpdateStudyPlanEntryInput,
+  type UploadAttachmentFields,
 } from "../schemas/ai";
+import { UPLOAD_ERROR_CODES } from "@/utils/file-validation";
+import { storageKeyFor } from "@/services/storage";
+import { getFileStorage } from "@/services/storage";
 
 const router = Router();
 router.use(authenticate);
@@ -29,6 +38,61 @@ const idParam = { id: z.string().min(1) };
 const messageParam = { id: z.string().min(1) };
 const studyPlanIdParam = { id: z.string().min(1) };
 const studyPlanEntryParam = { id: z.string().min(1), entryId: z.string().min(1) };
+
+// ── Attachments ───────────────────────────────────
+//
+// Upload a file as an AI attachment. Creates a resource and returns its ID.
+
+router.post("/attachments/upload", async (req: AuthRequest, res, next) => {
+  try {
+    const parsed = await parseMultipart(req, config.uploadMaxFileSizeBytes);
+    if (!parsed.file) {
+      throw new ValidationApiError(
+        "A file is required in the `file` field",
+        UPLOAD_ERROR_CODES.MISSING_FILE,
+      );
+    }
+
+    const fields = uploadAttachmentFieldsSchema.safeParse(parsed.fields);
+    if (!fields.success) {
+      next(fields.error);
+      return;
+    }
+
+    // Verify the conversation belongs to the user
+    const conversation = await aiService.getConversation(req.currentUser!.id, fields.data.conversationId);
+    if (!conversation) {
+      throw new NotFoundError("Conversation not found");
+    }
+
+    // Create the resource using the existing upload logic
+    const record = await resourcesService.createFromUpload(
+      req.currentUser!.id,
+      {
+        title: fields.data.title ?? parsed.file.originalName,
+        description: fields.data.description ?? undefined,
+        courseId: undefined,
+        resourceType: undefined,
+      },
+      parsed.file,
+    );
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        resourceId: record.id,
+        attachment: {
+          id: record.id,
+          resourceId: record.id,
+          fileName: record.fileName ?? "file",
+          mimeType: record.mimeType ?? "application/octet-stream",
+          fileSize: record.fileSize ?? 0,
+          resourceType: record.resourceType,
+        },
+      },
+    });
+  } catch (error) { next(error); }
+});
 
 // ── Conversations ──────────────────────────────
 

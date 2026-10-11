@@ -41,7 +41,6 @@ import { Chip, Panel, type Tone } from "@/components/panel";
 import { useDashboard } from "@/features/dashboard/hooks";
 import { useCompleteTask } from "@/features/tasks/hooks";
 import { useAuth } from "@/features/auth/auth-provider";
-import { TestClientComponent } from "@/components/domain/test-client";
 import type {
   ActivityKind,
   DashboardActivity,
@@ -389,63 +388,23 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4">
-      {/* ── Hero ───────────────────────────────────── */}
-      <header
-        className="surface-panel relative overflow-hidden animate-fade-in"
-        style={{
-          backgroundImage:
-            "linear-gradient(120deg, hsl(var(--primary) / 0.14), hsl(var(--accent) / 0.08) 45%, transparent 75%)",
-        }}
-      >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-primary/10 blur-3xl"
-        />
-        <div className="relative flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between">
+      {/* ── Header: Greeting + Academic Context ───────────────────── */}
+      <header className="surface-panel animate-fade-in">
+        <div className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-              Command center · {format(new Date(), "EEEE, MMMM d")}
+              {format(new Date(), "EEEE, MMMM d")}
             </p>
-            <h1 className="mt-1.5 text-3xl font-bold tracking-tight">
+            <h1 className="mt-1 text-2xl font-bold tracking-tight">
               {greeting()}, {firstName}
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {hasAlerts ? (
-                <>
-                  {overdue > 0 && (
-                    <Chip tone="danger" icon={AlertTriangle} href="/tasks">
-                      {overdue} overdue task{overdue !== 1 ? "s" : ""}
-                    </Chip>
-                  )}
-                  {dueToday > 0 && (
-                    <Chip tone="warning" icon={Clock} href="/tasks">
-                      {dueToday} due today
-                    </Chip>
-                  )}
-                  {unread > 0 && (
-                    <Chip tone="primary" icon={Bell} href="/notifications">
-                      {unread} unread notification{unread !== 1 ? "s" : ""}
-                    </Chip>
-                  )}
-                  {nextExam && (
-                    <Chip
-                      tone={daysUntil(nextExam.startAt) <= 3 ? "danger" : "neutral"}
-                      icon={GraduationCap}
-                      href="/exams"
-                    >
-                      {nextExam.title} · {daysUntil(nextExam.startAt) === 0 ? "today" : `in ${daysUntil(nextExam.startAt)}d`}
-                    </Chip>
-                  )}
-                </>
-              ) : (
-                <Chip tone="success" icon={CheckCircle2}>
-                  All clear — nothing needs you right now
-                </Chip>
-              )}
-            </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <AcademicContextSelector 
+              currentSemester={data.currentSemester} 
+              currentAcademicYear={data.currentAcademicYear}
+              academicYears={data.academicYears}
+            />
             <Button asChild>
               <Link href="/tasks?new=1">
                 <Plus className="mr-1 h-4 w-4" aria-hidden /> New task
@@ -472,36 +431,86 @@ export default function DashboardPage() {
             </Button>
           </div>
         </div>
-        {termValid && termStart && termEnd && term && (
-          <div className="relative border-t border-border/60 px-6 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
-              <span className="font-medium">
-                {term.name}
+        
+        {/* Alert chips row */}
+        <div className="border-t border-border/60 px-6 py-3">
+          <div className="flex flex-wrap gap-2">
+            {hasAlerts ? (
+              <>
+                {overdue > 0 && (
+                  <Chip tone="danger" icon={AlertTriangle} href="/tasks">
+                    {overdue} overdue task{overdue !== 1 ? "s" : ""}
+                  </Chip>
+                )}
+                {dueToday > 0 && (
+                  <Chip tone="warning" icon={Clock} href="/tasks">
+                    {dueToday} due today
+                  </Chip>
+                )}
+                {unread > 0 && (
+                  <Chip tone="primary" icon={Bell} href="/notifications">
+                    {unread} unread notification{unread !== 1 ? "s" : ""}
+                  </Chip>
+                )}
+                {nextExam && (
+                  <Chip
+                    tone={daysUntil(nextExam.startAt) <= 3 ? "danger" : "neutral"}
+                    icon={GraduationCap}
+                    href="/exams"
+                  >
+                    {nextExam.title} · {daysUntil(nextExam.startAt) === 0 ? "today" : `in ${daysUntil(nextExam.startAt)}d`}
+                  </Chip>
+                )}
+              </>
+            ) : (
+              <Chip tone="success" icon={CheckCircle2}>
+                All clear — nothing needs you right now
+              </Chip>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* ── Semester Progress Bar (compact) ──────────────────────── */}
+      {termValid && termStart && termEnd && term && (
+        <section className="surface-panel animate-fade-in" style={{ animationDelay: "40ms" }}>
+          <div className="px-6 py-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate">{term.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {format(termStart, "MMM d")} – {format(termEnd, "MMM d, yyyy")}
+                  {term.academicYear && (
+                    <> · AY {format(new Date(term.academicYear.startDate), "yyyy")}–{format(new Date(term.academicYear.endDate), "yyyy")}</>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-4 w-full sm:w-auto">
+                <Progress
+                  className="flex-1 h-1.5 max-w-xs"
+                  label={`${term.name} progress`}
+                  value={termStarted ? termPct : 0}
+                  valueText={
+                    !termStarted
+                      ? "Not started"
+                      : termDaysLeft <= 0
+                        ? "Finished"
+                        : `${termPct}% through, ${termDaysLeft} days left`
+                  }
+                />
+                <span className="text-sm font-medium tabular-nums text-muted-foreground shrink-0">
+                  {termStarted ? `${termPct}%` : "Not started"}
+                </span>
                 {termStarted && termDaysLeft > 0 && (
-                  <span className="ml-2 font-normal text-muted-foreground">
-                    {termPct}% through · {termDaysLeft === 1 ? "1 day left" : `${termDaysLeft} days left`}
+                  <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
+                    {termDaysLeft === 1 ? "1 day left" : `${termDaysLeft} days left`}
                   </span>
                 )}
-              </span>
-              <span className="text-muted-foreground">
-                {format(termStart, "MMM d")} – {format(termEnd, "MMM d, yyyy")}
-              </span>
+              </div>
             </div>
-            <Progress
-              className="mt-2 h-1.5"
-              label={`${term.name} progress`}
-              value={termStarted ? termPct : 0}
-              valueText={
-                !termStarted
-                  ? "Not started"
-                  : termDaysLeft <= 0
-                    ? "Finished"
-                    : `${termPct}% through, ${termDaysLeft} days left`
-              }
-            />
           </div>
-        )}
-      </header>
+        </section>
+      )}
 
       {/* ── Stats ──────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in" style={{ animationDelay: "60ms" }}>
@@ -1076,30 +1085,25 @@ export default function DashboardPage() {
           )}
         </Panel>
 
-        <div className="flex flex-col gap-4">
-          <Panel title="Library" icon={Library} href="/resources" linkLabel="Open" collapsible={false}>
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-muted/20 px-3 py-3">
-              <div>
-                <p className="text-xl font-bold tabular-nums">{data.resources.total}</p>
-                <p className="text-xs text-muted-foreground">
-                  resource{data.resources.total !== 1 ? "s" : ""} stored
-                </p>
-              </div>
-              <Paperclip className="h-5 w-5 text-muted-foreground" aria-hidden />
+        <Panel title="Library" icon={Library} href="/resources" linkLabel="Open" collapsible={false}>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-muted/20 px-3 py-3">
+            <div>
+              <p className="text-xl font-bold tabular-nums">{data.resources.total}</p>
+              <p className="text-xs text-muted-foreground">
+                resource{data.resources.total !== 1 ? "s" : ""} stored
+              </p>
             </div>
-            {unread > 0 && (
-              <Button asChild variant="outline" size="sm" className="mt-3 w-full">
-                <Link href="/notifications">
-                  <Bell className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                  {unread} unread notification{unread !== 1 ? "s" : ""}
-                </Link>
-              </Button>
-            )}
-          </Panel>
-
-          {/* AI — embedded chat interface with companion */}
-          <TestClientComponent />
-        </div>
+            <Paperclip className="h-5 w-5 text-muted-foreground" aria-hidden />
+          </div>
+          {unread > 0 && (
+            <Button asChild variant="outline" size="sm" className="mt-3 w-full">
+              <Link href="/notifications">
+                <Bell className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                {unread} unread notification{unread !== 1 ? "s" : ""}
+              </Link>
+            </Button>
+          )}
+        </Panel>
       </div>
     </div>
   );

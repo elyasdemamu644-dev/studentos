@@ -10,6 +10,7 @@ import {
   Clock,
   GraduationCap,
   RefreshCw,
+  Send,
   Target,
   Timer,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { FilterBar, SelectFilter, ToggleFilter } from "@/components/ui/filter-bar";
 import {
   useGenerateNotifications,
+  useEmailNotification,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotifications,
@@ -62,6 +64,7 @@ export default function NotificationsPage() {
   const markAllRead = useMarkAllNotificationsRead();
   const updateNotification = useUpdateNotification();
   const generate = useGenerateNotifications();
+  const emailNotification = useEmailNotification();
 
   const all = notifications.data?.items ?? [];
   const items = applyNotificationFilter(all, filter, showArchived);
@@ -215,6 +218,15 @@ export default function NotificationsPage() {
                       <Archive className="h-4 w-4" aria-hidden />
                     </Button>
                   )}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Email ${notification.title} to me`}
+                    disabled={emailNotification.isPending}
+                    onClick={() => emailNotification.mutate(notification.id)}
+                  >
+                    <Send className="h-4 w-4" aria-hidden />
+                  </Button>
                 </div>
               </div>
             </li>

@@ -15,6 +15,7 @@ import {
 } from "@/components/domain/ai-chat";
 import { AgentRunReport } from "@/components/domain/agent-run-report";
 import { AiContextPanel, AiContextDrawer } from "@/components/domain/ai-context-panel";
+import { StructuredExtractionDialog } from "@/features/ai/structured-extraction";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -41,6 +42,7 @@ import {
 import { generateConversationTitle } from "@/features/ai/chat-utils";
 import { CONVERSATION_TYPE_LABELS } from "@/lib/labels";
 import type { AiMessage, AiToolActivity, ConversationType } from "@/types/api-types";
+import { useResource } from "@/features/resources/hooks";
 
 /** Where the open conversation is remembered so a reload lands back in it. */
 const ACTIVE_CONVERSATION_KEY = "studentos.ai.activeConversation";
@@ -68,6 +70,21 @@ export default function AiPage() {
   const [restored, setRestored] = useState(false);
   const [draft, setDraft] = useState("");
 
+  // Attachment state for the composer
+  const [attachments, setAttachments] = useState<Array<{
+    id: string;
+    file: File;
+    preview?: string;
+    uploading: boolean;
+    progress: number;
+    error?: string;
+    resourceId?: string;
+  }>>([]);
+
+  // Handle resourceId from URL (e.g., from "Ask AI about this material" in course materials)
+  const resourceIdFromUrl = new URLSearchParams(window.location.search).get("resourceId");
+  const { data: urlResource } = useResource(resourceIdFromUrl ?? undefined);
+
   // Deep links (`/ai?prompt=…`) from the course page, the dashboard and the
   // command palette land with the question already in the composer. The URL is
   // read and rewritten directly: only the query changes, the route does not,
@@ -82,6 +99,23 @@ export default function AiPage() {
     const qs = params.toString();
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
   }, []);
+
+  // Auto-attach resource from URL when it loads
+  useEffect(() => {
+    if (urlResource && !attachments.some((a) => a.resourceId === urlResource.id)) {
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: `attachment-${urlResource.id}`,
+          file: new File([], urlResource.fileName ?? "resource", { type: urlResource.mimeType ?? "application/octet-stream" }),
+          preview: undefined,
+          uploading: false,
+          progress: 100,
+          resourceId: urlResource.id,
+        },
+      ]);
+    }
+  }, [urlResource, attachments]);
   const [newType, setNewType] = useState<ConversationType>("CHAT");
   const [unconfigured, setUnconfigured] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);
@@ -167,6 +201,7 @@ export default function AiPage() {
   const selectConversation = useCallback((id: string) => {
     setSelectedId(id);
     setDraft("");
+    setAttachments([]);
     setSendError(null);
     setFailedText(null);
     setLiveActivity([]);
@@ -207,6 +242,7 @@ export default function AiPage() {
 
       sendingRef.current = true;
       setDraft("");
+      setAttachments([]);
       setSendError(null);
       setFailedText(null);
       setLiveActivity([]);
@@ -226,10 +262,16 @@ export default function AiPage() {
         renameConversation.mutate({ id: selectedId, title: derived });
       }
 
+      // Collect attachment resource IDs
+      const attachmentIds = attachments
+        .filter((a) => a.resourceId)
+        .map((a) => a.resourceId!);
+
       void sendMessage
         .mutateAsync({
           conversationId: selectedId,
           content: text,
+          attachmentIds,
           signal: controller.signal,
           retryOf,
         })
@@ -259,7 +301,7 @@ export default function AiPage() {
           abortRef.current = null;
         });
     },
-    [messageItems, renameConversation, selectedId, sendMessage],
+    [messageItems, renameConversation, selectedId, sendMessage, attachments],
   );
 
   const stopGenerating = useCallback(() => {
@@ -421,6 +463,7 @@ export default function AiPage() {
                   there instead of squeezing the chat to a third of the screen. */}
               <AiConversationDrawer {...sidebarProps} />
               <AiContextDrawer />
+              <StructuredExtractionDialog />
               <Select value={newType} onValueChange={(value) => setNewType(value as ConversationType)}>
                 <SelectTrigger className="hidden w-36 sm:inline-flex" aria-label="Conversation type">
                   <SelectValue />
@@ -537,6 +580,9 @@ export default function AiPage() {
                   ? `Message ${CONVERSATION_TYPE_LABELS[selected.type].toLowerCase()}…`
                   : "Start a new conversation…"
               }
+              conversationId={selectedId ?? ""}
+              attachments={attachments}
+              onAttachmentsChange={setAttachments}
             />
           </section>
         </WorkspacePanel>

@@ -14,6 +14,7 @@ import { notificationsService } from "@/services/notifications";
 import { academicYearsService } from "@/services/academic-years";
 import { semestersService } from "@/services/semesters";
 import { dashboardService } from "@/services/dashboard";
+import type { ExtractedDocument } from "@/services/document-extraction";
 
 import { requireEntityIdFromArgs } from "./resolver";
 import type { AiToolDefinition } from "./types";
@@ -509,6 +510,43 @@ export const getResourcesTool: AiToolDefinition = {
   },
 };
 
+const getResourceContentArgs = z.object({
+  resourceId: z.string().min(1).describe("Id of the resource, from get_resources."),
+  maxChars: z.number().int().min(1000).max(50000).optional().default(12000).describe("Maximum characters to return (default 12000)."),
+});
+
+export const getResourceContentTool: AiToolDefinition = {
+  name: "get_resource_content",
+  description:
+    "Read the extracted text content of an uploaded resource (PDF, DOCX, TXT, Markdown). Use after get_resources has identified the resource. Returns the full extracted text with page boundaries where available. Only works for uploaded files, not links.",
+  kind: "READ",
+  activityLabel: "Reading the resource",
+  parameters: getResourceContentArgs,
+  async execute(args, ctx) {
+    const input = getResourceContentArgs.parse(args);
+    const content = await resourcesService.getContent(ctx.userId, input.resourceId);
+
+    // Truncate if needed (the service already truncates at 100k, but respect the tool's limit too)
+    let text = content.fullText;
+    if (text.length > input.maxChars) {
+      text = text.slice(0, input.maxChars) + `\n\n[... truncated: ${text.length - input.maxChars} more characters ...]`;
+    }
+
+    return ok(
+      {
+        resourceId: input.resourceId,
+        title: content.pages[0]?.text.slice(0, 100) ?? "Unknown",
+        format: content.format,
+        pageCount: content.pageCount,
+        charCount: content.charCount,
+        text,
+        pages: content.pages.map((p) => ({ pageNumber: p.pageNumber, charCount: p.text.length })),
+      },
+      `Read "${content.pages[0]?.text.slice(0, 80) ?? "resource"}" (${content.charCount} chars, ${content.pageCount} page(s))`,
+    );
+  },
+};
+
 // ── Notes: one note in full, and search across note bodies ──────────────────
 
 /** A single note body can be long; the read tool still has to fit in a prompt. */
@@ -876,6 +914,7 @@ export const readTools: AiToolDefinition[] = [
   getTaskSubtasksTool,
   getTaskTagsTool,
   getResourcesTool,
+  getResourceContentTool,
   getAcademicStructureTool,
   getNotificationsTool,
   getAcademicDashboardTool,

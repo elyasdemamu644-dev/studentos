@@ -8,7 +8,9 @@ import {
   CircleSlash,
   Clock,
   Copy,
+  FileText,
   Loader2,
+  Paperclip,
   RefreshCw,
   Send,
   Sparkles,
@@ -34,8 +36,9 @@ import {
   type InlineToken,
   type MarkdownBlock,
 } from "@/features/ai/chat-utils";
-import { formatTime } from "@/lib/format";
+import { formatTime, formatBytes } from "@/lib/format";
 import type { AiActionOutcome, AiMessage, AiToolActivity, PendingAction } from "@/types/api-types";
+import { useUploadAttachment } from "@/features/ai/hooks";
 
 // ── Markdown ─────────────────────────────────
 //
@@ -315,7 +318,23 @@ function MessageBubble({
             message.optimistic && "opacity-70",
           )}
         >
-          {isUser ? (
+          {isUser && message.attachments && message.attachments.length > 0 ? (
+            <>
+              <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                {message.attachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary/20 px-2 py-1 text-xs"
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span className="max-w-[12rem] truncate">{attachment.fileName}</span>
+                    <span className="text-[10px] text-primary-foreground/70">{formatBytes(attachment.fileSize)}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+            </>
+          ) : isUser ? (
             <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
           ) : (
             <Markdown content={message.content} />
@@ -568,7 +587,7 @@ export function ChatEmptyState({
 // ── Composer ─────────────────────────────────
 
 /**
- * The message input.
+ * The message input with attachment support.
  *
  * Enter sends, Shift+Enter inserts a newline, and the send button turns into a
  * stop button while a generation is in flight. It is a flex item in the
@@ -584,6 +603,9 @@ export function ChatComposer({
   disabled,
   disabledReason,
   placeholder,
+  conversationId,
+  attachments,
+  onAttachmentsChange,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -593,10 +615,32 @@ export function ChatComposer({
   disabled?: boolean;
   disabledReason?: string;
   placeholder: string;
+  conversationId: string;
+  attachments: Array<{
+    id: string;
+    file: File;
+    preview?: string;
+    uploading: boolean;
+    progress: number;
+    error?: string;
+    resourceId?: string;
+  }>;
+  onAttachmentsChange: (attachments: Array<{
+    id: string;
+    file: File;
+    preview?: string;
+    uploading: boolean;
+    progress: number;
+    error?: string;
+    resourceId?: string;
+  }>) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
   const state = composerState(draft, { busy, disabled });
+
+  const uploadAttachment = useUploadAttachment();
 
   // Grow with the content, then shrink back. Capped so the composer can never
   // eat the transcript on a phone.
@@ -607,6 +651,73 @@ export function ChatComposer({
     node.style.height = `${Math.min(node.scrollHeight, 160)}px`;
   }, [draft]);
 
+  const handleFileSelect = useCallback(
+    (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      const newAttachments = Array.from(files).map((file) => ({
+        id: `attachment-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+        uploading: false,
+        progress: 0,
+      }));
+      onAttachmentsChange([...attachments, ...newAttachments]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    [attachments, onAttachmentsChange],
+  );
+
+  const removeAttachment = useCallback(
+    (id: string) => {
+      const attachment = attachments.find((a) => a.id === id);
+      if (attachment?.preview) URL.revokeObjectURL(attachment.preview);
+      onAttachmentsChange(attachments.filter((a) => a.id !== id));
+    },
+    [attachments, onAttachmentsChange],
+  );
+
+  const uploadAttachments = useCallback(async () => {
+    const toUpload = attachments.filter((a) => !a.resourceId && !a.uploading);
+    if (toUpload.length === 0) return;
+
+    for (const attachment of toUpload) {
+      onAttachmentsChange(
+        attachments.map((a) => (a.id === attachment.id ? { ...a, uploading: true, progress: 0 } : a)),
+      );
+
+      try {
+        const result = await uploadAttachment.mutateAsync({
+          file: attachment.file,
+          conversationId,
+          title: attachment.file.name,
+        });
+
+        onAttachmentsChange(
+          attachments.map((a) =>
+            a.id === attachment.id ? { ...a, uploading: false, progress: 100, resourceId: result.resourceId } : a,
+          ),
+        );
+      } catch (error) {
+        onAttachmentsChange(
+          attachments.map((a) =>
+            a.id === attachment.id ? { ...a, uploading: false, error: formatApiError(error) } : a,
+          ),
+        );
+      }
+    }
+  }, [attachments, conversationId, uploadAttachment, onAttachmentsChange]);
+
+  // Auto-upload attachments when they are added
+  useEffect(() => {
+    if (attachments.some((a) => !a.resourceId && !a.uploading)) {
+      uploadAttachments();
+    }
+  }, [attachments, uploadAttachments]);
+
+  const hasAttachments = attachments.length > 0;
+  const allUploaded = attachments.every((a) => a.resourceId || a.error);
+  const anyUploading = attachments.some((a) => a.uploading);
+
   return (
     <div className="surface-blur shrink-0 border-t border-border bg-ai px-3 py-3 sm:px-4">
       {/* The reading column, matched to the transcript so the input sits under
@@ -615,25 +726,93 @@ export function ChatComposer({
         {disabled && disabledReason && (
           <p className="mb-2 px-1 text-xs text-muted-foreground">{disabledReason}</p>
         )}
+
+        {/* Attachment previews */}
+        {hasAttachments && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+            {attachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-card border border-border px-2 py-1 text-sm"
+              >
+                {attachment.preview ? (
+                  <img src={attachment.preview} alt="" className="h-5 w-5 rounded object-cover" />
+                ) : (
+                  <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                )}
+                <span className="max-w-[12rem] truncate">{attachment.file.name}</span>
+                <span className="text-xs text-muted-foreground">{formatBytes(attachment.file.size)}</span>
+                {attachment.uploading && (
+                  <>
+                    <div className="h-3 w-20 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-300"
+                        style={{ width: `${attachment.progress}%` }}
+                      />
+                    </div>
+                    <Loader2 className="h-3 w-3 animate-spin text-primary" aria-hidden />
+                  </>
+                )}
+                {attachment.error && (
+                  <span className="text-xs text-danger" title={attachment.error}>
+                    <CircleSlash className="h-3 w-3 inline" aria-hidden />
+                  </span>
+                )}
+                {attachment.resourceId && !attachment.error && !attachment.uploading && (
+                  <CheckCircle2 className="h-3 w-3 text-success" aria-hidden />
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(attachment.id)}
+                  aria-label={`Remove ${attachment.file.name}`}
+                  disabled={attachment.uploading}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted"
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
-          <Textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(event) => onDraftChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (shouldSendOnKey(event.key, event.shiftKey)) {
-                event.preventDefault();
-                if (state.canSend) onSend();
-              }
-            }}
-            placeholder={placeholder}
-            aria-label="Message StudentOS AI"
-            aria-describedby={hintId}
-            rows={1}
-            maxLength={MAX_MESSAGE_LENGTH + 500}
-            disabled={disabled}
-            className="max-h-40 min-h-[2.5rem] min-w-0 flex-1 resize-none py-2 leading-relaxed"
-          />
+          <div className="relative flex-1">
+            <Textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (shouldSendOnKey(event.key, event.shiftKey)) {
+                  event.preventDefault();
+                  if (state.canSend) onSend();
+                }
+              }}
+              placeholder={placeholder}
+              aria-label="Message StudentOS AI"
+              aria-describedby={hintId}
+              rows={1}
+              maxLength={MAX_MESSAGE_LENGTH + 500}
+              disabled={disabled}
+              className="max-h-40 min-h-[2.5rem] min-w-0 pr-12 resize-none py-2 leading-relaxed"
+            />
+            {/* Attachment button */}
+            <label
+              htmlFor={fileInputRef.current?.id ?? ""}
+              className="absolute right-2 bottom-2 shrink-0 rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <input
+                ref={fileInputRef}
+                id={`file-input-${conversationId}`}
+                type="file"
+                className="sr-only"
+                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
+                multiple
+                onChange={(e) => handleFileSelect(e.target.files)}
+                disabled={disabled || busy}
+              />
+              <Paperclip className="h-5 w-5" aria-hidden />
+            </label>
+          </div>
 
           {busy ? (
             <Button
@@ -649,8 +828,8 @@ export function ChatComposer({
             <LoadingButton
               size="icon"
               className="shrink-0"
-              loading={false}
-              disabled={!state.canSend}
+              loading={anyUploading}
+              disabled={!state.canSend || anyUploading || !allUploaded}
               onClick={onSend}
               aria-label="Send message"
             >

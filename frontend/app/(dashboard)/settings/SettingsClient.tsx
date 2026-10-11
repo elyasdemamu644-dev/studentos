@@ -14,17 +14,15 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useAuth } from "@/features/auth/auth-provider";
 import { useTheme } from "@/lib/theme/theme-provider";
-import { useMarkAllNotificationsRead, useNotifications, useSettings, useUpdateSettings, useUpdateProfile, useChangePassword, getCompanionPreference, setCompanionPreference } from "@/features/settings/hooks";
+import { useMarkAllNotificationsRead, useNotifications, useSettings, useUpdateSettings, useUpdateProfile, useChangePassword } from "@/features/settings/hooks";
 import { AiConnectionsPanel } from "@/features/ai-connections/connection-list";
 import { ThemeSelector } from "@/components/theme/selector";
 import { ThemeModeToggle } from "@/components/theme-toggle";
 import { relativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import type { Settings } from "@/types/api-types";
-import { WallECompact, EveCompact } from "@/components/domain/ai-companion";
 
 const PREFERENCE_KEYS: Array<{ key: string; label: string; description: string }> = [
   { key: "notifications.assignmentReminders", label: "Assignment reminders", description: "Get daily reminders about due assignments." },
@@ -201,16 +199,12 @@ export default function SettingsPage() {
             </DialogContent>
           </Dialog>
           <div className="mt-4 flex gap-2">
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" onClick={() => { setProfileForm({ firstName: user?.firstName ?? "", lastName: user?.lastName ?? "", university: user?.university ?? "", department: user?.department ?? "", academicYear: user?.academicYear ?? "", timezone: user?.timezone ?? "UTC" }); setEditProfileOpen(true); }}>
-                <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit profile
-              </Button>
-            </DialogTrigger>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" onClick={() => { setPasswordForm({ currentPassword: "", newPassword: "" }); setChangePasswordOpen(true); }}>
-                <Lock className="mr-1.5 h-4 w-4" aria-hidden /> Change password
-              </Button>
-            </DialogTrigger>
+            <Button variant="outline" size="sm" onClick={() => { setProfileForm({ firstName: user?.firstName ?? "", lastName: user?.lastName ?? "", university: user?.university ?? "", department: user?.department ?? "", academicYear: user?.academicYear ?? "", timezone: user?.timezone ?? "UTC" }); setEditProfileOpen(true); }}>
+              <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit profile
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setPasswordForm({ currentPassword: "", newPassword: "" }); setChangePasswordOpen(true); }}>
+              <Lock className="mr-1.5 h-4 w-4" aria-hidden /> Change password
+            </Button>
           </div>
         </Panel>
 
@@ -292,62 +286,6 @@ export default function SettingsPage() {
             <ThemeSelector />
           </div>
 
-          <div>
-            <p className="mb-1 text-sm font-medium">AI Companion</p>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Choose which character assists you in the Dashboard AI Box.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const next = setCompanionPreference(settings.data ?? {}, "wall-e");
-                  updateSettings.mutate(next);
-                }}
-                className={cn(
-                  "relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all",
-                  getCompanionPreference(settings.data ?? {}) === "wall-e"
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-muted/30 hover:border-primary/30"
-                )}
-              >
-                <div className="w-20 h-20">
-                  <WallECompact />
-                </div>
-                <span className="text-sm font-medium">WALL·E</span>
-                <span className="text-xs text-muted-foreground">Curious & helpful</span>
-                {getCompanionPreference(settings.data ?? {}) === "wall-e" && (
-                  <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                    <Check className="h-3 w-3 text-primary-foreground" />
-                  </div>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = setCompanionPreference(settings.data ?? {}, "eve");
-                  updateSettings.mutate(next);
-                }}
-                className={cn(
-                  "relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all",
-                  getCompanionPreference(settings.data ?? {}) === "eve"
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-muted/30 hover:border-primary/30"
-                )}
-              >
-                <div className="w-20 h-20">
-                  <EveCompact />
-                </div>
-                <span className="text-sm font-medium">EVE</span>
-                <span className="text-xs text-muted-foreground">Sleek & focused</span>
-                {getCompanionPreference(settings.data ?? {}) === "eve" && (
-                  <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                    <Check className="h-3 w-3 text-primary-foreground" />
-                  </div>
-                )}
-              </button>
-            </div>
-          </div>
         </div>
       </Panel>
 

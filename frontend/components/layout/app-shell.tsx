@@ -43,11 +43,7 @@ import {
 import { ThemeMenu } from "@/components/layout/theme-menu";
 import { QuickCreateMenu } from "@/components/layout/quick-create-menu";
 import { FocusTimer } from "@/components/layout/focus-timer";
-import {
-  navShortcutFor,
-  ShortcutsHelpDialog,
-  useShellShortcuts,
-} from "@/components/layout/keyboard-shortcuts";
+import { ShortcutsHelpDialog, useShellShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { NotificationBell } from "@/components/domain/notification-bell";
 import { useAuth } from "@/features/auth/auth-provider";
 import { useGenerateNotifications } from "@/features/notifications/hooks";
@@ -184,7 +180,6 @@ function NavItemLink({
   className?: string;
 }) {
   const isAi = href === AI_HREF && !active;
-  const hint = showPin ? navShortcutFor(href) : undefined;
 
   const link = (
     <Link
@@ -207,11 +202,7 @@ function NavItemLink({
         aria-hidden
       />
       {!collapsed && <span className="truncate">{label}</span>}
-      {!collapsed && hint && (
-        <span className="ml-auto font-mono text-[10px] tracking-wide text-muted-foreground/50 transition-opacity group-hover:opacity-0 data-[pinned=true]:opacity-0" data-pinned={pinned}>
-          {hint}
-        </span>
-      )}
+      
       {active && (
         <span
           className="absolute inset-y-[15%] left-0 rounded-full bg-primary"

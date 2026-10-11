@@ -49,3 +49,15 @@ export function updateNotification(
 export function generateNotifications(): Promise<NotificationGenerateResult> {
   return api.post<NotificationGenerateResult>("/notifications/generate");
 }
+
+export interface NotificationEmailResult {
+  dispatched: boolean;
+  status: "accepted" | "rejected";
+  delivery: string;
+  channel: string | null;
+  provider: string;
+}
+
+export function emailNotification(id: string): Promise<NotificationEmailResult> {
+  return api.post<NotificationEmailResult>(`/notifications/${id}/email`);
+}

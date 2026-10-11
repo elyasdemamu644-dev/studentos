@@ -100,7 +100,7 @@ export function useCreateSubtask(taskId: string) {
 export function useUpdateSubtask(taskId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: api.CreateSubtaskInput }) =>
+    mutationFn: ({ id, input }: { id: string; input: api.UpdateSubtaskInput }) =>
       api.updateSubtask(taskId, id, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tasks", taskId, "subtasks"] });
@@ -117,6 +117,54 @@ export function useDeleteSubtask(taskId: string) {
       qc.invalidateQueries({ queryKey: ["tasks", taskId, "subtasks"] });
     },
     onError: () => toast.error("Could not delete the subtask"),
+  });
+}
+
+export function useCreateTaskTag(taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; color?: string }) => api.createTaskTag(taskId, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks", taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      toast.success("Tag added");
+    },
+    onError: () => toast.error("Could not add the tag"),
+  });
+}
+
+export function useUpdateTaskTag(taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: { name?: string; color?: string | null } }) =>
+      api.updateTaskTag(taskId, id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks", taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      toast.success("Tag updated");
+    },
+    onError: () => toast.error("Could not update the tag"),
+  });
+}
+
+export function useDeleteTaskTag(taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteTaskTag(taskId, id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks", taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      toast.success("Tag removed");
+    },
+    onError: () => toast.error("Could not remove the tag"),
+  });
+}
+
+export function useTaskTags(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ["tasks", taskId, "tags"],
+    queryFn: () => api.listTaskTags(taskId!),
+    enabled: Boolean(taskId),
   });
 }
 

@@ -257,10 +257,19 @@ There is deliberately **no** `hooks/` or `src/schemas/`: every hook is feature-l
 | AI connections UI | `features/ai-connections/` — `AiConnectionsPanel` is a section on `/settings` (not a nav item). `connection-list.tsx` owns the rows and the enable/activate/edit/delete actions; `connection-form.tsx` owns the create/edit dialog and exports `connectionFormSchema` for tests. Keys are write-only: the API never returns them, so the edit form leaves the field blank to preserve the stored key. |
 | AI chat rendering | `components/domain/ai-chat.tsx` renders assistant replies through the hand-rolled Markdown parser in `features/ai/chat-utils.ts` (no Markdown dependency) — headings, blockquotes, fenced code, bullet/numbered lists, and tables (honouring `:---` alignment), plus inline bold/italic/code/links. Link targets pass `safeHref()` first (only `http:`/`https:`/`mailto:` survive; anything else renders as plain text) and open with `rel="noopener noreferrer"`. No `dangerouslySetInnerHTML`. 2026-10-10 |
 | Theme | `ThemeProvider` (own implementation, not `next-themes`): 8 presets, 11 accents, light/dark/system, driven by a `data-theme` attribute. Bootstrap script prevents flash. |
-| Notifications (UI) | `sonner` via `Toaster` in `providers.tsx`; `NotificationBell` in the header; `NotificationBootstrap` calls `POST /notifications/generate` **once per browser session** after sign-in (guarded by `sessionStorage`). |
-| Rendering | Pages are server-rendered shells around client data. `next build` prerenders 19 routes statically; `/courses/[id]` is dynamic (ƒ). |
+| Notifications (UI) | `sonner` via `Toaster` in `providers.tsx`; `NotificationBell` in the header; `NotificationBootstrap` calls `POST /notifications/generate` **once per browser session** after sign-in (guarded by `sessionStorage`). `/notifications` exposes filter/read/archive/generate and on-demand email dispatch to the signed-in user's own address. |
+| Rendering | Pages are server-rendered shells around client data. `next build` lists 19 routes including `/_not-found`: 17 static and `/courses/[id]` plus `/settings` dynamic (ƒ). |
 
-Navigation (`app-shell.tsx`): 12 sidebar items — Dashboard, Courses, Academics, Tasks, Calendar, Exams, Notes, Resources, Study, Goals, Analytics, AI Assistant — plus Settings in the sidebar footer. Mobile bottom bar shows 5: Dashboard, Tasks, Courses, Study, Exams. `/notifications` has **no** nav entry; it is reached via the bell.
+Current frontend exposure for backend workflows that do not have dedicated top-level routes:
+
+| Backend capability | Frontend entry point | Notes |
+| --- | --- | --- |
+| Task subtasks and tags | Edit an existing task at `/tasks` | Create/read/update/delete, task completion, subtask ordering, and tag rename/color are owner-scoped by the API. |
+| Persistent AI study plans | `/study` → Saved study plans | Create/update/delete plans, create initial steps, edit steps, and update step status. The API has no later step-create/delete endpoint. |
+| Structured AI extraction | Extract button in the `/ai` workspace header | Grounded outline or flashcard output is schema-validated and read-only; it does not write academic records. |
+| Google sign-in | `/login` and `/register` | Rendered only when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is configured to the same web client as API `GOOGLE_CLIENT_ID`; backend verification remains authoritative. |
+
+Navigation (`app-shell.tsx`): 13 sidebar items — Dashboard, AI Assistant, Courses, Term structure, Calendar, Exams, Analytics, Tasks, Notes, Resources, Study, Goals, Notifications — plus Settings in the sidebar footer. Mobile bottom bar shows Dashboard, AI Assistant, Tasks, Calendar, and Study. Notifications is available in the sidebar and through the header bell.
 
 **Shared UI kit (2026-10-08 visual upgrade).** Every page is composed from the same primitives, all styled with `hsl(var(--token))` theme values — never hardcoded colours:
 

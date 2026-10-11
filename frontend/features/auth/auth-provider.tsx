@@ -22,6 +22,7 @@ interface AuthContextValue {
   status: AuthStatus;
   loading: boolean;
   login: (email: string, password: string, redirectTo?: string) => Promise<SessionUser>;
+  loginWithGoogle: (idToken: string, redirectTo?: string) => Promise<SessionUser>;
   register: (input: authApi.RegisterInput) => Promise<SessionUser>;
   logout: () => Promise<void>;
   refetchUser: () => Promise<unknown>;
@@ -88,6 +89,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loginMutation, queryClient, router],
   );
 
+  const loginWithGoogle = useCallback(
+    async (idToken: string, redirectTo?: string) => {
+      const result = await authApi.loginWithGoogle(idToken);
+      setTokens(result.accessToken, result.refreshToken);
+      queryClient.setQueryData(ME_KEY, result.user);
+      router.replace(redirectTo ?? "/dashboard");
+      return result.user;
+    },
+    [queryClient, router],
+  );
+
   const register = useCallback(
     async (input: authApi.RegisterInput) => {
       const user = await registerMutation.mutateAsync(input);
@@ -123,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         status,
         loading: status === "loading",
         login,
+        loginWithGoogle,
         register,
         logout,
         refetchUser: () => userQuery.refetch(),

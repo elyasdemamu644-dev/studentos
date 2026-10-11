@@ -68,6 +68,23 @@ export function useUpdateNotification() {
   });
 }
 
+export function useEmailNotification() {
+  const invalidate = useInvalidateNotifications();
+  return useMutation({
+    mutationFn: (id: string) => api.emailNotification(id),
+    onSuccess: (result) => {
+      if (result.dispatched) {
+        invalidate(true);
+        toast.success("Notification email accepted for delivery");
+      } else {
+        toast.error("The email provider did not accept this notification");
+      }
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not send the notification email"),
+  });
+}
+
 /**
  * Sweep for new reminders. Runs once per session on app load; the endpoint is
  * idempotent so repeats create nothing.

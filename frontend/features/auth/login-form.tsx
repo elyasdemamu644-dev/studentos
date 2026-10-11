@@ -10,6 +10,7 @@ import { LoadingButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { GoogleSignIn } from "@/features/auth/google-sign-in";
 
 export function LoginForm() {
   const { login } = useAuth();
@@ -73,6 +74,7 @@ export function LoginForm() {
           <LoadingButton type="submit" loading={isSubmitting} className="w-full">
             Sign in <ArrowRight className="h-4 w-4" aria-hidden />
           </LoadingButton>
+          <GoogleSignIn />
           <p className="text-center text-sm text-muted-foreground">
             New to StudentOS?{" "}
             <Link href="/register" className="font-medium text-primary hover:underline">

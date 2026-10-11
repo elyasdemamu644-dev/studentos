@@ -3,11 +3,15 @@ import type {
   AiActionOutcome,
   AiAgentRun,
   AiMessage,
+  AiMessageAttachment,
   AiToolActivity,
   Conversation,
   ConversationType,
   Page,
   PendingAction,
+  StudyPlan,
+  StudyPlanEntry,
+  StudyPlanEntryStatus,
 } from "@/types/api-types";
 
 export interface ConversationListParams {
@@ -64,6 +68,8 @@ export interface SendMessageInput {
   conversationId: string;
   content: string;
   generateReply?: boolean;
+  /** Attachments to include with the message (uploaded resources). */
+  attachmentIds?: string[];
   /**
    * Aborting this leaves the server request in flight; the user's message is
    * still persisted by the API, so a later reload shows it. It only stops the
@@ -73,11 +79,32 @@ export interface SendMessageInput {
 }
 
 export function sendMessage(input: SendMessageInput): Promise<AddMessageResult> {
+  const { conversationId, attachmentIds, signal, ...body } = input;
   return api.post<AddMessageResult>(
-    `/ai/conversations/${input.conversationId}/messages`,
-    { content: input.content, generateReply: input.generateReply ?? true },
-    { signal: input.signal },
+    `/ai/conversations/${conversationId}/messages`,
+    { ...body, attachmentIds },
+    { signal },
   );
+}
+
+/**
+ * Upload a file as an AI attachment. This creates a resource with storageType=UPLOAD
+ * and returns the resource ID for use with sendMessage.
+ */
+export interface UploadAttachmentInput {
+  file: File;
+  conversationId: string;
+  title?: string;
+  description?: string;
+}
+
+export function uploadAttachment(input: UploadAttachmentInput): Promise<{ resourceId: string; attachment: AiMessageAttachment }> {
+  const form = new FormData();
+  form.append("file", input.file);
+  form.append("title", input.title ?? input.file.name);
+  if (input.description) form.append("description", input.description);
+  form.append("conversationId", input.conversationId);
+  return api.upload<{ resourceId: string; attachment: AiMessageAttachment }>("/ai/attachments/upload", form);
 }
 
 // ── Pending-action confirmation ────────────────────
@@ -129,4 +156,74 @@ export function cancelPendingAction(
     `/ai/conversations/${conversationId}/pending-action/${actionId}/cancel`,
     {},
   );
+}
+
+// ── Persistent study plans ─────────────────────────
+
+export type StudyPlanPage = Page<StudyPlan>;
+
+export interface CreateStudyPlanInput {
+  title: string;
+  examDate?: string | null;
+  courseId?: string | null;
+  entries?: Array<{
+    dayNumber: number;
+    title: string;
+    description?: string | null;
+    durationMinutes: number;
+  }>;
+}
+
+export function listStudyPlans(params: { limit?: number; cursor?: string } = {}): Promise<StudyPlanPage> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.cursor) query.set("cursor", params.cursor);
+  const qs = query.toString();
+  return api.get<StudyPlanPage>(qs ? `/ai/study-plans?${qs}` : "/ai/study-plans");
+}
+
+export function createStudyPlan(input: CreateStudyPlanInput): Promise<StudyPlan> {
+  return api.post<StudyPlan>("/ai/study-plans", input);
+}
+
+export function updateStudyPlan(
+  id: string,
+  input: { title?: string; examDate?: string | null; courseId?: string | null },
+): Promise<StudyPlan> {
+  return api.patch<StudyPlan>(`/ai/study-plans/${id}`, input);
+}
+
+export function deleteStudyPlan(id: string): Promise<{ deleted: boolean }> {
+  return api.delete<{ deleted: boolean }>(`/ai/study-plans/${id}`);
+}
+
+export function updateStudyPlanEntry(
+  planId: string,
+  entryId: string,
+  input: {
+    dayNumber?: number;
+    title?: string;
+    description?: string | null;
+    durationMinutes?: number;
+    status?: StudyPlanEntryStatus;
+  },
+): Promise<StudyPlanEntry> {
+  return api.patch<StudyPlanEntry>(`/ai/study-plans/${planId}/entries/${entryId}`, input);
+}
+
+export interface StructuredRequestInput {
+  prompt: string;
+  schema: Record<string, unknown>;
+  ground?: boolean;
+}
+
+export interface StructuredResult {
+  result: unknown;
+  repaired: boolean;
+  provider: string;
+  model: string | null;
+}
+
+export function extractStructured(input: StructuredRequestInput): Promise<StructuredResult> {
+  return api.post<StructuredResult>("/ai/structured", input);
 }

@@ -105,6 +105,8 @@ export interface TaskTagRef {
   color: string | null;
 }
 
+export type TaskTag = TaskTagRef & { createdAt?: string };
+
 export interface Task {
   id: string;
   courseId: string | null;
@@ -340,6 +342,15 @@ export interface Conversation {
 
 export type AiMessageRole = "USER" | "ASSISTANT" | "SYSTEM";
 
+export interface AiMessageAttachment {
+  id: string;
+  resourceId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  resourceType: ResourceType;
+}
+
 export interface AiMessage {
   id: string;
   conversationId: string;
@@ -353,6 +364,32 @@ export interface AiMessage {
   optimistic?: boolean;
   /** Client-only: the send failed. The message stays on screen with a retry. */
   failed?: boolean;
+  /** Attachments associated with this message (for user messages). */
+  attachments?: AiMessageAttachment[];
+}
+
+export type StudyPlanEntryStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED";
+
+export interface StudyPlanEntry {
+  id: string;
+  dayNumber: number;
+  title: string;
+  description: string | null;
+  durationMinutes: number;
+  status: StudyPlanEntryStatus;
+  taskId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudyPlan {
+  id: string;
+  title: string;
+  examDate: string | null;
+  courseId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  entries: StudyPlanEntry[];
 }
 
 // What the assistant did while producing its reply. Mirrors `ToolActivityEntry`

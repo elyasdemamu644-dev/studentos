@@ -207,8 +207,12 @@ export function useSendMessage() {
       const optimisticId = context?.optimisticId;
       qc.setQueryData<AiMessage[]>(key, (current) => {
         const list = (current ?? []).filter(
-          // Drop the optimistic copy, then any stale copy of a real message.
-          (message) => message.id !== optimisticId && message.id !== result.message.id,
+          // Drop optimistic copies and any messages already returned by a
+          // transcript refresh that raced this mutation.
+          (message) =>
+            message.id !== optimisticId &&
+            message.id !== result.message.id &&
+            message.id !== result.reply?.id,
         );
         return [...list, result.message, ...(result.reply ? [result.reply] : [])];
       });
@@ -324,6 +328,80 @@ export function useCancelPendingAction() {
       qc.setQueryData(["ai", "pending-action", conversationId], result.pendingAction);
       toast.success("Change discarded");
     },
+    onError: (error) => toast.error(formatApiError(error)),
+  });
+}
+
+export function useStudyPlans() {
+  return useQuery({
+    queryKey: ["ai", "study-plans"],
+    queryFn: () => api.listStudyPlans({ limit: 100 }),
+  });
+}
+
+export function useCreateStudyPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createStudyPlan,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ai", "study-plans"] });
+      toast.success("Study plan saved");
+    },
+    onError: () => toast.error("Could not save the study plan"),
+  });
+}
+
+export function useUpdateStudyPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: { title?: string; examDate?: string | null; courseId?: string | null } }) =>
+      api.updateStudyPlan(id, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["ai", "study-plans"] }),
+    onError: () => toast.error("Could not update the study plan"),
+  });
+}
+
+export function useDeleteStudyPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.deleteStudyPlan,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ai", "study-plans"] });
+      toast.success("Study plan deleted");
+    },
+    onError: () => toast.error("Could not delete the study plan"),
+  });
+}
+
+export function useUpdateStudyPlanEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ planId, entryId, input }: {
+      planId: string;
+      entryId: string;
+      input: {
+        dayNumber?: number;
+        title?: string;
+        description?: string | null;
+        durationMinutes?: number;
+        status?: import("@/types/api-types").StudyPlanEntryStatus;
+      };
+    }) => api.updateStudyPlanEntry(planId, entryId, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["ai", "study-plans"] }),
+    onError: () => toast.error("Could not update the study plan step"),
+  });
+}
+
+export function useStructuredExtraction() {
+  return useMutation({
+    mutationFn: api.extractStructured,
+    onError: () => toast.error("Could not extract structured data"),
+  });
+}
+
+export function useUploadAttachment() {
+  return useMutation({
+    mutationFn: (input: api.UploadAttachmentInput) => api.uploadAttachment(input),
     onError: (error) => toast.error(formatApiError(error)),
   });
 }

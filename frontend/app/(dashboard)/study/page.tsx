@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useCourses } from "@/features/courses/hooks";
+import { StudyPlans } from "@/features/ai/study-plans";
 import { useCourseContext } from "@/features/academics/academic-context";
 import {
   useCompleteSession,
@@ -374,6 +375,8 @@ export default function StudyPage() {
           )}
         </SectionCard>
       </div>
+
+      <StudyPlans />
 
       <Dialog
         open={completeOpen}

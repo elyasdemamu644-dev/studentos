@@ -9,6 +9,7 @@ import { confirmationStore, summarizeOutcomes, toPendingActionResponse } from ".
 import { executeProposalActions } from "./tools/confirm-tool";
 import { executeTool } from "./tools/registry";
 import type { ProposedAction } from "./tools/types";
+import { resourcesService } from "@/services/resources";
 import type {
   CreateConversationInput,
   CreateMessageInput,
@@ -132,6 +133,39 @@ export const aiService = {
 
     const role = input.role ?? "USER";
     const wantsReply = input.generateReply ?? true;
+    const attachmentIds = input.attachmentIds ?? [];
+
+    // Fetch and extract content from attachments if any
+    let attachmentContext = "";
+    if (attachmentIds.length > 0 && wantsReply && role === "USER") {
+      const attachments = await Promise.all(
+        attachmentIds.map((id) => resourcesService.getById(userId, id).catch(() => null)),
+      );
+      const validAttachments = attachments.filter((a): a is NonNullable<typeof a> => a !== null);
+
+      if (validAttachments.length > 0) {
+        const extractedContents = await Promise.all(
+          validAttachments
+            .filter((a) => a.storageType === "UPLOAD" && a.mimeType)
+            .map(async (a) => {
+              try {
+                return await resourcesService.getContent(userId, a.id);
+              } catch {
+                return null;
+              }
+            }),
+        );
+        const validContents = extractedContents.filter((c): c is NonNullable<typeof c> => c !== null);
+        if (validContents.length > 0) {
+          attachmentContext = validContents
+            .map(
+              (c) =>
+                `\n\n--- ATTACHMENT: ${c.pages[0]?.text.slice(0, 100) ?? "resource"} (${c.format}, ${c.pageCount} page(s)) ---\n${c.fullText}\n--- END ATTACHMENT ---`,
+            )
+            .join("\n");
+        }
+      }
+    }
 
     if (wantsReply && role === "USER") {
       const provider = await getAIProvider(userId);
@@ -144,7 +178,12 @@ export const aiService = {
       // providers that have no native tool support, and handed to the agent as
       // a structured snapshot so the tool path also starts oriented.
       const studentContext = await studentContextBuilder.build(userId);
-      const context = JSON.stringify(studentContext);
+      // Include attachment content in the context snapshot
+      const contextSnapshot = {
+        studentContext,
+        attachmentContext: attachmentContext || undefined,
+      };
+      const context = JSON.stringify(contextSnapshot);
 
       // Newest first: the window has to be the *latest* turns, and the ids are
       // needed to recognise a retry of a question that is still unanswered.
@@ -198,7 +237,7 @@ export const aiService = {
         userId,
         conversationId,
         history,
-        userMessage: input.content,
+        userMessage: input.content + (attachmentContext ? `\n\n[Attachments provided: ${attachmentIds.length} file(s)]` : ""),
         studentName: student?.firstName ?? null,
         context,
         studentContext,

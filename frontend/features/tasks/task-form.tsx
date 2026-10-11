@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateTask, useUpdateTask } from "@/features/tasks/hooks";
+import { TaskExtras } from "@/features/tasks/task-extras";
 import { useCourses } from "@/features/courses/hooks";
 import { useCourseContext } from "@/features/academics/academic-context";
 import {
@@ -197,6 +198,7 @@ export function TaskFormDialog({
           </LoadingButton>
         </div>
       </form>
+      {task && <TaskExtras taskId={task.id} />}
     </DialogShell>
   );
 }

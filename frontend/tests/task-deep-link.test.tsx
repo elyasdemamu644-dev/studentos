@@ -25,6 +25,10 @@ const mock = vi.hoisted(() => ({
   createSubtask: vi.fn(),
   updateSubtask: vi.fn(),
   deleteSubtask: vi.fn(),
+  listTaskTags: vi.fn(),
+  createTaskTag: vi.fn(),
+  updateTaskTag: vi.fn(),
+  deleteTaskTag: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -47,6 +51,10 @@ vi.mock("@/features/tasks/tasks-api", () => ({
   createSubtask: mock.createSubtask,
   updateSubtask: mock.updateSubtask,
   deleteSubtask: mock.deleteSubtask,
+  listTaskTags: mock.listTaskTags,
+  createTaskTag: mock.createTaskTag,
+  updateTaskTag: mock.updateTaskTag,
+  deleteTaskTag: mock.deleteTaskTag,
 }));
 
 vi.mock("@/features/courses/hooks", () => ({
@@ -99,10 +107,14 @@ describe("task deep link", () => {
     mock.search = "task=task-1";
     mock.getTask.mockResolvedValue(TASK);
     mock.listTasks.mockResolvedValue({ items: [], hasMore: false, nextCursor: null });
+    mock.listSubtasks.mockResolvedValue([]);
+    mock.listTaskTags.mockResolvedValue([]);
 
     await renderPage();
 
     expect(await screen.findByText("Edit task")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Subtasks" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tags" })).toBeInTheDocument();
     expect(mock.getTask).toHaveBeenCalledWith("task-1");
     await waitFor(() => expect(mock.replace).toHaveBeenCalledWith("/tasks", { scroll: false }));
   });

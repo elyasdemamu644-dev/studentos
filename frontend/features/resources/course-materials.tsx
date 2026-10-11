@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
+  Bot,
   Download,
   ExternalLink,
   FileText,
@@ -25,9 +27,13 @@ import type { ResourceRecord, ResourceType } from "@/types/api-types";
 import { RESOURCE_TYPE_LABELS } from "@/lib/labels";
 import { formatBytes, relativeTime } from "@/lib/format";
 
+const EXTRACTABLE_TYPES: ResourceType[] = ["PDF", "DOCUMENT", "OTHER"]; // OTHER could be TXT/MD
+
 const PAGE_SIZE = 20;
 
-/** Static icon-tone classes per resource type, so Tailwind can see them. */
+function isExtractable(resource: ResourceRecord): boolean {
+  return resource.storageType === "UPLOAD" && EXTRACTABLE_TYPES.includes(resource.resourceType);
+}
 const TYPE_TONE: Record<ResourceType, string> = {
   LINK: "bg-primary/10 text-primary",
   PDF: "bg-danger/10 text-danger",
@@ -170,14 +176,27 @@ export function CourseMaterialsPanel({ courseId }: { courseId: string }) {
 
                     <div className="flex shrink-0 items-center gap-1">
                       {isUpload ? (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Download ${resource.title}`}
-                          onClick={() => onDownload(resource)}
-                        >
-                          <Download className="h-4 w-4" aria-hidden />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Download ${resource.title}`}
+                            onClick={() => onDownload(resource)}
+                          >
+                            <Download className="h-4 w-4" aria-hidden />
+                          </Button>
+                          {isExtractable(resource) && (
+                            <Link
+                              href={`/ai?prompt=Analyze this material: ${encodeURIComponent(resource.title)}&resourceId=${resource.id}`}
+                              className="text-primary hover:text-primary/80"
+                              title="Ask AI about this material"
+                            >
+                              <Button variant="ghost" size="icon-sm" aria-label={`Ask AI about ${resource.title}`}>
+                                <Bot className="h-4 w-4" aria-hidden />
+                              </Button>
+                            </Link>
+                          )}
+                        </>
                       ) : resource.url ? (
                         <Button asChild variant="ghost" size="icon-sm">
                           <a

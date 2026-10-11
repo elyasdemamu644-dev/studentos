@@ -26,6 +26,8 @@ export const createMessageSchema = z.object({
   // When true (default) the AI provider is asked to produce a reply.
   // When false the message is stored without invoking any provider.
   generateReply: z.boolean().optional().default(true),
+  // Optional attachment resource IDs to include with this message.
+  attachmentIds: z.array(z.string().min(1)).max(10).optional(),
 });
 
 export const studyPlanEntryStatusSchema = z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "SKIPPED"]);
@@ -105,6 +107,19 @@ export const structuredRequestSchema = z.object({
   // False turns the endpoint into a pure text → JSON utility.
   ground: z.boolean().optional().default(true),
 });
+
+// ── AI Attachments ──────────────────────────────
+//
+// Upload a file as an attachment for an AI conversation. Creates a resource
+// with storageType=UPLOAD and returns the resource ID for use with messages.
+
+export const uploadAttachmentFieldsSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(200).optional(),
+  description: z.string().trim().max(2000).optional(),
+  conversationId: z.string().min(1),
+});
+
+export type UploadAttachmentFields = z.infer<typeof uploadAttachmentFieldsSchema>;
 
 export type ConversationType = z.infer<typeof conversationTypeSchema>;
 export type CreateConversationInput = z.infer<typeof createConversationSchema>;

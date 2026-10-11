@@ -24,6 +24,10 @@ export async function login(email: string, password: string): Promise<LoginResul
   return api.post<LoginResult>("/auth/login", { email, password });
 }
 
+export async function loginWithGoogle(idToken: string): Promise<LoginResult> {
+  return api.post<LoginResult>("/auth/google", { idToken });
+}
+
 export async function register(input: RegisterInput): Promise<SessionUser> {
   return api.post<SessionUser>("/auth/register", input);
 }

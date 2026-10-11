@@ -10,6 +10,7 @@ import {
 } from "@/utils/file-validation";
 import { getFileStorage, storageKeyFor, type FileStorage } from "@/services/storage";
 import type { ParsedFile } from "@/utils/multipart";
+import { extractDocumentText, isExtractionSupported, type ExtractedDocument } from "./document-extraction";
 import type {
   ResourceListQuery,
   ResourceCreate,
@@ -242,6 +243,34 @@ export const resourcesService = {
       mimeType: record.mimeType ?? "application/octet-stream",
       fileName: record.fileName ?? "download",
     };
+  },
+
+  /** Extract text content from an uploaded resource for AI processing. */
+  async getContent(userId: string, id: string): Promise<ExtractedDocument> {
+    const record = await prisma.resource.findFirst({ where: { id, userId } });
+    if (!record) throw new NotFoundError("Resource not found");
+    if (record.storageType !== "UPLOAD" || !record.fileKey) {
+      throw new ValidationApiError(
+        "This resource is a link, not an uploaded file",
+        UPLOAD_ERROR_CODES.RESOURCE_NOT_A_FILE,
+      );
+    }
+    if (!record.mimeType || !isExtractionSupported(record.mimeType)) {
+      throw new ValidationApiError(
+        `Text extraction is not supported for this file type (${record.mimeType ?? "unknown"})`,
+        "UNSUPPORTED_EXTRACTION_TYPE",
+      );
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await getFileStorage().get(record.fileKey);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new StorageError("Failed to read the stored file");
+    }
+
+    return extractDocumentText(buffer, record.mimeType);
   },
 
   /** Delete a resource. Only the owner can delete.

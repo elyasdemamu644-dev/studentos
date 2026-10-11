@@ -352,6 +352,11 @@ describe("sending a message", () => {
     fetchMock.mockResolvedValue(replyBody);
 
     const { client } = renderWithQuery(<SendProbe onSettled={() => {}} />);
+    // Model a transcript refresh that sees the persisted reply before this
+    // mutation's success handler reconciles its response into the cache.
+    client.setQueryData<AiMessage[]>(messagesKey(CONVERSATION.id), [
+      message({ id: "stored-reply", content: "Three revision sessions." }),
+    ]);
     await userEvent.click(screen.getByRole("button", { name: "send" }));
 
     await waitFor(() => {
@@ -524,6 +529,17 @@ describe("empty state", () => {
 describe("composer", () => {
   function Harness({ onSend, busy = false }: { onSend: () => void; busy?: boolean }) {
     const [draft, setDraft] = useState("");
+    const [attachments, setAttachments] = useState<
+      Array<{
+        id: string;
+        file: File;
+        preview?: string;
+        uploading: boolean;
+        progress: number;
+        error?: string;
+        resourceId?: string;
+      }>
+    >([]);
     return (
       <ChatComposer
         draft={draft}
@@ -532,13 +548,16 @@ describe("composer", () => {
         onStop={() => {}}
         busy={busy}
         placeholder="Ask…"
+        conversationId="test-conversation"
+        attachments={attachments}
+        onAttachmentsChange={setAttachments}
       />
     );
   }
 
   it("sends on Enter", async () => {
     const onSend = vi.fn();
-    render(<Harness onSend={onSend} />);
+    renderWithQuery(<Harness onSend={onSend} />);
     const input = screen.getByLabelText("Message StudentOS AI");
 
     await userEvent.type(input, "hello{Enter}");
@@ -547,7 +566,7 @@ describe("composer", () => {
 
   it("does not send on Shift+Enter", async () => {
     const onSend = vi.fn();
-    render(<Harness onSend={onSend} />);
+    renderWithQuery(<Harness onSend={onSend} />);
     const input = screen.getByLabelText("Message StudentOS AI");
 
     await userEvent.type(input, "line one{Shift>}{Enter}{/Shift}line two");
@@ -556,12 +575,12 @@ describe("composer", () => {
   });
 
   it("keeps send disabled for an empty draft", () => {
-    render(<Harness onSend={() => {}} />);
+    renderWithQuery(<Harness onSend={() => {}} />);
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   });
 
   it("offers stop instead of send while generating", async () => {
-    render(<Harness onSend={() => {}} busy />);
+    renderWithQuery(<Harness onSend={() => {}} busy />);
     expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop generating" })).toBeInTheDocument();
   });

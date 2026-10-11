@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { Page, Subtask, Task, TaskPriority, TaskStatus, TaskType } from "@/types/api-types";
+import type { Page, Subtask, Task, TaskPriority, TaskStatus, TaskTag, TaskType } from "@/types/api-types";
 
 export type { Task } from "@/types/api-types";
 
@@ -80,14 +80,46 @@ export interface CreateSubtaskInput {
   position?: number;
 }
 
+export interface UpdateSubtaskInput {
+  title?: string;
+  status?: TaskStatus;
+  position?: number;
+  completedAt?: string | null;
+}
+
 export function createSubtask(taskId: string, input: CreateSubtaskInput): Promise<Subtask> {
   return api.post<Subtask>(`/tasks/${taskId}/subtasks`, input);
 }
 
-export function updateSubtask(taskId: string, subtaskId: string, input: CreateSubtaskInput): Promise<Subtask> {
+export function updateSubtask(taskId: string, subtaskId: string, input: UpdateSubtaskInput): Promise<Subtask> {
   return api.patch<Subtask>(`/tasks/${taskId}/subtasks/${subtaskId}`, input);
 }
 
 export function deleteSubtask(taskId: string, subtaskId: string): Promise<{ deleted: boolean }> {
   return api.delete<{ deleted: boolean }>(`/tasks/${taskId}/subtasks/${subtaskId}`);
+}
+
+// ── Task tags ─────────────────────────────────────
+
+export function listTaskTags(taskId: string): Promise<TaskTag[]> {
+  return api.get<TaskTag[]>(`/tasks/${taskId}/tags`);
+}
+
+export function createTaskTag(
+  taskId: string,
+  input: { name: string; color?: string },
+): Promise<TaskTag> {
+  return api.post<TaskTag>(`/tasks/${taskId}/tags`, input);
+}
+
+export function updateTaskTag(
+  taskId: string,
+  tagId: string,
+  input: { name?: string; color?: string | null },
+): Promise<TaskTag> {
+  return api.patch<TaskTag>(`/tasks/${taskId}/tags/${tagId}`, input);
+}
+
+export function deleteTaskTag(taskId: string, tagId: string): Promise<{ deleted: boolean }> {
+  return api.delete<{ deleted: boolean }>(`/tasks/${taskId}/tags/${tagId}`);
 }
