@@ -163,5 +163,4 @@ backend        Express REST API + Prisma (tests/ at backend/tests)
 frontend        Next.js web app (tests/ at frontend/tests)
 packages/shared Shared Zod schemas and types
 docs/api/       OpenAPI 3.1.1 contract for the REST surface
-scripts/        Repository maintenance scripts
 ```
