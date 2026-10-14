@@ -15,6 +15,7 @@ import notifications from "@/routes/notifications";
 import settings from "@/routes/settings";
 import ai from "@/routes/ai";
 import aiConnections from "@/routes/ai-connections";
+import imports from "@/routes/imports";
 import subtasks from "@/routes/subtasks";
 import taskTags from "@/routes/task-tags";
 
@@ -44,3 +45,6 @@ apiRouter.use("/ai-connections", aiConnections);
 // full `/tasks/:taskId/...` paths themselves.
 apiRouter.use("/", subtasks);
 apiRouter.use("/", taskTags);
+
+// CSV import endpoints
+apiRouter.use("/import", imports);
