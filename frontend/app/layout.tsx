@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { THEME_BOOTSTRAP_SCRIPT, buildThemeCss } from "@/lib/theme/themes";
 import { THEMES } from "@/lib/theme/definitions";
 import { Providers } from "./providers";
@@ -11,6 +11,12 @@ export const metadata: Metadata = {
   },
   description:
     "Courses, tasks, notes, study timer, goals and analytics for students — all in one sprint-ready workspace.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 /**

@@ -295,7 +295,7 @@ export default function TasksPage() {
           placeholder="Any course"
           allLabel="Any course"
           options={(courses.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
-          className="sm:w-48"
+          className="sm:w-48 lg:w-auto w-full"
         />
       </FilterBar>
 

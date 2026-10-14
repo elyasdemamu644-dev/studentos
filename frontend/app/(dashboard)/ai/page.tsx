@@ -457,7 +457,7 @@ export default function AiPage() {
           label="AI chat"
           icon={Sparkles}
           headerExtra={
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2 max-sm:basis-full max-sm:w-full max-sm:gap-0.5">
               {/* Below `lg` the history is a drawer, and below the three-pane
                   width the context is one, so the workspace stays single-column
                   there instead of squeezing the chat to a third of the screen. */}
@@ -465,8 +465,11 @@ export default function AiPage() {
               <AiContextDrawer />
               <StructuredExtractionDialog />
               <Select value={newType} onValueChange={(value) => setNewType(value as ConversationType)}>
-                <SelectTrigger className="hidden w-36 sm:inline-flex" aria-label="Conversation type">
-                  <SelectValue />
+                <SelectTrigger className="h-11 w-16 shrink-0 px-1 sm:h-9 sm:w-36 sm:px-3" aria-label="Conversation type">
+                  <span className="inline-flex w-auto max-w-full flex-none truncate text-[11px] font-medium sm:hidden">
+                    {newType === "STUDY_PLAN" ? "Plan" : CONVERSATION_TYPE_LABELS[newType]}
+                  </span>
+                  <SelectValue className="hidden min-w-0 flex-1 text-center sm:flex" />
                 </SelectTrigger>
                 <SelectContent>
                   {(Object.keys(CONVERSATION_TYPE_LABELS) as ConversationType[]).map((value) => (
@@ -476,13 +479,14 @@ export default function AiPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" onClick={() => startConversation()} disabled={createConversation.isPending}>
+              <Button size="sm" onClick={() => startConversation()} disabled={createConversation.isPending} className="max-sm:h-11 max-sm:px-2">
                 <Sparkles className="mr-1.5 h-4 w-4" aria-hidden />
                 <span className="hidden lg:inline">New chat</span>
                 <span className="lg:hidden">New</span>
               </Button>
             </div>
           }
+          headerClassName="max-sm:h-auto max-sm:flex-wrap max-sm:py-1"
         >
           {/* `<section>` rather than a second `<main>`: the shell already owns
               the page's `<main>`, and two of them break the document outline

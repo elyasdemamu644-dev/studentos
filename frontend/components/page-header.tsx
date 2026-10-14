@@ -69,7 +69,7 @@ export function PageHeader({
           {chips && <div className="mt-3 flex flex-wrap gap-2">{chips}</div>}
         </div>
         {actions && (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>
         )}
       </div>
     </header>

@@ -362,10 +362,12 @@ export function AiContextDrawer() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Open StudentOS context"
-        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-ai px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-card transition-colors hover:text-foreground min-[1360px]:hidden"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-ai px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-card transition-colors hover:text-foreground max-sm:h-11 max-sm:w-11 max-sm:justify-center max-sm:gap-0 max-sm:px-0 lg:h-11 lg:w-11 lg:justify-center lg:gap-0 lg:px-0 min-[1360px]:hidden"
       >
         <PanelRightOpen className="h-3.5 w-3.5" aria-hidden />
-        Context
+        <span className="max-sm:sr-only lg:sr-only">Context</span>
       </button>
 
       <Drawer

@@ -190,6 +190,7 @@ export function WorkspacePanel({
   onCollapsedChange,
   expandedClassName = "flex-1",
   headerExtra,
+  headerClassName,
   children,
   className,
   bodyClassName,
@@ -210,6 +211,8 @@ export function WorkspacePanel({
   expandedClassName?: string;
   /** Rendered in the header, immediately before the collapse control. */
   headerExtra?: React.ReactNode;
+  /** Extra responsive sizing for a header whose controls need another row. */
+  headerClassName?: string;
   children: React.ReactNode;
   className?: string;
   bodyClassName?: string;
@@ -231,8 +234,9 @@ export function WorkspacePanel({
           the thing at the top of the box. */}
       <header
         className={cn(
-          "flex h-11 shrink-0 items-center border-b border-border",
+          "flex min-h-11 shrink-0 items-center border-b border-border",
           collapsed ? "justify-center px-1" : "gap-2 px-3",
+          headerClassName,
         )}
       >
         {collapsed ? null : (

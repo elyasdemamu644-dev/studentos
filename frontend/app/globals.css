@@ -60,6 +60,22 @@
   }
 
   /*
+   * Keep implicit grid tracks shrinkable.
+   *
+   * A grid container with `display:grid` but no explicit `grid-template-columns`
+   * (e.g. `grid gap-4 lg:grid-cols-3` below the `lg` breakpoint) creates a
+   * single implicit column. The default `auto` sizing floors that column at the
+   * widest child's min-content width, so on narrow viewports a single wide child
+   * can push the whole page into horizontal overflow. Sizing implicit columns
+   * with `minmax(0, 1fr)` removes that floor and matches what Tailwind's own
+   * `grid-cols-*` utilities use, without affecting containers that already
+   * declare explicit columns.
+   */
+  .grid {
+    grid-auto-columns: minmax(0, 1fr);
+  }
+
+  /*
    * Make the theme's motion token the *default* transition duration.
    *
    * Tailwind bakes a literal 150ms into every `transition-*` utility, so a theme

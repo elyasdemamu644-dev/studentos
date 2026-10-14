@@ -115,7 +115,7 @@ export default function CoursesPage() {
           placeholder="All semesters"
           allLabel="All semesters"
           options={(semesters.data ?? []).map((s) => ({ value: s.id, label: s.name }))}
-          className="sm:w-44"
+          className="sm:w-44 lg:w-auto w-full"
         />
       </FilterBar>
 

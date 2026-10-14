@@ -198,7 +198,7 @@ export default function SettingsPage() {
               </form>
             </DialogContent>
           </Dialog>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => { setProfileForm({ firstName: user?.firstName ?? "", lastName: user?.lastName ?? "", university: user?.university ?? "", department: user?.department ?? "", academicYear: user?.academicYear ?? "", timezone: user?.timezone ?? "UTC" }); setEditProfileOpen(true); }}>
               <Pencil className="mr-1.5 h-4 w-4" aria-hidden /> Edit profile
             </Button>

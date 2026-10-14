@@ -13,7 +13,7 @@ export default function NotFound() {
       <p className="mt-2 max-w-md text-sm text-muted-foreground">
         We couldn’t find that page. It may have been renamed or removed.
       </p>
-      <div className="mt-6 flex items-center gap-2">
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
         <Button asChild>
           <Link href="/dashboard">
             <Compass className="mr-1.5 h-4 w-4" aria-hidden /> Back to dashboard

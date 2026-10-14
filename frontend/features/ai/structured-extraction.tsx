@@ -57,9 +57,9 @@ export function StructuredExtractionDialog() {
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} aria-label="Open structured study extraction">
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)} aria-label="Open structured study extraction" className="max-sm:h-11 max-sm:w-11 max-sm:px-0">
         <Braces className="h-4 w-4" aria-hidden />
-        <span className="hidden xl:inline">Extract</span>
+        <span className="hidden 2xl:inline">Extract</span>
       </Button>
       <Dialog
         open={open}

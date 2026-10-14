@@ -71,7 +71,7 @@ function AcademicContextSelector({
   if (!currentSemester || !currentAcademicYear) return null;
   
   return (
-    <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-muted/50 border border-border">
+    <div className="flex min-w-0 max-w-full items-center gap-3 px-4 py-2 rounded-lg bg-muted/50 border border-border">
       <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{currentSemester.name}</p>
@@ -341,7 +341,7 @@ export default function DashboardPage() {
               {greeting()}, {firstName}
             </h1>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <AcademicContextSelector 
               currentSemester={data.currentSemester} 
               currentAcademicYear={data.currentAcademicYear}
@@ -428,7 +428,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center gap-4 w-full sm:w-auto">
                 <Progress
-                  className="flex-1 h-1.5 max-w-xs"
+                  className="flex-1 h-1.5"
                   label={`${term.name} progress`}
                   value={termStarted ? termPct : 0}
                   valueText={
@@ -439,8 +439,7 @@ export default function DashboardPage() {
                         : `${termPct}% through, ${termDaysLeft} days left`
                   }
                 />
-                <span className="text-sm font-medium tabular-nums text-muted-foreground shrink-0">
-                  {termStarted ? `${termPct}%` : "Not started"}
+<span className="text-sm font-medium tabular-nums text-muted-foreground shrink-0">
                 </span>
                 {termStarted && termDaysLeft > 0 && (
                   <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
@@ -552,7 +551,7 @@ export default function DashboardPage() {
             </div>
             <div className="mt-4 flex items-center gap-4">
               <Progress
-                className="flex-1 h-1.5 max-w-xs"
+                className="flex-1 h-1.5"
                 label={`${term.name} progress`}
                 value={termStarted ? termPct : 0}
                 valueText={
@@ -641,7 +640,7 @@ export default function DashboardPage() {
       </section>
 
       {/* ── Supporting information and quick access ───────────────────── */}
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Tasks overview */}
         <Panel title="Tasks" icon={ListTodo} href="/tasks" linkLabel="Open">
           <div

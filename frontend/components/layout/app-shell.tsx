@@ -504,7 +504,7 @@ function Sidebar({
     <aside
       className={cn(
         "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 lg:flex",
-        collapsed ? "w-20" : "w-sidebar",
+        collapsed ? "w-20" : "w-sidebar sm:w-full lg:w-sidebar",
       )}
     >
       <div className={cn("flex h-14 shrink-0 items-center", collapsed ? "justify-center px-2" : "px-5")}>
@@ -618,7 +618,7 @@ function MobileNav() {
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className="flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium"
+                  className="flex min-w-0 flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium"
                 >
                   <span
                     className={cn(
@@ -628,7 +628,7 @@ function MobileNav() {
                   >
                     <item.icon className="h-5 w-5" aria-hidden />
                   </span>
-                  <span className="truncate">{item.label}</span>
+                  <span className="block w-full min-w-0 truncate text-center">{item.label}</span>
                 </Link>
               </li>
             );
@@ -640,7 +640,7 @@ function MobileNav() {
               onClick={() => setMoreOpen((open) => !open)}
               aria-expanded={moreOpen}
               aria-controls="mobile-more-sheet"
-              className="flex w-full flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium"
+              className="flex w-full min-w-0 flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium"
             >
               <span
                 className={cn(
@@ -650,7 +650,7 @@ function MobileNav() {
               >
                 <MoreHorizontal className="h-5 w-5" aria-hidden />
               </span>
-              More
+              <span className="block w-full min-w-0 truncate text-center">More</span>
             </button>
           </li>
         </ul>
@@ -914,7 +914,7 @@ export function AppShell({
           <DesktopTopBar />
           <MobileHeader />
           <NotificationBootstrap />
-          <main
+<main
             id="main-content"
             tabIndex={-1}
             // Two mutually exclusive strings rather than one list of overrides:
@@ -925,11 +925,11 @@ export function AppShell({
             // list has the same problem for a different reason.
             className={cn(
               workspace
-                ? "mx-0 flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden px-0 py-0 focus:outline-none lg:py-0"
-                : "mx-auto w-full max-w-content px-[var(--page-pad)] py-6 focus:outline-none lg:py-8",
-              className,
-            )}
-          >
+                ? "mx-0 flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden px-0 py-0 sm:pb-[env(safe-area-inset-bottom)] focus:outline-none lg:py-0"
+                : "mx-auto w-full max-w-content px-[var(--page-pad)] py-6 sm:pb-[env(safe-area-inset-bottom)] lg:py-8",
+            className,
+          )}
+        >
             {children}
           </main>
           {/* Bottom padding so mobile bottom-nav never covers content. */}

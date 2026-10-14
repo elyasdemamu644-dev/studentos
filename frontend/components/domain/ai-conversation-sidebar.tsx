@@ -303,11 +303,13 @@ export function AiConversationDrawer(props: ConversationListProps & {
         onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-haspopup="dialog"
+        aria-label={`History${conversations.length ? `, ${conversations.length} saved` : ""}`}
+        className="max-sm:h-11 max-sm:w-11 max-sm:gap-0 max-sm:px-0 lg:h-11 lg:w-11 lg:gap-0 lg:px-0"
       >
-        <MessageSquare className="mr-1.5 h-4 w-4" aria-hidden />
-        History
+        <MessageSquare className="mr-1.5 h-4 w-4 max-sm:mr-0 lg:mr-0" aria-hidden />
+        <span className="max-sm:sr-only lg:sr-only">History</span>
         {conversations.length > 0 && (
-          <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">
+          <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground max-sm:sr-only lg:sr-only">
             {conversations.length}
           </span>
         )}
