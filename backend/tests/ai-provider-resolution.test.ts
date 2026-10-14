@@ -5,6 +5,11 @@ vi.mock("@/services/ai-connections", async (importOriginal) => {
   return { ...mod, getActiveUserConnection: vi.fn() };
 });
 
+vi.mock("@/services/settings", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/services/settings")>();
+  return { ...mod, settingsService: { ...mod.settingsService, get: vi.fn() } };
+});
+
 import {
   AiConnectionUnreadableError,
   AiProvider,
@@ -19,7 +24,6 @@ import {
 const OPENROUTER_CONFIG: DefaultAiProviderConfig = {
   aiEnabled: true,
   aiProvider: "openrouter",
-  aiModel: "inclusionai/ling-3.0-flash-sante:free",
   aiBaseUrl: "https://openrouter.ai/api/v1",
   openRouterApiKey: "sk-or-test-openrouter-key-12345",
 };
@@ -45,7 +49,7 @@ async function bodyOf(fetchMock: ReturnType<typeof vi.fn>) {
   const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
   return JSON.parse(init.body as string) as {
     model: string;
-    messages: Array<{ role: string; content: string }>;
+    messages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }>;
   };
 }
 
@@ -70,6 +74,51 @@ describe("buildDefaultAiProvider (env default/fallback)", () => {
     ).toBeNull();
   });
 
+  it("uses OpenRouter's capability-aware free router when no model is specified", () => {
+    const provider = buildDefaultAiProvider(OPENROUTER_CONFIG);
+    expect(provider?.model).toBe("openrouter/free");
+    expect(provider?.supportsTools()).toBe(true);
+  });
+
+  it("uses an owner-supplied OpenAI key and that provider's default model", () => {
+    const provider = buildDefaultAiProvider({
+      aiEnabled: true,
+      aiProvider: "openai",
+      openAiApiKey: "sk-test-owner-openai-key",
+    });
+    expect(provider?.isConfigured()).toBe(true);
+    expect(provider?.model).toBe("gpt-4o");
+  });
+
+  it("uses an explicitly configured owner provider model without changing code", async () => {
+    const fetchMock = stubFetch();
+    const provider = buildDefaultAiProvider({
+      aiEnabled: true,
+      aiProvider: "openai",
+      aiModel: "owner-selected-model",
+      openAiApiKey: "sk-test-owner-openai-key",
+      openAiBaseUrl: "https://owner-provider.example/v1",
+    })!;
+    await provider.chat({ messages: [{ role: "user", content: "hello" }] });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://owner-provider.example/v1/chat/completions");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer sk-test-owner-openai-key");
+    expect(JSON.parse(init.body as string).model).toBe("owner-selected-model");
+  });
+
+  it("keeps Default AI unavailable for a blank key or unknown provider", () => {
+    expect(buildDefaultAiProvider({
+      ...OPENROUTER_CONFIG,
+      openRouterApiKey: "   ",
+    })).toBeNull();
+    expect(buildDefaultAiProvider({
+      aiEnabled: true,
+      aiProvider: "typo-provider",
+      aiModel: "some-model",
+    })).toBeNull();
+  });
+
   it("treats a credential-free ollama default as configured with no key", () => {
     const provider = buildDefaultAiProvider({
       aiEnabled: true,
@@ -77,6 +126,19 @@ describe("buildDefaultAiProvider (env default/fallback)", () => {
       ollamaBaseUrl: "http://localhost:11434",
     });
     expect(provider?.isConfigured()).toBe(true);
+  });
+
+  it("does not mark local/custom defaults ready without valid endpoints", () => {
+    expect(buildDefaultAiProvider({
+      aiEnabled: true,
+      aiProvider: "ollama",
+      ollamaBaseUrl: "not a URL",
+    })).toBeNull();
+    expect(buildDefaultAiProvider({
+      aiEnabled: true,
+      aiProvider: "custom",
+      customAiApiKey: "owner-key",
+    })).toBeNull();
   });
 
   it("chats against the OpenRouter URL with the env model and a grounding system message", async () => {
@@ -93,10 +155,52 @@ describe("buildDefaultAiProvider (env default/fallback)", () => {
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
     const body = await bodyOf(fetchMock);
-    expect(body.model).toBe("inclusionai/ling-3.0-flash-sante:free");
+    expect(body.model).toBe("openrouter/free");
     expect(body.messages[0].role).toBe("system");
     expect(body.messages[0].content).toContain(context);
     expect(body.messages[1].content).toBe("How is my progress going?");
+  });
+
+  it("sends image content parts through the OpenRouter-compatible chat API", async () => {
+    const fetchMock = stubFetch();
+    const provider = buildDefaultAiProvider(OPENROUTER_CONFIG)!;
+
+    await provider.chat({
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "What is in this image?" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=", detail: "auto" } },
+        ],
+      }],
+    });
+
+    const body = await bodyOf(fetchMock);
+    expect(body.messages[0].content).toEqual([
+      { type: "text", text: "What is in this image?" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=", detail: "auto" } },
+    ]);
+  });
+
+  it("passes tool calls to OpenRouter's feature-aware free router", async () => {
+    const fetchMock = stubFetch();
+    const provider = buildDefaultAiProvider(OPENROUTER_CONFIG)!;
+    await provider.chatWithTools({
+      messages: [{ role: "user", content: "Find my next task" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "find_task",
+          description: "Find a task",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+      }],
+      toolChoice: "auto",
+    });
+
+    const body = await bodyOf(fetchMock);
+    expect(body.model).toBe("openrouter/free");
+    expect((body as typeof body & { tools?: unknown[] }).tools).toHaveLength(1);
   });
 });
 
@@ -105,6 +209,9 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     vi.mocked(
       (await import("@/services/ai-connections")).getActiveUserConnection
     ).mockReset();
+    vi.mocked((await import("@/services/settings")).settingsService.get)
+      .mockReset()
+      .mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -143,6 +250,38 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     await expect(getAIProvider("user-nothing")).rejects.toMatchObject({
       statusCode: 503,
       code: "AI_PROVIDER_NOT_CONFIGURED",
+    });
+  });
+
+  it("uses the environment default when the user explicitly selects StudentOS Default AI", async () => {
+    const { getActiveUserConnection } = await import("@/services/ai-connections");
+    vi.mocked(getActiveUserConnection).mockResolvedValue({
+      provider: "ollama",
+      decryptedCredentials: {},
+      endpoint: "http://localhost:11434",
+      model: "qwen3:4b",
+    });
+    vi.mocked((await import("@/services/settings")).settingsService.get)
+      .mockResolvedValue({ "ai.providerMode": "default" });
+
+    await expect(getAIProvider("user-default-mode")).rejects.toMatchObject({
+      statusCode: 503,
+      code: "AI_PROVIDER_NOT_CONFIGURED",
+      message: "StudentOS Default AI is not configured. Please contact the administrator.",
+    });
+    expect(getActiveUserConnection).not.toHaveBeenCalled();
+  });
+
+  it("does not silently fall back to the shared provider when personal mode has no active connection", async () => {
+    const { getActiveUserConnection } = await import("@/services/ai-connections");
+    vi.mocked(getActiveUserConnection).mockResolvedValue(null);
+    vi.mocked((await import("@/services/settings")).settingsService.get)
+      .mockResolvedValue({ "ai.providerMode": "personal" });
+
+    await expect(getAIProvider("user-personal-mode")).rejects.toMatchObject({
+      statusCode: 503,
+      code: "AI_PROVIDER_NOT_CONFIGURED",
+      message: "No active personal AI connection. Activate a connection in Settings or select StudentOS Default AI.",
     });
   });
 
@@ -227,8 +366,63 @@ describe("AiProvider.chat provider-error sanitization", () => {
 
     expect(err).toBeInstanceOf(AiProviderError);
     expect((err as AiProviderError).statusCode).toBe(502);
-    expect((err as AiProviderError).message).toContain("[REDACTED]");
+    expect((err as AiProviderError).message).toContain("credentials were rejected");
     expect((err as AiProviderError).message).not.toContain(key);
+  });
+
+  it.each([
+    [429, "AI_PROVIDER_RATE_LIMITED", 429],
+    [402, "AI_PROVIDER_QUOTA_EXHAUSTED", 402],
+    [401, "AI_PROVIDER_AUTH_FAILED", 502],
+    [404, "AI_MODEL_UNAVAILABLE", 422],
+    [503, "AI_PROVIDER_UNAVAILABLE", 503],
+  ])("maps upstream HTTP %i into a safe actionable failure", async (upstreamStatus, code, appStatus) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: upstreamStatus,
+      text: async () => `{"error":{"message":"upstream detail"}}`,
+    }));
+    const provider = new AiProvider(
+      resolveAiProvider("openrouter"),
+      { apiKey: "sk-or-test-openrouter-key-12345" },
+      "https://openrouter.test.local",
+    );
+
+    const error = await provider.chat({ messages: [{ role: "user", content: "hello" }] })
+      .then(() => null)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(AiProviderError);
+    expect(error).toMatchObject({ statusCode: appStatus, code });
+    expect((error as Error).message).not.toContain("upstream detail");
+  });
+
+  it("recognizes OpenRouter's HTTP 200 in-body rate-limit error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ error: { message: "Provider rate limit exceeded" } }),
+    }));
+    const provider = new AiProvider(
+      resolveAiProvider("openrouter"),
+      { apiKey: "sk-or-test-openrouter-key-12345" },
+      "https://openrouter.test.local",
+    );
+
+    await expect(provider.chat({ messages: [{ role: "user", content: "hello" }] }))
+      .rejects.toMatchObject({ statusCode: 429, code: "AI_PROVIDER_RATE_LIMITED" });
+  });
+
+  it("maps a model capability mismatch to a clear unavailable-model error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ error: { message: "The selected model does not support tools" } }),
+    }));
+    const provider = buildDefaultAiProvider(OPENROUTER_CONFIG)!;
+
+    await expect(provider.chat({ messages: [{ role: "user", content: "hello" }] }))
+      .rejects.toMatchObject({ statusCode: 422, code: "AI_MODEL_UNAVAILABLE" });
   });
 
   // OpenRouter answers **HTTP 200** with an in-body `error` and no `choices`
@@ -265,8 +459,9 @@ describe("AiProvider.chat provider-error sanitization", () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(AiProviderError);
-    expect((err as AiProviderError).statusCode).toBe(502);
-    expect((err as AiProviderError).message).toContain("Service temporarily overloaded");
+    expect((err as AiProviderError).statusCode).toBe(503);
+    expect((err as AiProviderError).code).toBe("AI_PROVIDER_UNAVAILABLE");
+    expect((err as AiProviderError).message).toContain("temporarily unavailable");
     expect((err as AiProviderError).message).not.toContain("Cannot read properties");
   });
 
@@ -354,5 +549,55 @@ describe("AiProvider request timeout", () => {
     expect((err as { code?: string }).code).toBe("AI_PROVIDER_TIMEOUT");
     expect((err as Error).message).toMatch(/did not respond within/i);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts the upstream provider request when the student stops generation", async () => {
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("The operation was aborted."), { name: "AbortError" }));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new AiProvider(
+      resolveAiProvider("openrouter"),
+      { apiKey: "sk-or-test-openrouter-key-12345" },
+      "https://openrouter.test.local",
+    );
+    const controller = new AbortController();
+    const generation = provider.chat({
+      messages: [{ role: "user", content: "hello" }],
+      signal: controller.signal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+
+    await expect(generation).rejects.toMatchObject({ name: "AiProviderCancelledError" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries transient fetch network failures before returning a provider response", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ index: 0, message: { role: "assistant", content: "recovered" } }],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new AiProvider(
+      resolveAiProvider("openrouter"),
+      { apiKey: "sk-or-test-openrouter-key-12345" },
+      "https://openrouter.test.local",
+    );
+    await expect(provider.chat({ messages: [{ role: "user", content: "hello" }] }))
+      .resolves.toEqual({ content: "recovered" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

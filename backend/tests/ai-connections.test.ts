@@ -153,6 +153,12 @@ describe("AI Connections — StudentOS Phase 2", () => {
   beforeEach(async () => {
     await prisma.aiConnection.deleteMany({ where: { userId: alice.user.id } });
     await prisma.aiConnection.deleteMany({ where: { userId: bob.user.id } });
+    await prisma.userSetting.deleteMany({
+      where: {
+        userId: { in: [alice.user.id, bob.user.id] },
+        key: "ai.providerMode",
+      },
+    });
   });
 
   afterAll(async () => {
@@ -168,6 +174,19 @@ describe("AI Connections — StudentOS Phase 2", () => {
         .post(BASE)
         .send({ provider: "openai", credentials: "x" })
         .expect(401);
+    });
+
+    describe("provider selection", () => {
+      it("returns safe default and personal availability metadata without credentials", async () => {
+        const res = await authRequestJson("get", `${AI_BASE}/provider-selection`, alice.token);
+        expect(res.status).toBe(200);
+        expect(res.body.data).toMatchObject({
+          mode: "default",
+          defaultAvailable: false,
+          personalConnectionAvailable: false,
+        });
+        expect(JSON.stringify(res.body)).not.toMatch(/apiKey|credentials|sk-or-/i);
+      });
     });
 
     it("rejects unauthenticated GET list", async () => {
@@ -787,13 +806,17 @@ describe("AI Connections — StudentOS Phase 2", () => {
 
     it("disabled connection cannot be active", async () => {
       const c = await createConn(alice.token);
+      await authRequestJson("post", `${BASE}/${c.id}/activate`, alice.token);
       await authRequestJson("patch", `${BASE}/${c.id}`, alice.token, { enabled: false });
       const res = await authRequestJson("post", `${BASE}/${c.id}/activate`, alice.token);
-      // Activating a disabled connection succeeds at the route level,
-      // but getActiveConnection filters on enabled:true AND isActive:true
-      // so it won't show up as active
+      expect(res.status).toBe(409);
+      // An inactive connection cannot be reactivated while it is disabled.
       const activeRes = await authRequestJson("get", `${BASE}/active`, alice.token);
       expect(activeRes.status).toBe(404);
+      const mode = await prisma.userSetting.findUnique({
+        where: { userId_key: { userId: alice.user.id, key: "ai.providerMode" } },
+      });
+      expect(mode?.value).toBe("default");
       await prisma.aiConnection.delete({ where: { id: c.id } });
     });
   });

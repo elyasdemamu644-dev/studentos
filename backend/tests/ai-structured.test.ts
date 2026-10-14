@@ -216,7 +216,7 @@ describe("AI structured extraction endpoint", () => {
     expect(res.body.error.code).toBe("AI_PROVIDER_NOT_CONFIGURED");
   });
 
-  it("maps a non-2xx provider response to 502 AI_PROVIDER_ERROR without leaking keys", async () => {
+  it("maps a provider server failure to 503 AI_PROVIDER_UNAVAILABLE without leaking keys", async () => {
     useFakeConnection();
     vi.stubGlobal(
       "fetch",
@@ -233,8 +233,8 @@ describe("AI structured extraction endpoint", () => {
       schema: SCHEMA,
     });
 
-    expect(res.status).toBe(502);
-    expect(res.body.error.code).toBe("AI_PROVIDER_ERROR");
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe("AI_PROVIDER_UNAVAILABLE");
     expect(res.body.error.message).not.toMatch(/sk-test/);
     expect(res.body.error.message).not.toMatch(/at Object|Error:/);
   });

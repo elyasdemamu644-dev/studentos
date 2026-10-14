@@ -527,19 +527,22 @@ describe("empty state", () => {
 });
 
 describe("composer", () => {
-  function Harness({ onSend, busy = false }: { onSend: () => void; busy?: boolean }) {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  function Harness({
+    onSend,
+    busy = false,
+    initialAttachments = [],
+  }: {
+    onSend: () => void;
+    busy?: boolean;
+    initialAttachments?: ComponentProps<typeof ChatComposer>["attachments"];
+  }) {
     const [draft, setDraft] = useState("");
-    const [attachments, setAttachments] = useState<
-      Array<{
-        id: string;
-        file: File;
-        preview?: string;
-        uploading: boolean;
-        progress: number;
-        error?: string;
-        resourceId?: string;
-      }>
-    >([]);
+    const [attachments, setAttachments] = useState(initialAttachments);
     return (
       <ChatComposer
         draft={draft}
@@ -577,6 +580,83 @@ describe("composer", () => {
   it("keeps send disabled for an empty draft", () => {
     renderWithQuery(<Harness onSend={() => {}} />);
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
+  it("shows the attachment menu and opens the existing link-entry flow", async () => {
+    renderWithQuery(<Harness onSend={() => {}} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Add attachment" }));
+    expect(screen.getByRole("menuitem", { name: /Upload any file/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: /Add a link/ }));
+
+    expect(screen.getByLabelText("Add a web link")).toBeInTheDocument();
+    expect(screen.getByText("The AI receives this URL as a reference. It does not fetch the page.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add link" })).toBeDisabled();
+  });
+
+  it("shows file type and lets the student remove an attached file", async () => {
+    const file = new File(["notes"], "lecture-notes.pdf", { type: "application/pdf" });
+    renderWithQuery(
+      <Harness
+        onSend={() => {}}
+        initialAttachments={[
+          { id: "attachment-1", file, uploading: false, progress: 100, resourceId: "resource-1" },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("lecture-notes.pdf")).toBeInTheDocument();
+    expect(screen.getByText("PDF")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Remove lecture-notes.pdf" }));
+    expect(screen.queryByText("lecture-notes.pdf")).not.toBeInTheDocument();
+  });
+
+  it("uploads an arbitrary file type and enables send after the upload completes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      stubResponse({
+        success: true,
+        data: { resourceId: "uploaded-resource", attachment: {} },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setTokens("test-access-token", "test-refresh-token");
+
+    renderWithQuery(<Harness onSend={() => {}} />);
+    await userEvent.type(screen.getByLabelText("Message StudentOS AI"), "Review this file");
+    await userEvent.upload(
+      screen.getByLabelText("Choose files to attach"),
+      new File([new Uint8Array([0, 1, 255])], "archive.custom", { type: "application/x-custom" }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(screen.getByText("CUSTOM")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
+  it("does not retry a failed upload indefinitely or allow it to be silently sent", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      stubResponse(
+        { success: false, error: { code: "UNSUPPORTED_FILE_TYPE", message: "Upload rejected" } },
+        400,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setTokens("test-access-token", "test-refresh-token");
+
+    renderWithQuery(<Harness onSend={() => {}} />);
+    await userEvent.type(screen.getByLabelText("Message StudentOS AI"), "Review this file");
+    await userEvent.upload(
+      screen.getByLabelText("Choose files to attach"),
+      new File([new Uint8Array([0, 1, 255])], "archive.custom", { type: "application/x-custom" }),
+    );
+
+    await waitFor(() => expect(screen.getByTitle("Upload rejected")).toBeInTheDocument());
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove archive.custom" }));
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
   it("offers stop instead of send while generating", async () => {

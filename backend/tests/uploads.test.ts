@@ -124,18 +124,22 @@ describe("Resource uploads", () => {
       expect(res.body.data.resourceType).toBe("DOCUMENT");
     });
 
-    it("rejects a disallowed file type and writes no row", async () => {
-      const before = await prisma.resource.count();
+    it("accepts any file type, storing unknown content as octet-stream", async () => {
       const res = await upload(token, {
-        file: Buffer.from([0x4d, 0x5a, 0x90, 0x00]), // MZ executable
-        filename: "malware.pdf",
-        contentType: "application/pdf",
-        fields: { title: "Malware" },
+        file: Buffer.from([0x4d, 0x5a, 0x90, 0x00]), // MZ executable, no known signature
+        filename: "archive.custom",
+        contentType: "application/octet-stream",
+        fields: { title: "Arbitrary binary" },
       });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error.code).toBe("UNSUPPORTED_FILE_TYPE");
-      expect(await prisma.resource.count()).toBe(before);
+      expect(res.status).toBe(201);
+      expect(res.body.data.mimeType).toBe("application/octet-stream");
+      expect(res.body.data.fileName).toBe("archive.custom");
+
+      const deleted = await request(app)
+        .delete(`${BASE}/resources/${res.body.data.id}`)
+        .set(auth(token));
+      expect(deleted.status).toBe(200);
     });
 
     it("rejects an oversized file", async () => {
@@ -254,6 +258,43 @@ describe("Resource uploads", () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe("NOT_FOUND");
+    });
+  });
+
+  describe("POST /ai/attachments/upload", () => {
+    it("accepts arbitrary binary content while storing an unknown type as octet-stream", async () => {
+      const conversation = await authRequestJson("post", `${BASE}/ai/conversations`, token, {
+        title: "Arbitrary attachment upload",
+      });
+      const bytes = Buffer.from([0x00, 0x01, 0xff, 0x02, 0x03]);
+      const uploaded = await request(app)
+        .post(`${BASE}/ai/attachments/upload`)
+        .set(auth(token))
+        .field("conversationId", conversation.body.data.id)
+        .attach("file", bytes, {
+          filename: "archive.custom",
+          contentType: "application/x-custom",
+        });
+
+      expect(uploaded.status).toBe(201);
+      expect(uploaded.body.data.attachment).toMatchObject({
+        fileName: "archive.custom",
+        mimeType: "application/octet-stream",
+        fileSize: bytes.length,
+      });
+
+      const resourceId = uploaded.body.data.resourceId as string;
+      const download = await request(app)
+        .get(`${BASE}/resources/${resourceId}/download`)
+        .set(auth(token))
+        .buffer(true)
+        .parse(binaryParser);
+      expect(download.status).toBe(200);
+      expect(download.headers["content-type"]).toContain("application/octet-stream");
+      expect(Buffer.compare(download.body, bytes)).toBe(0);
+
+      const deleted = await request(app).delete(`${BASE}/resources/${resourceId}`).set(auth(token));
+      expect(deleted.status).toBe(200);
     });
   });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Pencil, Plug, Plus, Power, Trash2 } from "lucide-react";
+import { CheckCircle2, KeyRound, Pencil, Plug, Plus, Power, Sparkles, Trash2 } from "lucide-react";
 
 import type { AiConnection } from "@/types/api-types";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,14 @@ import { Switch } from "@/components/ui/switch";
 import { ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
 import { AI_PROVIDER_LABELS } from "@/lib/labels";
-import { useActivateConnection, useAiConnections, useDeleteConnection, useUpdateConnection } from "./hooks";
+import {
+  useActivateConnection,
+  useAiConnections,
+  useAiProviderSelection,
+  useDeleteConnection,
+  useSetAiProviderMode,
+  useUpdateConnection,
+} from "./hooks";
 import { AiConnectionFormDialog } from "./connection-form";
 
 function ConnectionRow({
@@ -55,7 +62,7 @@ function ConnectionRow({
           <Button
             variant="ghost"
             size="sm"
-            disabled={busy}
+            disabled={busy || !connection.enabled}
             onClick={() => activate.mutate(connection.id)}
           >
             <Power className="mr-1.5 h-4 w-4" aria-hidden /> Activate
@@ -86,6 +93,8 @@ function ConnectionRow({
 
 export function AiConnectionsPanel() {
   const connections = useAiConnections();
+  const providerSelection = useAiProviderSelection();
+  const setProviderMode = useSetAiProviderMode();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AiConnection | undefined>(undefined);
 
@@ -93,7 +102,7 @@ export function AiConnectionsPanel() {
 
   return (
     <section className="surface-panel p-5">
-      <div className="mb-1 flex items-center justify-between gap-3">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 font-semibold">
           <Plug className="h-4 w-4 text-primary" aria-hidden /> AI connections
         </h2>
@@ -108,8 +117,62 @@ export function AiConnectionsPanel() {
         </Button>
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
-        The active connection is the one the AI assistant uses for chats and study plans.
+        Choose StudentOS Default AI or an AI connection you configured yourself.
       </p>
+
+      {providerSelection.isPending ? (
+        <ListSkeleton rows={1} />
+      ) : providerSelection.isError ? (
+        <ErrorState error={providerSelection.error} retry={() => providerSelection.refetch()} />
+      ) : (
+        <fieldset className="mb-5 space-y-2">
+          <legend className="mb-2 text-sm font-medium">Provider used by the assistant</legend>
+          <button
+            type="button"
+            aria-pressed={providerSelection.data.mode === "default"}
+            disabled={!providerSelection.data.defaultAvailable || setProviderMode.isPending}
+            onClick={() => setProviderMode.mutate("default")}
+            className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-pressed:border-primary aria-pressed:bg-primary/5"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Sparkles className="h-4 w-4" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">StudentOS Default AI</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {providerSelection.data.defaultAvailable
+                  ? `${providerSelection.data.defaultProvider} · ${providerSelection.data.defaultModel}`
+                  : "Not configured on this server"}
+              </span>
+            </span>
+            {providerSelection.data.mode === "default" && (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-label="Selected" />
+            )}
+          </button>
+          <button
+            type="button"
+            aria-pressed={providerSelection.data.mode === "personal"}
+            disabled={!providerSelection.data.personalConnectionAvailable || setProviderMode.isPending}
+            onClick={() => setProviderMode.mutate("personal")}
+            className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-pressed:border-primary aria-pressed:bg-primary/5"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <KeyRound className="h-4 w-4" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">My AI connection</span>
+              <span className="block text-xs text-muted-foreground">
+                {providerSelection.data.personalConnectionAvailable
+                  ? "Use your active, encrypted provider credentials"
+                  : "Add and activate a connection below"}
+              </span>
+            </span>
+            {providerSelection.data.mode === "personal" && (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-label="Selected" />
+            )}
+          </button>
+        </fieldset>
+      )}
 
       {connections.isPending ? (
         <ListSkeleton rows={2} />

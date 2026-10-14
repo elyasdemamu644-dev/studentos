@@ -60,8 +60,11 @@ export const config = {
 
   // AI provider
   aiEnabled: process.env.AI_ENABLED !== "false",
-  aiProvider: process.env.AI_PROVIDER ?? "openai",
-  aiModel: process.env.AI_MODEL ?? "gpt-4o-mini",
+  aiProvider: process.env.AI_PROVIDER ?? "openrouter",
+  // Leave provider defaults to the adapter when AI_MODEL is unset. The
+  // OpenRouter adapter defaults to its free-model router; other providers
+  // retain their own native model defaults.
+  aiModel: process.env.AI_MODEL?.trim() || undefined,
   // Base URL for the environment-default provider (default/fallback used when a
   // user has no active personal AI connection). Dev default: OpenRouter.
   aiBaseUrl: process.env.AI_BASE_URL ?? undefined,
@@ -88,6 +91,8 @@ export const config = {
     // not pin a request (and its socket) open indefinitely; this mirrors the
     // EMAIL_TIMEOUT_MS convention used for SMTP.
     aiRequestTimeoutMs: Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 60_000),
+    aiRateLimitPerMinute: Number(process.env.AI_RATE_LIMIT_PER_MINUTE ?? 10),
+    aiDailyQuota: Number(process.env.AI_DAILY_QUOTA ?? 100),
 
 
   // S3-compatible storage
@@ -213,33 +218,9 @@ export function validateConfig(): void {
   if (!config.jwtSecret) missing.push("JWT_SECRET");
   if (!config.encryptionKey) missing.push("ENCRYPTION_KEY");
 
-  // AI default provider: require the credential the configured provider needs.
-  // `aiEnabled` gates the whole default-provider path, so an explicitly named
-  // provider must have its key present at boot rather than 502ing at runtime.
-  if (config.aiEnabled) {
-    switch (config.aiProvider) {
-      case "openai":
-        if (!config.openAiApiKey) missing.push("OPENAI_API_KEY");
-        break;
-      case "openrouter":
-        if (!config.openRouterApiKey) missing.push("OPENROUTER_API_KEY");
-        break;
-      case "gemini":
-        if (!config.geminiApiKey) missing.push("GEMINI_API_KEY");
-        break;
-      case "anthropic":
-        if (!config.anthropicApiKey) missing.push("ANTHROPIC_API_KEY");
-        break;
-      case "custom":
-        if (!config.customAiApiKey) missing.push("CUSTOM_AI_API_KEY");
-        if (!config.customAiEndpoint) missing.push("CUSTOM_AI_ENDPOINT");
-        break;
-      case "ollama":
-        break; // endpoint-only; OLLAMA_BASE_URL has a sensible default
-      default:
-        missing.push(`AI_PROVIDER (unknown provider "${config.aiProvider}")`);
-    }
-  }
+  // AI provider credentials are optional at boot. The default-provider path
+  // returns a controlled 503 when unconfigured, while personal connections
+  // remain usable even if the deployment has no shared provider key.
 
   if (config.s3Endpoint && (!config.s3AccessKeyId || !config.s3SecretAccessKey))
     missing.push("S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY");
@@ -267,4 +248,3 @@ export function validateConfig(): void {
     throw new Error(`Unsafe production configuration: ${unsafe.join(", ")}.`);
   }
 }
-

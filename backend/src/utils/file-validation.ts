@@ -97,13 +97,16 @@ function looksLikeText(buffer: Buffer): boolean {
 
 /**
  * Decide the canonical MIME type to store, given the client-declared type, the
- * sniffed type and the operator allowlist. Throws 400 `UNSUPPORTED_FILE_TYPE`
- * when the content is unknown or not permitted.
+ * sniffed type and the operator allowlist. `allowAnyType` is reserved for AI
+ * attachments: known content is still sniffed and unknown binaries are stored
+ * as `application/octet-stream`. Throws 400 `UNSUPPORTED_FILE_TYPE` when the
+ * content is unknown or not permitted by the selected policy.
  */
 export function resolveUploadMimeType(
   declaredMime: string,
   detected: string | null,
   allowed: ReadonlySet<string>,
+  allowAnyType = false,
 ): string {
   const declared = (declaredMime || "").toLowerCase().split(";")[0].trim();
   const unsupported = (): never => {
@@ -114,22 +117,28 @@ export function resolveUploadMimeType(
     );
   };
 
-  if (!detected) return unsupported();
+  if (!detected) {
+    if (allowAnyType) return "application/octet-stream";
+    return unsupported();
+  }
 
   // OOXML (docx/pptx/xlsx) is a ZIP container; the exact subtype comes from the
   // client but must be a known subtype and explicitly allowed.
   if (detected === "application/zip") {
-    if (OOXML_TYPES.has(declared) && allowed.has(declared)) return declared;
+    if (OOXML_TYPES.has(declared) && (allowAnyType || allowed.has(declared))) return declared;
+    if (allowAnyType) return detected;
     return unsupported();
   }
 
   // Legacy MS Office files share the OLE2 compound-file magic.
   if (detected === "application/x-ole-storage") {
-    if (OLE_TYPES.has(declared) && allowed.has(declared)) return declared;
+    if (OLE_TYPES.has(declared) && (allowAnyType || allowed.has(declared))) return declared;
+    if (allowAnyType) return detected;
     return unsupported();
   }
 
   // Concrete detection wins over whatever the client claimed.
+  if (allowAnyType) return detected;
   if (!allowed.has(detected)) return unsupported();
   return detected;
 }

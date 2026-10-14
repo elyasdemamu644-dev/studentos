@@ -70,11 +70,7 @@ export interface SendMessageInput {
   generateReply?: boolean;
   /** Attachments to include with the message (uploaded resources). */
   attachmentIds?: string[];
-  /**
-   * Aborting this leaves the server request in flight; the user's message is
-   * still persisted by the API, so a later reload shows it. It only stops the
-   * browser from waiting for a reply nobody is reading.
-   */
+  /** Aborting this cancels the upstream generation and leaves no assistant reply. */
   signal?: AbortSignal;
 }
 

@@ -50,6 +50,24 @@ describe("file validation", () => {
     ).toThrow(/not allowed/i);
   });
 
+  it("stores unknown binary as octet-stream when arbitrary types are allowed", () => {
+    expect(
+      resolveUploadMimeType(
+        "application/x-custom",
+        detectMimeType(Buffer.from([0x00, 0x01, 0xff, 0x02])),
+        new Set(["application/pdf"]),
+        true,
+      ),
+    ).toBe("application/octet-stream");
+  });
+
+  it("uses sniffed MIME types for arbitrary uploads instead of trusting the declaration", () => {
+    const gif = Buffer.from("GIF89a");
+    expect(resolveUploadMimeType("application/x-custom", detectMimeType(gif), new Set(), true)).toBe(
+      "image/gif",
+    );
+  });
+
   it("accepts only allow-listed OOXML/OLE subtypes for container formats", () => {
     const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(16)]);
     const pptx = "application/vnd.openxmlformats-officedocument.presentationml.presentation";

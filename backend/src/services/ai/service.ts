@@ -1,7 +1,7 @@
 import { prisma } from "@/utils/prisma";
 import type { Prisma } from "@prisma/client";
 import { NotFoundError, ConflictError } from "@/config/errors";
-import { getAIProvider, AiProviderNotConfiguredError } from "./provider";
+import { AiProviderCancelledError, getAIProvider, AiProviderNotConfiguredError } from "./provider";
 import { studentContextBuilder } from "./context";
 import { runAgent, type ToolActivityEntry } from "./agent";
 import { extractStructured } from "./structured";
@@ -9,7 +9,7 @@ import { confirmationStore, summarizeOutcomes, toPendingActionResponse } from ".
 import { executeProposalActions } from "./tools/confirm-tool";
 import { executeTool } from "./tools/registry";
 import type { ProposedAction } from "./tools/types";
-import { resourcesService } from "@/services/resources";
+import { getAiAttachmentContent } from "./attachments";
 import type {
   CreateConversationInput,
   CreateMessageInput,
@@ -128,44 +128,18 @@ export const aiService = {
    * `generateReply: false` keeps the store-only behaviour for callers that only
    * want to persist a message.
    */
-  async addMessage(userId: string, conversationId: string, input: CreateMessageInput) {
+  async addMessage(userId: string, conversationId: string, input: CreateMessageInput, signal?: AbortSignal) {
     await assertConversationOwnership(userId, conversationId);
 
     const role = input.role ?? "USER";
     const wantsReply = input.generateReply ?? true;
     const attachmentIds = input.attachmentIds ?? [];
 
-    // Fetch and extract content from attachments if any
-    let attachmentContext = "";
-    if (attachmentIds.length > 0 && wantsReply && role === "USER") {
-      const attachments = await Promise.all(
-        attachmentIds.map((id) => resourcesService.getById(userId, id).catch(() => null)),
-      );
-      const validAttachments = attachments.filter((a): a is NonNullable<typeof a> => a !== null);
-
-      if (validAttachments.length > 0) {
-        const extractedContents = await Promise.all(
-          validAttachments
-            .filter((a) => a.storageType === "UPLOAD" && a.mimeType)
-            .map(async (a) => {
-              try {
-                return await resourcesService.getContent(userId, a.id);
-              } catch {
-                return null;
-              }
-            }),
-        );
-        const validContents = extractedContents.filter((c): c is NonNullable<typeof c> => c !== null);
-        if (validContents.length > 0) {
-          attachmentContext = validContents
-            .map(
-              (c) =>
-                `\n\n--- ATTACHMENT: ${c.pages[0]?.text.slice(0, 100) ?? "resource"} (${c.format}, ${c.pageCount} page(s)) ---\n${c.fullText}\n--- END ATTACHMENT ---`,
-            )
-            .join("\n");
-        }
-      }
-    }
+    const attachmentContent =
+      attachmentIds.length > 0 && wantsReply && role === "USER"
+        ? await getAiAttachmentContent(userId, attachmentIds)
+        : { context: "", imageParts: [] };
+    const attachmentContext = attachmentContent.context;
 
     if (wantsReply && role === "USER") {
       const provider = await getAIProvider(userId);
@@ -237,11 +211,25 @@ export const aiService = {
         userId,
         conversationId,
         history,
-        userMessage: input.content + (attachmentContext ? `\n\n[Attachments provided: ${attachmentIds.length} file(s)]` : ""),
+        userMessage: input.content,
+        userMessageContent: attachmentContext || attachmentContent.imageParts.length > 0
+          ? [
+              {
+                type: "text",
+                text: [input.content, attachmentContext].filter(Boolean).join("\n\n"),
+              },
+              ...attachmentContent.imageParts,
+            ]
+          : input.content,
         studentName: student?.firstName ?? null,
-        context,
+        context: JSON.stringify({ studentContext }),
         studentContext,
+        signal,
       });
+
+      // A disconnect after the provider's final byte still must not turn a
+      // cancelled turn into a completed assistant message or stored proposal.
+      if (signal?.aborted) throw new AiProviderCancelledError();
 
       const pending = run.proposedActions.length
         ? storeProposal(userId, conversationId, run)

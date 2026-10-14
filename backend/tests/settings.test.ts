@@ -58,5 +58,20 @@ describe("Settings Module", () => {
 
       expect(res.status).toBe(400);
     });
+
+    it("only accepts supported AI provider modes", async () => {
+      const res = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.providerMode": "third-party" },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("persists StudentOS Default AI mode", async () => {
+      const res = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.providerMode": "default" },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.data["ai.providerMode"]).toBe("default");
+    });
   });
 });

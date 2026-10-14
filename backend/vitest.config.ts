@@ -33,6 +33,8 @@ try {
 
 testEnv.NODE_ENV = 'test';
 testEnv.AI_ENABLED = 'false';
+testEnv.AI_RATE_LIMIT_PER_MINUTE = '1000';
+testEnv.AI_DAILY_QUOTA = '10000';
 
 // Zero any AI provider keys so they never reach test workers. The app's `.env`
 // (.gitignored) may carry a live OPENROUTER_API_KEY etc.; tests must not be able

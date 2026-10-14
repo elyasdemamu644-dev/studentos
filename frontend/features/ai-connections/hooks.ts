@@ -14,12 +14,33 @@ export function useAiConnections(params: api.AiConnectionListParams = {}) {
   });
 }
 
+export function useAiProviderSelection() {
+  return useQuery({
+    queryKey: ["ai-provider-selection"],
+    queryFn: api.getProviderSelection,
+  });
+}
+
+export function useSetAiProviderMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: api.AiProviderSelection["mode"]) => api.setProviderMode(mode),
+    onSuccess: (settings) => {
+      qc.setQueryData(["settings"], settings);
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
+      toast.success("AI provider preference saved");
+    },
+    onError: () => toast.error("Could not change the AI provider"),
+  });
+}
+
 export function useCreateConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: api.CreateConnectionInput) => api.createConnection(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
       toast.success("AI connection added");
     },
     onError: () => toast.error("Could not add the AI connection"),
@@ -33,6 +54,7 @@ export function useUpdateConnection() {
       api.updateConnection(id, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
       toast.success("AI connection updated");
     },
     onError: () => toast.error("Could not update the AI connection"),
@@ -45,6 +67,7 @@ export function useActivateConnection() {
     mutationFn: (id: string) => api.activateConnection(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
       toast.success("Connection activated");
     },
     onError: () => toast.error("Could not activate the connection"),
@@ -57,6 +80,7 @@ export function useDeleteConnection() {
     mutationFn: (id: string) => api.deleteConnection(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
       toast.success("AI connection removed");
     },
     onError: () => toast.error("Could not remove the AI connection"),

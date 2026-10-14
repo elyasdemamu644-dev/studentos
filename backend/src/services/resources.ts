@@ -166,6 +166,7 @@ export const resourcesService = {
     userId: string,
     fields: ResourceUploadFields,
     file: ParsedFile,
+    options: { allowAnyMimeType?: boolean } = {},
   ) {
     if (file.buffer.length === 0) {
       throw new ValidationApiError("The uploaded file is empty", UPLOAD_ERROR_CODES.EMPTY_FILE);
@@ -177,6 +178,7 @@ export const resourcesService = {
       file.declaredMime,
       detectMimeType(file.buffer),
       new Set(config.uploadAllowedMimeTypes),
+      options.allowAnyMimeType,
     );
 
     if (fields.courseId) {

@@ -30,6 +30,10 @@ import {
 import { UPLOAD_ERROR_CODES } from "@/utils/file-validation";
 import { storageKeyFor } from "@/services/storage";
 import { getFileStorage } from "@/services/storage";
+import { limitAndLogAiUsage } from "@/middlewares/ai-usage";
+import { buildDefaultAiProvider } from "@/services/ai/provider";
+import { settingsService } from "@/services/settings";
+import * as aiConnectionsService from "@/services/ai-connections";
 
 const router = Router();
 router.use(authenticate);
@@ -39,9 +43,34 @@ const messageParam = { id: z.string().min(1) };
 const studyPlanIdParam = { id: z.string().min(1) };
 const studyPlanEntryParam = { id: z.string().min(1), entryId: z.string().min(1) };
 
+router.get("/provider-selection", async (req: AuthRequest, res, next) => {
+  try {
+    const userId = req.currentUser!.id;
+    const [settings, personalConnection] = await Promise.all([
+      settingsService.get(userId),
+      aiConnectionsService.getActiveConnection(userId),
+    ]);
+    const defaultProvider = buildDefaultAiProvider();
+    const mode = settings["ai.providerMode"] ??
+      (personalConnection ? "personal" : "default");
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        mode,
+        defaultAvailable: Boolean(defaultProvider),
+        defaultProvider: config.aiProvider,
+        defaultModel: defaultProvider?.model ?? config.aiModel,
+        personalConnectionAvailable: Boolean(personalConnection),
+      },
+    });
+  } catch (error) { next(error); }
+});
+
 // ── Attachments ───────────────────────────────────
 //
-// Upload a file as an AI attachment. Creates a resource and returns its ID.
+// Upload any file type as an AI attachment. Unknown binary content is stored
+// as application/octet-stream; text extraction remains format-limited.
 
 router.post("/attachments/upload", async (req: AuthRequest, res, next) => {
   try {
@@ -75,6 +104,7 @@ router.post("/attachments/upload", async (req: AuthRequest, res, next) => {
         resourceType: undefined,
       },
       parsed.file,
+      { allowAnyMimeType: true },
     );
 
     return res.status(201).json({
@@ -152,12 +182,19 @@ router.get("/conversations/:id/messages", zValidator("params", messageParam), as
   } catch (error) { next(error); }
 });
 
-router.post("/conversations/:id/messages", zValidator("params", messageParam), zValidator("body", createMessageSchema), async (req: AuthRequest, res, next) => {
+router.post("/conversations/:id/messages", zValidator("params", messageParam), zValidator("body", createMessageSchema), limitAndLogAiUsage, async (req: AuthRequest, res, next) => {
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
   try {
     const input = req.body as unknown as CreateMessageInput;
-    const result = await aiService.addMessage(req.currentUser!.id, String(req.params.id), input);
+    const result = await aiService.addMessage(req.currentUser!.id, String(req.params.id), input, controller.signal);
     return res.status(201).json({ success: true, data: result });
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    next(error);
+  }
 });
 
 // ── Structured extraction ─────────────────────
@@ -167,7 +204,7 @@ router.post("/conversations/:id/messages", zValidator("params", messageParam), z
 // against the client-supplied JSON Schema. No tools run and nothing is written,
 // so there is never a proposal to confirm.
 
-router.post("/structured", zValidator("body", structuredRequestSchema), async (req: AuthRequest, res, next) => {
+router.post("/structured", zValidator("body", structuredRequestSchema), limitAndLogAiUsage, async (req: AuthRequest, res, next) => {
   try {
     const input = req.body as unknown as StructuredRequestInput;
     const result = await aiService.structured(req.currentUser!.id, input);

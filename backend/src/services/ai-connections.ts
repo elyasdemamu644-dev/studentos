@@ -11,6 +11,7 @@ import {
 import type { CreateAiConnectionInput, UpdateAiConnectionInput, TestConnectionInput, AiProviderName } from "../schemas/ai-connections";
 import { AiConnectionUnreadableError, type ProviderCredentials } from "@/services/ai/provider";
 import assert from "node:assert";
+import { ConflictError } from "@/config/errors";
 
 function toResponse(record: {
   id: string;
@@ -172,6 +173,19 @@ export async function updateConnection(
         data: { ...fields, credentialsEncrypted },
       }),
     ]);
+  } else if (data.enabled === false && existing.isActive) {
+    const [record] = await prisma.$transaction([
+      prisma.aiConnection.update({
+        where: { id, userId },
+        data: { ...fields, credentialsEncrypted },
+      }),
+      prisma.userSetting.upsert({
+        where: { userId_key: { userId, key: "ai.providerMode" } },
+        create: { userId, key: "ai.providerMode", value: "default" },
+        update: { value: "default" },
+      }),
+    ]);
+    return toResponse(record);
   } else {
     const record = await prisma.aiConnection.update({
       where: { id, userId },
@@ -201,9 +215,18 @@ export async function deleteConnection(
     throw new NotFoundError("AI connection not found");
   }
 
-  await prisma.aiConnection.delete({
-    where: { id, userId },
-  });
+  if (existing.isActive) {
+    await prisma.$transaction([
+      prisma.aiConnection.delete({ where: { id, userId } }),
+      prisma.userSetting.upsert({
+        where: { userId_key: { userId, key: "ai.providerMode" } },
+        create: { userId, key: "ai.providerMode", value: "default" },
+        update: { value: "default" },
+      }),
+    ]);
+  } else {
+    await prisma.aiConnection.delete({ where: { id, userId } });
+  }
 }
 
 // ── Test ───────────────────────────────────────────────────────────────────────
@@ -295,6 +318,9 @@ export async function setActiveConnection(
     const { NotFoundError } = await import("@/config/errors");
     throw new NotFoundError("AI connection not found");
   }
+  if (!existing.enabled) {
+    throw new ConflictError("Enable this AI connection before activating it");
+  }
 
   await prisma.$transaction([
     prisma.aiConnection.updateMany({
@@ -304,6 +330,11 @@ export async function setActiveConnection(
     prisma.aiConnection.update({
       where: { id, userId },
       data: { isActive: true },
+    }),
+    prisma.userSetting.upsert({
+      where: { userId_key: { userId, key: "ai.providerMode" } },
+      create: { userId, key: "ai.providerMode", value: "personal" },
+      update: { value: "personal" },
     }),
   ]);
 

@@ -1,6 +1,6 @@
 import { confirmationStore } from "./confirmations";
 import { config } from "@/config";
-import type { AiProvider, ChatMessage, ChatToolCall, ToolChoice } from "./provider";
+import { AiProviderCancelledError, type AiProvider, type ChatMessage, type ChatMessageContentPart, type ChatToolCall, type ToolChoice } from "./provider";
 import { buildAgentSystemPrompt } from "./system-prompt";
 import type { StudentContext } from "./context";
 import { executeTool, getProviderToolSchemas, getTool } from "./tools/registry";
@@ -68,6 +68,7 @@ export interface AgentRunInput {
   conversationId: string;
   history: Array<{ role: string; content: string }>;
   userMessage: string;
+  userMessageContent?: string | ChatMessageContentPart[];
   studentName?: string | null;
   /** The JSON context snapshot, used only on the no-tools fallback path. */
   context?: string;
@@ -83,6 +84,7 @@ export interface AgentRunInput {
    */
   approvedActions?: ProposedAction[] | null;
   maxRounds?: number;
+  signal?: AbortSignal;
 }
 
 export interface AgentRunResult {
@@ -104,14 +106,20 @@ export interface AgentRunResult {
 
 export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   const { provider } = input;
+  if (input.signal?.aborted) throw new AiProviderCancelledError();
 
   // Providers without native tool support (Gemini, Anthropic) keep the legacy
   // grounded behaviour: one grounded call with the data snapshot inlined.
   if (!provider.supportsTools()) {
     const legacy = await provider.chat({
-      messages: [...input.history, { role: "user", content: input.userMessage }],
+      messages: [...input.history, {
+        role: "user",
+        content: input.userMessageContent ?? input.userMessage,
+      }],
+      signal: input.signal,
       ...(input.context ? { context: input.context } : {}),
     });
+    if (input.signal?.aborted) throw new AiProviderCancelledError();
     return {
       content: legacy.content,
       toolActivity: [],
@@ -142,7 +150,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       }),
     },
     ...buildHistory(input.history),
-    { role: "user", content: input.userMessage.slice(0, MAX_USER_MESSAGE_CHARS) },
+    {
+      role: "user",
+      content: input.userMessageContent ?? input.userMessage.slice(0, MAX_USER_MESSAGE_CHARS),
+    },
   ];
 
   const toolActivity: ToolActivityEntry[] = [];
@@ -160,8 +171,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
 
     const turn = await provider.chatWithTools({
       messages,
+      signal: input.signal,
       ...(forceProse ? { toolChoice: "none" as ToolChoice } : { tools }),
     });
+    if (input.signal?.aborted) throw new AiProviderCancelledError();
 
     const toolCalls = turn.toolCalls ?? [];
 

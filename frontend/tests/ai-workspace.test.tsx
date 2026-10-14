@@ -171,6 +171,8 @@ describe("AI workspace panels", () => {
     expect(chat()).toBeInTheDocument();
     expect(context()).toBeInTheDocument();
     expect(composer()).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Conversation type" })).toHaveClass("w-16");
+    expect(screen.getByRole("combobox", { name: "Conversation type" }).textContent).toContain("Chat");
   });
 
   it("renders the three sections as separate boxes of one consistent kind", async () => {

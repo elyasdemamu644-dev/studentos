@@ -667,6 +667,32 @@ describe("Agent loop", () => {
     expect(system?.content).toContain("Fall 2034");
   });
 
+  it("forwards image parts on the agent tool path", async () => {
+    const harness = openAiProvider([textTurn("I can see a diagram.")]);
+    const imageUrl = "data:image/png;base64,aW1hZ2U=";
+
+    await runAgent({
+      provider: harness.provider,
+      userId: userA.id,
+      conversationId: "conv-image",
+      history: [],
+      userMessage: "What is in the image?",
+      userMessageContent: [
+        { type: "text", text: "What is in the image?" },
+        { type: "image_url", image_url: { url: imageUrl, detail: "auto" } },
+      ],
+    });
+
+    const userMessage = (harness.bodies[0].messages as Array<{
+      role: string;
+      content: unknown;
+    }>).find((message) => message.role === "user");
+    expect(userMessage?.content).toEqual([
+      { type: "text", text: "What is in the image?" },
+      { type: "image_url", image_url: { url: imageUrl, detail: "auto" } },
+    ]);
+  });
+
   it("stops at the round limit when the model only calls tools", async () => {
     const harness = openAiProvider([toolCallTurn("get_tasks", { status: "TODO" })]);
 
@@ -1265,8 +1291,8 @@ describe("AI HTTP surface: persistence around a failing provider", () => {
     const res = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
       content: "Explain recursion",
     });
-    expect(res.status).toBe(502);
-    expect(res.body.error?.code).toBe("AI_PROVIDER_ERROR");
+    expect(res.status).toBe(503);
+    expect(res.body.error?.code).toBe("AI_PROVIDER_UNAVAILABLE");
 
     // The question must survive the failure: the client reconciles its
     // transcript against this list, and losing the row would silently drop
@@ -2249,4 +2275,3 @@ describe("Course create and update tools", () => {
     expect(stored?.name).toBe("Theirs");
   });
 });
-

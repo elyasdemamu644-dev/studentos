@@ -237,6 +237,7 @@ export function useSendMessage() {
           ),
         );
       }
+      if (input.signal?.aborted) return;
       if (isAiNotConfigured(error)) return;
       toast.error(formatApiError(error));
     },

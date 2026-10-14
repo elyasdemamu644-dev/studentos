@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import Image from "next/image";
 import {
   ArrowDown,
   Check,
@@ -8,7 +9,9 @@ import {
   CircleSlash,
   Clock,
   Copy,
+  FileUp,
   FileText,
+  Link2,
   Loader2,
   Paperclip,
   RefreshCw,
@@ -22,6 +25,15 @@ import {
 
 import { ErrorState, formatApiError } from "@/components/states";
 import { Button, LoadingButton } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -681,7 +693,7 @@ export function ChatComposer({
   );
 
   const uploadAttachments = useCallback(async () => {
-    const toUpload = attachments.filter((a) => !a.resourceId && !a.uploading);
+    const toUpload = attachments.filter((a) => !a.resourceId && !a.uploading && !a.error);
     if (toUpload.length === 0) return;
 
     for (const attachment of toUpload) {
@@ -713,7 +725,7 @@ export function ChatComposer({
 
   // Auto-upload attachments when they are added
   useEffect(() => {
-    if (attachments.some((a) => !a.resourceId && !a.uploading)) {
+    if (attachments.some((a) => !a.resourceId && !a.uploading && !a.error)) {
       uploadAttachments();
     }
   }, [attachments, uploadAttachments]);
@@ -772,11 +784,18 @@ const validateAndAddLink = useCallback(async (url: string) => {
 }, [attachments, onAttachmentsChange]);
 
   const hasAttachments = attachments.length > 0;
-  const allUploaded = attachments.every((a) => a.resourceId || a.error);
+  const allUploaded = attachments.every((a) => a.resourceId);
   const anyUploading = attachments.some((a) => a.uploading);
 
-return (
-    <div className="surface-blur shrink-0 border-t border-border bg-ai px-3 py-3 sm:px-4">
+  const getAttachmentType = (file: File) => {
+    const extension = file.name.split(".").pop();
+    if (extension && extension !== file.name) return extension.toUpperCase();
+    const subtype = file.type.split("/").pop()?.split(".").pop();
+    return subtype && subtype !== "octet-stream" ? subtype.toUpperCase() : "FILE";
+  };
+
+  return (
+    <div className="surface-blur shrink-0 border-t border-border bg-ai px-3 py-4 sm:px-6 sm:py-5">
       {/* The reading column, matched to the transcript so the input sits under
           the messages it continues rather than at the far edge of a wide screen. */}
       <div className="mx-auto w-full max-w-3xl">
@@ -786,54 +805,69 @@ return (
 
         {/* Attachment previews */}
         {hasAttachments && (
-          <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+            <div className="mb-3 flex flex-wrap items-center gap-2 px-1" aria-label="Attachments">
             {attachments.map((attachment) => (
               <div
                 key={attachment.id}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-card border border-border px-2 py-1 text-sm"
+                  className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm shadow-inset sm:max-w-[22rem]"
               >
-                {attachment.preview ? (
-                  <img src={attachment.preview} alt="" className="h-5 w-5 rounded object-cover" />
-                ) : (
-                  <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
-                )}
-                <span className="max-w-[12rem] truncate">{attachment.file.name}</span>
-                <span className="text-xs text-muted-foreground">{formatBytes(attachment.file.size)}</span>
-                {attachment.uploading && (
-                  <>
-                    <div className="h-3 w-20 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all duration-300"
-                        style={{ width: `${attachment.progress}%` }}
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary/10 text-primary">
+                    {attachment.preview ? (
+                      <Image
+                        src={attachment.preview}
+                        alt=""
+                        width={36}
+                        height={36}
+                        unoptimized
+                        className="h-full w-full object-cover"
                       />
-                    </div>
-                    <Loader2 className="h-3 w-3 animate-spin text-primary" aria-hidden />
-                  </>
-                )}
-                {attachment.error && (
-                  <span className="text-xs text-danger" title={attachment.error}>
-                    <CircleSlash className="h-3 w-3 inline" aria-hidden />
+                    ) : attachment.id.startsWith("link-") ? (
+                      <Link2 className="h-4 w-4" aria-hidden />
+                    ) : (
+                      <FileText className="h-4 w-4" aria-hidden />
+                    )}
                   </span>
-                )}
-                {attachment.resourceId && !attachment.error && !attachment.uploading && (
-                  <CheckCircle2 className="h-3 w-3 text-success" aria-hidden />
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(attachment.id)}
-                  aria-label={`Remove ${attachment.file.name}`}
-                  disabled={attachment.uploading}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted"
-                >
-                  <X className="h-3 w-3" aria-hidden />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block max-w-[13rem] truncate font-medium text-foreground sm:max-w-[17rem]">
+                      {attachment.id.startsWith("link-") ? "Link attachment" : attachment.file.name}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span>{attachment.id.startsWith("link-") ? "LINK" : getAttachmentType(attachment.file)}</span>
+                      <span aria-hidden>·</span>
+                      <span>{formatBytes(attachment.file.size)}</span>
+                    </span>
+                  </span>
+                  {attachment.uploading && (
+                    <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden />
+                      <span className="hidden sm:inline">Uploading</span>
+                    </span>
+                  )}
+                  {attachment.error && (
+                    <span className="flex shrink-0 items-center gap-1 text-xs text-danger" title={attachment.error}>
+                      <CircleSlash className="h-3.5 w-3.5" aria-hidden />
+                      <span className="hidden sm:inline">Upload failed</span>
+                      <span className="sr-only">Upload failed</span>
+                    </span>
+                  )}
+                  {attachment.resourceId && !attachment.error && !attachment.uploading && (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(attachment.id)}
+                    aria-label={`Remove ${attachment.file.name}`}
+                    disabled={attachment.uploading}
+                    className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
-        <div className="flex items-end gap-2">
-<div className="relative flex-1">
+          <div className="rounded-2xl border border-border-strong/70 bg-card shadow-card transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
             <Textarea
               ref={textareaRef}
               value={draft}
@@ -850,102 +884,158 @@ return (
               rows={1}
               maxLength={MAX_MESSAGE_LENGTH + 500}
               disabled={disabled}
-              className="max-h-40 min-h-[2.5rem] min-w-0 pr-12 resize-none py-2 leading-relaxed"
+              className="max-h-40 min-h-[3.25rem] min-w-0 resize-none rounded-t-2xl rounded-b-none border-0 bg-transparent px-4 py-3 leading-relaxed shadow-none placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.5rem] sm:px-5"
             />
-            {/* Attachment button */}
-            <label
-              htmlFor={fileInputRef.current?.id ?? ""}
-              className="absolute left-2 bottom-2 shrink-0 rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <input
-                ref={fileInputRef}
-                id={`file-input-${conversationId}`}
-                type="file"
-                className="sr-only"
-                accept=".pdf,.docx,.pptx,.txt,.md,.csv,.png,.jpg,.jpeg"
-                multiple
-                onChange={(e) => handleFileSelect(e.target.files)}
-                disabled={disabled || busy}
-              />
-              <Paperclip className="h-5 w-5" aria-hidden />
-            </label>
 
-            {/* Link input */}
-            {showLinkInput && (
-              <div className="absolute left-2 bottom-43 shrink-0 rounded-lg p-2 w-full sm:w-64 text-sm text-muted-foreground border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors disabled:opacity-50 disabled:pointer-events-none">
-                <label htmlFor={`link-input-${conversationId}`} className="block text-[10px] uppercase tracking-widest mb-1.font-semibold opacity-60">
-                  URL or link
-                </label>
+            <div className="flex items-center justify-between gap-2 px-2 pb-2 sm:px-3">
+              <div className="flex min-w-0 items-center gap-1 sm:gap-2">
                 <input
-                  id={`link-input-${conversationId}`}
-                  type="text"
-                  value={linkInputValue}
-                  onChange={(e) => setLinkInputValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && linkInputValue.trim()) {
-                      e.preventDefault();
-                      validateAndAddLink(linkInputValue.trim());
-                    }
-                  }}
-                  placeholder="Enter a URL..."
+                  ref={fileInputRef}
+                  id={`file-input-${conversationId}`}
+                  type="file"
+                  className="sr-only"
+                  multiple
+                  onChange={(event) => handleFileSelect(event.target.files)}
                   disabled={disabled || busy}
-                  className="w-full bg-transparent border-0 py-1.5 pr-8 focus:text-foreground placeholder:text-muted-foreground"
+                  aria-label="Choose files to attach"
                 />
-                <button
-                  type="button"
-                  onClick={() => validateAndAddLink(linkInputValue.trim())}
-                  disabled={!linkInputValue.trim() || disabled || busy}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-primary px-2 py-1 text-xs text-primary-foreground opacity-0 hover:opacity-100 group-focus:opacity-100"
-                  aria-label="Add link"
-                >
-                  <Check className="h-3 w-3" aria-hidden />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 gap-2 rounded-xl px-3 text-muted-foreground hover:text-foreground"
+                      disabled={disabled || busy}
+                      aria-label="Add attachment"
+                    >
+                      <Paperclip className="h-4 w-4" aria-hidden />
+                      <span className="hidden sm:inline">Attach</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    side="top"
+                    sideOffset={8}
+                    className="w-64 rounded-xl border-border-strong bg-popover p-1.5 shadow-lg"
+                  >
+                    <DropdownMenuLabel className="px-2.5 py-2 text-xs font-medium text-muted-foreground">
+                      Add to your message
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="cursor-pointer rounded-lg px-2.5 py-2.5"
+                      onSelect={() => fileInputRef.current?.click()}
+                      disabled={disabled || busy}
+                    >
+                      <FileUp className="text-primary" aria-hidden />
+                      <span>
+                        <span className="block font-medium">Upload any file</span>
+                        <span className="block text-xs text-muted-foreground">Any format · configured size limit applies</span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer rounded-lg px-2.5 py-2.5"
+                      onSelect={() => setShowLinkInput(true)}
+                      disabled={disabled || busy}
+                    >
+                      <Link2 className="text-primary" aria-hidden />
+                      <span>
+                        <span className="block font-medium">Add a link</span>
+                        <span className="block text-xs text-muted-foreground">Attach a URL; the AI sees the link, not page contents</span>
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <p id={hintId} className="truncate px-1 text-[11px] text-muted-foreground">
+                  <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
+                  <span className="sm:hidden">Enter to send</span>
+                </p>
               </div>
-            )}
+
+              <div className="flex shrink-0 items-center gap-2">
+                {draft.length > MAX_MESSAGE_LENGTH - 200 && (
+                  <span className={cn("text-[11px] tabular-nums text-muted-foreground", state.overLimit && "font-medium text-danger")}>
+                    {state.remaining}
+                  </span>
+                )}
+                {busy ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 rounded-xl"
+                    onClick={onStop}
+                    aria-label="Stop generating"
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" aria-hidden />
+                  </Button>
+                ) : (
+                  <LoadingButton
+                    type="button"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 rounded-xl shadow-card"
+                    loading={anyUploading}
+                    disabled={!state.canSend || anyUploading || !allUploaded}
+                    onClick={onSend}
+                    aria-label="Send message"
+                  >
+                    <Send className="h-4 w-4" aria-hidden />
+                  </LoadingButton>
+                )}
+              </div>
+            </div>
 
             {showLinkInput && (
-              <p className="mt-1.5 text-[10px] text-muted-foreground">
-                Paste a URL to extract its content for the AI
-              </p>
-            )}
-</div>
-
-          <div>
-            {busy ? (
-              <Button
-                variant="outline"
-                size="icon"
-                className="shrink-0"
-                onClick={onStop}
-                aria-label="Stop generating"
+              <form
+                className="mt-2 rounded-2xl border border-border bg-card p-3 shadow-card"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (linkInputValue.trim()) void validateAndAddLink(linkInputValue.trim());
+                }}
               >
-                <Square className="h-3.5 w-3.5 fill-current" aria-hidden />
-              </Button>
-            ) : (
-              <LoadingButton
-                size="icon"
-                className="shrink-0"
-                loading={anyUploading}
-                disabled={!state.canSend || anyUploading || !allUploaded}
-                onClick={onSend}
-                aria-label="Send message"
-              >
-                <Send className="h-4 w-4" aria-hidden />
-              </LoadingButton>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label htmlFor={`link-input-${conversationId}`} className="text-sm font-medium text-foreground">
+                    Add a web link
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 rounded-lg text-muted-foreground"
+                    onClick={() => setShowLinkInput(false)}
+                    aria-label="Close link attachment"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id={`link-input-${conversationId}`}
+                    type="url"
+                    value={linkInputValue}
+                    onChange={(event) => setLinkInputValue(event.target.value)}
+                    placeholder="https://example.com"
+                    disabled={disabled || busy}
+                    autoFocus
+                    className="min-w-0 rounded-xl"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="h-10 shrink-0 rounded-xl px-3"
+                    disabled={!linkInputValue.trim() || disabled || busy}
+                    aria-label="Add link"
+                  >
+                    <Check className="h-4 w-4" aria-hidden />
+                    <span className="hidden sm:inline">Add link</span>
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">The AI receives this URL as a reference. It does not fetch the page.</p>
+              </form>
             )}
-
-            <p
-              id={hintId}
-              className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-muted-foreground"
-            >
-              <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
-              <span className="sm:hidden">Enter sends</span>
-              <span className={cn("tabular-nums", state.overLimit && "font-medium text-danger")}>
-                {draft.length > MAX_MESSAGE_LENGTH - 200 ? `${state.remaining}` : ""}
-              </span>
-            </p>
-          </div>
-        </div>
+            </div>
       </div>
     </div>
   );

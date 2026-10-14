@@ -81,6 +81,10 @@ export interface AiChatClient {
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
+export type ChatMessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
+
 /** A model request to run one of our tools, in OpenAI function-call form. */
 export interface ChatToolCall {
   id: string;
@@ -91,10 +95,16 @@ export interface ChatToolCall {
 export interface ChatMessage {
   role: ChatRole;
   /** `null` for an assistant turn that only carries tool calls. */
-  content: string | null;
+  content: string | ChatMessageContentPart[] | null;
   toolCalls?: ChatToolCall[];
   toolCallId?: string;
   name?: string;
+}
+
+function decodeImageDataUrl(url: string): { mimeType: string; data: string } {
+  const match = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(url);
+  if (!match) throw new AiProviderError("The attached image could not be processed");
+  return { mimeType: match[1], data: match[2] };
 }
 
 export type ToolChoice = "auto" | "none" | "required" | { type: "function"; function: { name: string } };
@@ -108,6 +118,8 @@ export interface ChatCompletionRequest {
   /** Function-calling schemas. Omitted entirely on the legacy no-tools path. */
   tools?: ProviderToolSchema[];
   toolChoice?: ToolChoice;
+  /** Cancels this provider request when the student stops generation. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -201,6 +213,13 @@ async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+class ProviderHttpError extends Error {
+  constructor(readonly statusCode: number, message: string) {
+    super(message);
+    this.name = "ProviderHttpError";
+  }
+}
+
 /**
  * `fetch` with a hard deadline.
  *
@@ -216,15 +235,33 @@ async function fetchWithTimeout(
   init: RequestInit,
   timeoutMs: number = config.aiRequestTimeoutMs
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    if (controller.signal.aborted) throw new AiProviderTimeoutError(timeoutMs);
-    throw err;
-  } finally {
-    clearTimeout(timer);
+  const maxNetworkRetries = 2;
+  const externalSignal = init.signal;
+  for (let attempt = 0; ; attempt += 1) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const abortFromCaller = () => controller.abort();
+    if (externalSignal?.aborted) throw new AiProviderCancelledError();
+    externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    let retryNetworkFailure = false;
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (err) {
+      if (externalSignal?.aborted) throw new AiProviderCancelledError();
+      if (timedOut) throw new AiProviderTimeoutError(timeoutMs);
+      if (!(err instanceof TypeError) || attempt >= maxNetworkRetries) throw err;
+      retryNetworkFailure = true;
+    } finally {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", abortFromCaller);
+    }
+    if (retryNetworkFailure) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
   }
 }
 
@@ -296,11 +333,12 @@ export class OpenAiAdapter implements AiProviderAdapter {
             ...(auth ? { Authorization: auth } : {}),
           },
           body: JSON.stringify(body),
+          ...(request.signal ? { signal: request.signal } : {}),
         });
 
         if (!res.ok) {
           const text = await res.text().catch(() => res.statusText);
-          throw new Error(`HTTP ${res.status}: ${text}`);
+          throw new ProviderHttpError(res.status, text);
         }
 
         const json = (await res.json()) as ChatCompletionResponse & {
@@ -314,7 +352,14 @@ export class OpenAiAdapter implements AiProviderAdapter {
         if (json.error) {
           const message =
             typeof json.error === "string" ? json.error : json.error.message;
-          throw new Error(message || "Provider returned an error");
+          const detail = message || "Provider returned an error";
+          const lower = detail.toLowerCase();
+          const status =
+            /rate.?limit|too many requests/.test(lower) ? 429 :
+            /quota|insufficient credit|payment required/.test(lower) ? 402 :
+            /model.*(not found|unsupported|unavailable)|no endpoints found|does not support|unsupported.*(tool|image|parameter)|not support.*(tool|image|input)/.test(lower) ? 404 :
+            502;
+          throw new ProviderHttpError(status, detail);
         }
         if (!Array.isArray(json.choices)) {
           throw new Error("Provider response contained no choices");
@@ -398,12 +443,19 @@ export class GeminiAdapter implements AiProviderAdapter {
         // Gemini uses a different API shape; map OpenAI-style to Gemini.
         // A `system` message is not a valid Gemini `contents` role, so pull it
         // out into the API's `systemInstruction` field (like Anthropic's adapter).
-        const systemPrompt = request.messages.find((m) => m.role === "system")?.content;
+        const systemContent = request.messages.find((m) => m.role === "system")?.content;
+        const systemPrompt = typeof systemContent === "string" ? systemContent : undefined;
         const contents = request.messages
           .filter((m) => m.role !== "system")
           .map((m) => ({
             role: m.role === "assistant" ? "model" : m.role,
-            parts: [{ text: m.content ?? "" }],
+            parts: typeof m.content === "string"
+              ? [{ text: m.content }]
+              : (m.content ?? []).map((part) => {
+                  if (part.type === "text") return { text: part.text };
+                  const image = decodeImageDataUrl(part.image_url.url);
+                  return { inline_data: { mime_type: image.mimeType, data: image.data } };
+                }),
           }));
 
         const url = `${base}/${request.model}/generateContent?key=${apiKey}`;
@@ -415,6 +467,7 @@ export class GeminiAdapter implements AiProviderAdapter {
             contents,
             generationConfig: { temperature: request.temperature ?? 1, maxOutputTokens: request.maxTokens },
           }),
+          ...(request.signal ? { signal: request.signal } : {}),
         });
 
         if (!res.ok) {
@@ -510,7 +563,19 @@ export class AnthropicAdapter implements AiProviderAdapter {
         const systemMsg = request.messages.find((m) => m.role === "system");
         const messages = request.messages
           .filter((m) => m.role !== "system")
-          .map((m) => ({ role: m.role, content: m.content ?? "" }));
+          .map((m) => ({
+            role: m.role,
+            content: typeof m.content === "string"
+              ? m.content ?? ""
+              : (m.content ?? []).map((part) => {
+                  if (part.type === "text") return { type: "text", text: part.text };
+                  const image = decodeImageDataUrl(part.image_url.url);
+                  return {
+                    type: "image",
+                    source: { type: "base64", media_type: image.mimeType, data: image.data },
+                  };
+                }),
+          }));
 
         const url = `${base}/messages`;
         const res = await fetchWithTimeout(url, {
@@ -527,6 +592,7 @@ export class AnthropicAdapter implements AiProviderAdapter {
             system: systemMsg?.content,
             messages,
           }),
+          ...(request.signal ? { signal: request.signal } : {}),
         });
 
         if (!res.ok) {
@@ -662,7 +728,26 @@ export class OllamaAdapter implements AiProviderAdapter {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: request.model,
-            messages: request.messages,
+            messages: request.messages.map((message) => ({
+              role: message.role,
+              content: typeof message.content === "string"
+                ? message.content
+                : (message.content ?? [])
+                    .filter((part): part is Extract<ChatMessageContentPart, { type: "text" }> =>
+                      part.type === "text",
+                    )
+                    .map((part) => part.text)
+                    .join("\n"),
+              ...((typeof message.content !== "string" && message.content)
+                ? {
+                    images: message.content
+                      .filter((part): part is Extract<ChatMessageContentPart, { type: "image_url" }> =>
+                        part.type === "image_url",
+                      )
+                      .map((part) => decodeImageDataUrl(part.image_url.url).data),
+                  }
+                : {}),
+            })),
             stream: false,
             ...(request.tools && request.tools.length > 0 ? { tools: request.tools } : {}),
             options: {
@@ -670,6 +755,7 @@ export class OllamaAdapter implements AiProviderAdapter {
               num_predict: request.maxTokens,
             },
           }),
+          ...(request.signal ? { signal: request.signal } : {}),
         });
 
         if (!res.ok) {
@@ -744,7 +830,7 @@ const PROVIDER_ADAPTERS: Record<AiProviderName, AiProviderAdapter> = {
   openai: new OpenAiAdapter("openai", DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_BASE),
   openrouter: new OpenAiAdapter(
     "openrouter",
-    "openai/gpt-4o",
+    "openrouter/free",
     "https://openrouter.ai/api/v1",
     "/chat/completions"
   ),
@@ -805,7 +891,7 @@ export class AiProvider {
     // Credential-free providers (ollama) are configured by endpoint alone and
     // legitimately have no apiKey/accessToken.
     return (
-      !!(this.credentials.apiKey || this.credentials.accessToken) ||
+      !!(this.credentials.apiKey?.trim() || this.credentials.accessToken?.trim()) ||
       isCredentialFreeProvider(this.adapter.name)
     );
   }
@@ -829,7 +915,7 @@ export class AiProvider {
   }
 
   async chat(
-    request: { messages: Array<{ role: string; content: string }>; context?: string }
+    request: { messages: Array<{ role: string; content: string | ChatMessageContentPart[] }>; context?: string; signal?: AbortSignal }
   ): Promise<{ content: string }> {
     try {
       const client = this.adapter.createClient(this.credentials, this.endpoint);
@@ -847,11 +933,15 @@ export class AiProvider {
           content: `${STUDENTOS_SYSTEM_INSTRUCTION}\n\nStudentOS data (JSON):\n${request.context}`,
         });
       }
-      messages.push(...(request.messages as Array<{ role: "user" | "assistant"; content: string }>));
+      messages.push(...(request.messages as Array<{
+        role: "user" | "assistant";
+        content: string | ChatMessageContentPart[];
+      }>));
 
       const chatRequest: ChatCompletionRequest = {
         model: this.model,
         messages,
+        ...(request.signal ? { signal: request.signal } : {}),
       };
       const response = await client.chatCompletions(chatRequest);
       const content = response.choices?.[0]?.message?.content;
@@ -862,7 +952,12 @@ export class AiProvider {
       // 500. Providers echo the offending key in their error text, so the
       // message is redacted before it can reach the client or logs.
       if (err instanceof AiProviderTimeoutError) throw err;
+      if (err instanceof AiProviderCancelledError) throw err;
       if (err instanceof AiProviderError) throw err;
+      if (err instanceof ProviderHttpError) {
+        const { sanitizeMessage } = await import("@/services/ai-connections");
+        throw mapUpstreamProviderError(err.statusCode, sanitizeMessage(err.message));
+      }
       const message = err instanceof Error ? err.message : String(err);
       const { sanitizeMessage } = await import("@/services/ai-connections");
       throw new AiProviderError(sanitizeMessage(message));
@@ -885,6 +980,7 @@ export class AiProvider {
     toolChoice?: ToolChoice;
     temperature?: number;
     maxTokens?: number;
+    signal?: AbortSignal;
   }): Promise<{ content: string | null; toolCalls: ChatToolCall[]; finishReason: string | null }> {
     if (!this.adapter.supportsNativeTools) {
       throw new Error(`Provider ${this.adapter.name} does not support native tool calls`);
@@ -899,6 +995,7 @@ export class AiProvider {
         ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
+        ...(request.signal ? { signal: request.signal } : {}),
       });
 
       const choice = response.choices?.[0];
@@ -912,7 +1009,12 @@ export class AiProvider {
       };
     } catch (err) {
       if (err instanceof AiProviderTimeoutError) throw err;
+      if (err instanceof AiProviderCancelledError) throw err;
       if (err instanceof AiProviderError) throw err;
+      if (err instanceof ProviderHttpError) {
+        const { sanitizeMessage } = await import("@/services/ai-connections");
+        throw mapUpstreamProviderError(err.statusCode, sanitizeMessage(err.message));
+      }
       const message = err instanceof Error ? err.message : String(err);
       const { sanitizeMessage } = await import("@/services/ai-connections");
       throw new AiProviderError(sanitizeMessage(message));
@@ -939,11 +1041,34 @@ export class AiProviderNotConfiguredError extends ApiError {
 // Provider was reachable but returned a non-2xx or an unusable payload. Also a
 // controlled failure (502, not 500) for the same reason as above.
 export class AiProviderError extends ApiError {
-  constructor(message = "AI provider request failed") {
-    super(502, "AI_PROVIDER_ERROR", message);
+  constructor(
+    message = "AI provider request failed",
+    statusCode = 502,
+    code = "AI_PROVIDER_ERROR",
+  ) {
+    super(statusCode, code, message);
     this.name = "AiProviderError";
     Object.setPrototypeOf(this, AiProviderError.prototype);
   }
+}
+
+function mapUpstreamProviderError(status: number, detail: string): AiProviderError {
+  if (status === 429) {
+    return new AiProviderError("The AI provider is rate-limiting requests. Please wait and try again.", 429, "AI_PROVIDER_RATE_LIMITED");
+  }
+  if (status === 402) {
+    return new AiProviderError("The AI provider account has exhausted its available quota or credits.", 402, "AI_PROVIDER_QUOTA_EXHAUSTED");
+  }
+  if (status === 401 || status === 403) {
+    return new AiProviderError("The configured AI provider credentials were rejected. Please contact the administrator or check your connection in Settings.", 502, "AI_PROVIDER_AUTH_FAILED");
+  }
+  if (status === 404) {
+    return new AiProviderError("The selected AI model is unavailable or does not support this request.", 422, "AI_MODEL_UNAVAILABLE");
+  }
+  if (status >= 500) {
+    return new AiProviderError("The AI provider is temporarily unavailable. Please try again later.", 503, "AI_PROVIDER_UNAVAILABLE");
+  }
+  return new AiProviderError(detail);
 }
 
 // The provider did not answer within the configured budget. A controlled 504
@@ -960,6 +1085,14 @@ export class AiProviderTimeoutError extends ApiError {
     );
     this.name = "AiProviderTimeoutError";
     Object.setPrototypeOf(this, AiProviderTimeoutError.prototype);
+  }
+}
+
+/** The student cancelled generation by stopping or closing the request. */
+export class AiProviderCancelledError extends Error {
+  constructor() {
+    super("AI generation was cancelled");
+    this.name = "AiProviderCancelledError";
   }
 }
 
@@ -1055,6 +1188,15 @@ function defaultEndpointFor(
   }
 }
 
+function isValidHttpEndpoint(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Build the environment-default `AiProvider` from an AI config snapshot.
  *
@@ -1069,10 +1211,21 @@ export function buildDefaultAiProvider(
 ): AiProvider | null {
   if (!source.aiEnabled) return null;
   const provider = source.aiProvider as AiProviderName;
+  // AI is optional at deployment scope. A typo in these optional variables
+  // should make Default AI unavailable, not prevent unrelated API features
+  // (or personal AI connections) from starting.
+  if (!Object.prototype.hasOwnProperty.call(PROVIDER_ADAPTERS, provider)) return null;
+  const endpoint = defaultEndpointFor(provider, source);
+  // Local/custom deployments must explicitly name a usable HTTP endpoint;
+  // don't mark an accidentally keyless or mistyped setup as ready.
+  if ((provider === "ollama" || provider === "custom") && (!endpoint || !isValidHttpEndpoint(endpoint))) {
+    return null;
+  }
+  if (endpoint && !isValidHttpEndpoint(endpoint)) return null;
   const instance = new AiProvider(
     resolveAiProvider(provider),
     defaultCredentialsFor(provider, source),
-    defaultEndpointFor(provider, source),
+    endpoint,
     source.aiModel || undefined
   );
   return instance.isConfigured() ? instance : null;
@@ -1088,11 +1241,28 @@ export async function getAIProvider(
   userId?: string
 ): Promise<AiProvider> {
   if (userId) {
+    const { settingsService } = await import("@/services/settings");
+    const settings = await settingsService.get(userId);
+    const requestedMode = settings["ai.providerMode"];
+
+    if (requestedMode === "default") {
+      const defaultProvider = buildDefaultAiProvider();
+      if (defaultProvider) return defaultProvider;
+      throw new AiProviderNotConfiguredError(
+        "StudentOS Default AI is not configured. Please contact the administrator.",
+      );
+    }
+
     const { getActiveUserConnection } = await import("@/services/ai-connections");
     const conn = await getActiveUserConnection(userId);
     if (conn) {
       const adapter = resolveAiProvider(conn.provider as AiProviderName);
       return new AiProvider(adapter, conn.decryptedCredentials, conn.endpoint ?? undefined, conn.model ?? undefined);
+    }
+    if (requestedMode === "personal") {
+      throw new AiProviderNotConfiguredError(
+        "No active personal AI connection. Activate a connection in Settings or select StudentOS Default AI.",
+      );
     }
     // No active personal connection — use the environment-default provider.
     const fallback = buildDefaultAiProvider();

@@ -54,6 +54,9 @@ router.post("/upload", async (req: AuthRequest, res, next) => {
       req.currentUser!.id,
       fields.data,
       parsed.file,
+      // Accept any file type. Content is still sniffed: known types keep their
+      // detected MIME, unknown binaries are stored as application/octet-stream.
+      { allowAnyMimeType: true },
     );
     return res.status(201).json({ success: true, data: record });
   } catch (error) { next(error); }

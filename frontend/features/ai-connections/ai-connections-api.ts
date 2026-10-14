@@ -6,6 +6,24 @@ export interface AiConnectionListParams {
   cursor?: string;
 }
 
+export interface AiProviderSelection {
+  mode: "default" | "personal";
+  defaultAvailable: boolean;
+  defaultProvider: string;
+  defaultModel: string;
+  personalConnectionAvailable: boolean;
+}
+
+export function getProviderSelection(): Promise<AiProviderSelection> {
+  return api.get<AiProviderSelection>("/ai/provider-selection");
+}
+
+export function setProviderMode(mode: AiProviderSelection["mode"]): Promise<Record<string, string | null>> {
+  return api.patch<Record<string, string | null>>("/settings", {
+    settings: { "ai.providerMode": mode },
+  });
+}
+
 export function listConnections(params: AiConnectionListParams = {}): Promise<Page<AiConnection>> {
   const query = new URLSearchParams();
   const entries = params as Record<string, string | number | undefined>;
