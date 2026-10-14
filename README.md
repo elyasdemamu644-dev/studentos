@@ -15,7 +15,7 @@ Full-stack TypeScript monorepo: **Next.js 14** web app + **Express 5 / Prisma / 
 | **Database** | PostgreSQL |
 | **Shared** | `@studentos/shared` — Zod schemas and cross-app types |
 | **Tooling** | pnpm workspaces + Turborepo, Vitest, ESLint (`next lint`) |
-| **Tests** | 649 passing — 422 API (integration, real DB) + 227 web (jsdom) |
+| **Tests** | 840 passing — 571 API (integration, real DB) + 269 web (jsdom), verified 2026-10-12; see [current due-diligence report](docs/audits/studentos-product-due-diligence-2026-10.md) for scope and limitations |
 
 ## Requirements
 
@@ -100,9 +100,29 @@ Type-check the web app alone: `npx tsc --noEmit` in `frontend`.
 | `TRUST_PROXY` | `0` | hops to trust (`1` behind nginx/ALB) so rate limiting keys on the real client IP |
 | `CORS_ORIGINS` | `http://localhost:3000` | comma-separated allowlist; **set it explicitly in production** |
 | `AI_ENABLED` | `true` | set `false` to disable AI generation |
-| `OPENAI_API_KEY` | — | required at boot when AI is enabled |
-| `AI_MODEL` | `gpt-4o-mini` | any OpenAI-compatible model |
-| `OPENAI_BASE_URL` | `https://api.openai.com` | point at a compatible endpoint |
+| `AI_PROVIDER` | `openrouter` | server-side default provider; `openai`, `openrouter`, `gemini`, `anthropic`, `ollama`, or `custom` |
+| `AI_MODEL` | provider default (`openrouter/free` for OpenRouter) | optional model/router identifier; unset to use the selected provider's default |
+| Provider key | provider-specific | `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, or `CUSTOM_AI_API_KEY`; Ollama is keyless |
+| Provider endpoint | provider-specific | `AI_BASE_URL` for OpenRouter, `OPENAI_BASE_URL` for OpenAI-compatible endpoints, `CUSTOM_AI_ENDPOINT` for custom, `OLLAMA_BASE_URL` for Ollama |
+| `AI_RATE_LIMIT_PER_MINUTE` | `10` | per-user AI request ceiling per minute, per API process |
+| `AI_DAILY_QUOTA` | `100` | per-user AI request ceiling per UTC day, per API process |
+
+AI provider credentials are optional at API boot so custom personal connections
+can continue to work without a shared StudentOS key. To enable StudentOS Default
+AI, set `OPENROUTER_API_KEY` in `backend/.env`; the secret is only read by the
+backend. OpenRouter's `openrouter/free` router currently selects free models
+that match request features such as tool calling and image input. It requires an
+OpenRouter account and API key; free model availability, quotas, and provider
+capacity can change. StudentOS does not fall back to paid models when the free
+route is unavailable. Without a configured key, selecting Default AI returns a
+clear 503. To use another provider or model, set `AI_PROVIDER`, its matching key
+and endpoint variables, and optionally `AI_MODEL` in `backend/.env`. OpenRouter
+maintains its current model catalog at <https://openrouter.ai/models>.
+
+AI chat extracts text from supported document formats and sends JPEG, PNG,
+WebP, and GIF attachments as image inputs (up to 5 MiB per image and 10 MiB
+total per request). Other uploaded file types remain attachable, but the chat
+identifies them as unreadable instead of implying their contents were analyzed.
 
 `frontend/.env.local`
 

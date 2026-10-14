@@ -1,6 +1,10 @@
 # AI_CONTEXT — StudentOS source of truth
 
 > **Snapshot:** 2026-10-10, after the Final AI Integration (capstone completion). Every claim below was read from code or produced by running a command in this repo. Anything not verifiable is listed in [Unverified](#unverified).
+> **Audit update (2026-10-12):** The working tree was already dirty at HEAD `7a6311f`; preserve its seven modified files and two untracked test logs. Fresh run: API **571/571 (39 files)**, web **269/269 (24 files)**, web production build passed (19 routes), lint passed. API build stopped during Prisma client generation with a Windows `EPERM` engine-file rename, before TypeScript compilation; API build is therefore not currently re-verified. Browser/device flows were not run (no browser was available). See [current product due diligence](docs/audits/studentos-product-due-diligence-2026-10.md) for evidence, gaps and launch conditions. The detailed sections below contain stale baseline and test counts and should not override this dated update.
+> **Verification update (2026-10-13):** On the current dirty worktree, API **589 tests / 41 files** and web **274 tests / 25 files** pass; API production build passes with normal Prisma engine generation and TypeScript, web production build passes (20 routes), and web lint passes. `/health` and `/ai` both returned HTTP 200 earlier in the session. A live provider request was intentionally not attempted because the configured OpenRouter credential was reported exposed and rejected; no browser automation package is installed, so authenticated viewport and control flows remain unverified. The chat stop action now propagates cancellation to the upstream provider and avoids persisting an assistant reply after cancellation. No schema, migration, or database configuration files changed.
+> **Verification update (2026-10-13, prior run):** Re-ran API **589/589 (41 files)**, web **274/274 (25 files)**, web build (**20 routes**), web lint, Prisma validation, TypeScript compilation, and `git diff --check`; all passed. An API build at that time hit a Windows Prisma DLL `EPERM` while the local API was running; a later build passed after stopping the identified StudentOS API process. API `/health` and web `/login` returned HTTP 200. The OpenRouter key has not changed since it was reported rejected. Browser automation was unavailable, so authenticated UI and viewport checks remain unverified.
+> **Default AI free-router update (2026-10-13):** OpenRouter now defaults to `openrouter/free` when `AI_MODEL` is unset; explicit owner-selected model values still take precedence, and other providers keep their adapter-specific defaults. Added endpoint/provider configuration guards and a safe 422 mapping for model capability mismatches. Provider tests cover free-router tool/image request shapes, owner OpenAI key/model configuration, local Ollama setup, missing/invalid configuration, upstream quota/auth/model failures, and personal-mode precedence. API **595/595**, web **274/274**, API and web production builds, lint, Prisma validation, typecheck, and diff checks passed. In ignored `backend/.env`, I changed only `AI_MODEL` to `openrouter/free`; the credential was left untouched. The actual OpenRouter request remains unverified because that key was previously reported rejected. A local Ollama endpoint lists three models, but the real `qwen3:4b` completion through the StudentOS adapter timed out at 60 seconds (`AI_PROVIDER_TIMEOUT`); no genuine response or persistence was confirmed.
 > **Scope:** this file is the onboarding document for AI agents. Human setup lives in [README.md](README.md); agent workflow rules live in [INSTRUCTIONS_FOR_AGENT.md](INSTRUCTIONS_FOR_AGENT.md).
 > **Latest AI work:** Final StudentOS AI Integration — all eight completion criteria satisfied: enriched StudentContext (currentSemester, courseId on all entities, estimatedMinutes, endAt/location, semesterId/credits, weight), dual-path context delivery (tool-path + grounded-path), conflict-aware `build_study_plan`, two-gate confirmation with post-write verification, provider timeout/error handling (504/502/503), frontend courseId/semesterId handoff, 568 API + 260 web tests passing, eight acceptance scenarios verified. See [§17 Change log](#17-latest-ai-work--change-log).
 
@@ -412,7 +416,7 @@ The REST confirm endpoint returns `EXECUTED` only when every step is both applie
 
 | Provider | Native tool calling | Notes |
 | --- | --- | --- |
-| `openai` | yes | `AI_PROVIDER` default; `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
+| `openai` | yes | Personal or environment provider; `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
 | `openrouter` | yes | Shares the OpenAI adapter; `OPENROUTER_API_KEY` |
 | `custom` | yes | `CUSTOM_AI_ENDPOINT` / `CUSTOM_AI_API_KEY`, any OpenAI-compatible endpoint |
 | `ollama` | yes | Local, credential-free. `OLLAMA_BASE_URL`; normalises `tool_calls` that omit `id` |
@@ -421,7 +425,11 @@ The REST confirm endpoint returns `EXECUTED` only when every step is both applie
 
 A provider without native tools keeps the honest grounded path: **one** call with the `studentContextBuilder` snapshot inlined, no tools advertised, `finish: "no_tool_support"` and an empty activity feed. It cannot write anything, and the prompt does not pretend otherwise.
 
-Resolution order: the student's active personal AI connection (encrypted at rest) → the environment default → 503 `AI_PROVIDER_NOT_CONFIGURED`. If the active connection exists but its stored credentials cannot be decrypted (typically because `ENCRYPTION_KEY` changed after they were saved), resolution **stops** with 409 `AI_CONNECTION_UNREADABLE`; it deliberately does **not** fall through to a different provider, because the student explicitly chose that connection.
+Provider mode is stored per user in `UserSetting` (`ai.providerMode`). `default` explicitly selects the shared server-side provider; `personal` selects the active encrypted personal connection. Existing users without this preference keep the historical behavior (active personal connection first, then the environment default). Activating a personal connection selects personal mode. An explicit selection never silently falls through to the other mode. If a personal connection exists but its credentials cannot be decrypted (typically because `ENCRYPTION_KEY` changed after they were saved), resolution **stops** with 409 `AI_CONNECTION_UNREADABLE`.
+
+The code default is OpenRouter's `openrouter/free` model router when `AI_MODEL` is unset. OpenRouter currently describes it as zero-priced and says it routes to free models that match requested features such as image understanding and tool calling. It requires `OPENROUTER_API_KEY`; free availability, account quotas and capacity can change, and StudentOS does not select a paid fallback. Owners may set `AI_PROVIDER`, its provider-specific key and endpoint, and `AI_MODEL` in `backend/.env`; when the model is omitted, each provider uses its own adapter default. `OPENROUTER_API_KEY` remains server-side; without a required key, selecting Default AI returns a controlled 503. Generated chat and structured AI requests are limited per user by `AI_RATE_LIMIT_PER_MINUTE` and `AI_DAILY_QUOTA` and log request metadata only (never prompt content or credentials). These counters are process-local; multi-instance deployments need a shared limiter to enforce a cluster-wide quota.
+
+AI chat sends extracted text from supported document formats in the user turn and JPEG/PNG/WebP/GIF attachments as inline image inputs (5 MiB per image, 10 MiB total). Other uploaded binary types are identified as unreadable to the model rather than silently treated as analyzed.
 
 **Grounding snapshot** (`context.ts`, used only on the no-tools path) runs bounded parallel queries: courses 30, tasks 30 (`status != COMPLETED`, soonest due first), upcoming events 20, study sessions 10, active goals 20, notes 10, grades 20. `toPrompt()` serializes them as `{"studentos": {...}}` as a `system` message.
 
@@ -436,10 +444,13 @@ Resolution order: the student's active personal AI connection (encrypted at rest
 | Condition | Result |
 | --- | --- |
 | No provider configured | 503 `AI_PROVIDER_NOT_CONFIGURED`; **no message persisted** |
-| Provider returns non-2xx or empty | 502 `AI_PROVIDER_ERROR` |
+| Provider rejects the server credential | 502 `AI_PROVIDER_AUTH_FAILED` |
+| Provider rate limit or exhausted credits | 429 `AI_PROVIDER_RATE_LIMITED` / 402 `AI_PROVIDER_QUOTA_EXHAUSTED` |
+| Selected model unavailable / unsupported | 422 `AI_MODEL_UNAVAILABLE` |
+| Provider unavailable or returns an unusable response | 503 `AI_PROVIDER_UNAVAILABLE` / 502 `AI_PROVIDER_ERROR` |
 | Active connection exists but its credentials cannot be decrypted (`ENCRYPTION_KEY` changed) | 409 `AI_CONNECTION_UNREADABLE` with an actionable message ("re-enter its credentials in Settings"); **no message persisted**, **no fallback** to another provider |
 | Provider stalls past `AI_REQUEST_TIMEOUT_MS` | 504 `AI_PROVIDER_TIMEOUT` (retryable); **no reply persisted** on the chat path |
-| `AI_ENABLED=true` + provider `openai` + no `OPENAI_API_KEY` | `validateConfig()` **throws at boot** |
+| Default provider is missing its required key or endpoint | Default AI is unavailable and returns 503; unrelated API features still start |
 | Ambiguous / missing reference | Tool failure (`ambiguous` / `not_found`) with candidate details; the model asks |
 | Model exceeds a limit | Turn is truncated or the call is refused; the student is told in plain language |
 
@@ -450,17 +461,19 @@ The AI failure codes (`AI_PROVIDER_NOT_CONFIGURED`, `AI_PROVIDER_ERROR`, `AI_STR
 | Env var | Default | Notes |
 | --- | --- | --- |
 | `AI_ENABLED` | `true` (`!== "false"`) | test config forces `false` so no external call is ever made |
-| `AI_PROVIDER` | `openai` | all six values implemented; see 9.6 |
-| `AI_MODEL` | `gpt-4o-mini` | |
-| `AI_BASE_URL` | — | base URL of the environment-default provider |
+| `AI_PROVIDER` | `openrouter` | all six values implemented; see 9.6 |
+| `AI_MODEL` | provider adapter default (`openrouter/free` for OpenRouter) | unset to keep provider-specific defaults |
+| `AI_BASE_URL` | provider default | OpenRouter endpoint override; other providers use their provider-specific URL variable |
 | `AI_REQUEST_TIMEOUT_MS` | `60000` | Hard per-request deadline for every provider call; a stall aborts to 504 `AI_PROVIDER_TIMEOUT` (added 2026-10-10) |
 | `AI_AGENT_MAX_TOOL_ROUNDS` | `4` | clamped to `MAX_TOOL_ROUNDS` |
 | `AI_AGENT_MAX_TOOL_CALLS` | `12` | clamped to `MAX_TOOL_CALLS` |
 | `AI_AGENT_MAX_PROPOSED_ACTIONS` | `8` | clamped to `MAX_PROPOSED_ACTIONS` |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | — | required at boot when AI is enabled with `openai` |
-| `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` | — | |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | — | optional server default configuration |
+| `OPENROUTER_API_KEY` | — | required to make StudentOS Default AI available |
+| `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` | — | optional server default credentials |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | |
 | `CUSTOM_AI_ENDPOINT` / `CUSTOM_AI_API_KEY` | — | |
+| `AI_RATE_LIMIT_PER_MINUTE` / `AI_DAILY_QUOTA` | `10` / `100` | generated turns allowed per authenticated user, per API process |
 
 The whole rest of the API stays fully functional when no provider is configured.
 
@@ -570,6 +583,8 @@ pnpm dev
 | Lockfile | `pnpm install --frozen-lockfile` | **pass** (CI-compatible) | ~2 s |
 
 ### Real-browser verification (2026-10-01)
+
+**Mobile-responsive pass (2026-10-14).** The authenticated app was exercised in headless Edge through the Chrome DevTools Protocol with device emulation. The AI workspace was measured at 320×568, 360×800, 375×812, 390×844, 412×915, 430×932, 768×1024, 1024×768, 1280×800 and 1440×900; document width matched the emulated viewport at each size, and the composer stayed within the chat panel. The 390×844 screenshot showed the compact mobile AI toolbar, transcript area and composer together; the 320×568 screenshot showed the phone bottom navigation and composer. Thirteen dashboard destinations (`/dashboard`, `/academics`, `/courses`, `/tasks`, `/exams`, `/calendar`, `/study`, `/resources`, `/notes`, `/goals`, `/analytics`, `/notifications`, `/settings`) rendered at 390px with no document-width overflow. The physical phone keyboard and an actual phone were unavailable, so keyboard avoidance and real-device behavior remain unverified. A real chat send through the seeded demo account is blocked by that account's stale personal Ollama credential (`409 AI_CONNECTION_UNREADABLE`); it was left untouched. Earlier direct OpenRouter provider verification remains documented in §17.
 
 Driven over the Chrome DevTools Protocol against a real `pnpm dev` stack (web `:3000`, API `:3001`), not jsdom. Registered and signed in through the real login form, then exercised `/ai` end to end.
 
