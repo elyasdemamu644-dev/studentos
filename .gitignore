@@ -47,3 +47,21 @@ temp/
 
 # Generated
 *.generated.*
+
+# Internal development notes and AI-agent context.
+# Kept on the developer's machine, intentionally not published.
+AI_CONTEXT.md
+INSTRUCTIONS_FOR_AGENT.md
+
+# Internal audit / progress reports (archived historical snapshots).
+docs/audits/
+
+# Vercel local project link (created by `vercel link`; not meant to be shared).
+.vercel/
+
+# One-off local verification scripts.
+verify_phase1.py
+
+# Local test-run output.
+test-output.txt
+backend/test-results.txt

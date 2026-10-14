@@ -4,8 +4,6 @@ A personal academic operating system — one place for academic years, courses, 
 
 Full-stack TypeScript monorepo: **Next.js 14** web app + **Express 5 / Prisma / PostgreSQL** REST API + a shared **Zod** schema package.
 
-> **Working on this repo with an AI agent?** Read **[AI_CONTEXT.md](AI_CONTEXT.md)** — it is the verified source of truth for architecture, conventions, commands and current state. Agent workflow rules are in **[INSTRUCTIONS_FOR_AGENT.md](INSTRUCTIONS_FOR_AGENT.md)**. This README is for humans setting up and running the project.
-
 ## Stack
 
 | | |
@@ -15,7 +13,7 @@ Full-stack TypeScript monorepo: **Next.js 14** web app + **Express 5 / Prisma / 
 | **Database** | PostgreSQL |
 | **Shared** | `@studentos/shared` — Zod schemas and cross-app types |
 | **Tooling** | pnpm workspaces + Turborepo, Vitest, ESLint (`next lint`) |
-| **Tests** | 840 passing — 571 API (integration, real DB) + 269 web (jsdom), verified 2026-10-12; see [current due-diligence report](docs/audits/studentos-product-due-diligence-2026-10.md) for scope and limitations |
+| **Tests** | 840 passing — 571 API (integration, real DB) + 269 web (jsdom) |
 
 ## Requirements
 
@@ -66,7 +64,7 @@ Run from the repository root:
 pnpm dev          # both apps in parallel
 pnpm build        # API tsc + Web next build
 pnpm lint         # web only — the API has no linter
-pnpm test         # full suite, 649 tests
+pnpm test         # full suite
 ```
 
 Per package:
@@ -164,6 +162,6 @@ curl -fsS http://localhost:3001/health       # {"database":"connected"} or HTTP 
 backend        Express REST API + Prisma (tests/ at backend/tests)
 frontend        Next.js web app (tests/ at frontend/tests)
 packages/shared Shared Zod schemas and types
-docs/           api/ (OpenAPI 3.1.1 contract) + audits/ (archived historical reports)
+docs/api/       OpenAPI 3.1.1 contract for the REST surface
 scripts/        Repository maintenance scripts
 ```
