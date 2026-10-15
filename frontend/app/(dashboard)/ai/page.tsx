@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, History, Layers, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, FolderOpen, History, Layers, Sparkles } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { AiConversationDrawer, AiConversationSidebar } from "@/components/domain/ai-conversation-sidebar";
@@ -15,6 +15,7 @@ import {
 } from "@/components/domain/ai-chat";
 import { AgentRunReport } from "@/components/domain/agent-run-report";
 import { AiContextPanel, AiContextDrawer } from "@/components/domain/ai-context-panel";
+import { AiFilesDrawer, AiFilesPanel } from "@/components/domain/ai-files-panel";
 import { StructuredExtractionDialog } from "@/features/ai/structured-extraction";
 import { Button } from "@/components/ui/button";
 import {
@@ -146,6 +147,7 @@ export default function AiPage() {
   // The AI chat has no state here at all: it is the permanent main panel, so it
   // has no control to press and nothing to restore.
   const [historyOpen, setHistoryOpen] = useState(true);
+  const [filesOpen, setFilesOpen] = useState(true);
   const [contextOpen, setContextOpen] = useState(true);
 
   const conversations = useConversations({ limit: 100 });
@@ -463,6 +465,7 @@ export default function AiPage() {
                   there instead of squeezing the chat to a third of the screen. */}
               <AiConversationDrawer {...sidebarProps} />
               <AiContextDrawer />
+              <AiFilesDrawer conversationId={selectedId} />
               <StructuredExtractionDialog />
               <Select value={newType} onValueChange={(value) => setNewType(value as ConversationType)}>
                 <SelectTrigger className="h-11 w-16 shrink-0 px-1 sm:h-9 sm:w-36 sm:px-3" aria-label="Conversation type">
@@ -591,7 +594,23 @@ export default function AiPage() {
           </section>
         </WorkspacePanel>
 
-        {/* StudentOS Context. A third box only once the viewport can afford it;
+        {/* Conversation Files. The conversation's uploaded and generated files,
+            as a box only on the widest viewports; below that the same panel is a
+            drawer from the chat's toolbar. Placed next to the chat because it is
+            conversation-scoped, unlike the app-wide context on its right. */}
+        <WorkspacePanel
+          title="Conversation Files"
+          label="conversation files"
+          icon={FolderOpen}
+          collapsed={!filesOpen}
+          onCollapsedChange={(collapsed) => setFilesOpen(!collapsed)}
+          expandedClassName="w-72"
+          className="hidden min-[1600px]:flex"
+        >
+          <AiFilesPanel conversationId={selectedId} />
+        </WorkspacePanel>
+
+        {/* StudentOS Context. A box only once the viewport can afford it;
             below that the same panel is a drawer from the toolbar. */}
         <WorkspacePanel
           title="StudentOS Context"

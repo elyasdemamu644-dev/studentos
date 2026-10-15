@@ -84,9 +84,16 @@ let TasksPage: ComponentType;
 
 // The full page pulls in the task form's Radix dialog tree; importing it here,
 // before the tests' clock starts, keeps the import cost out of every test body.
+//
+// This one-off import is heavy (the whole tasks page + its Radix dialog tree).
+// Vitest's default hook timeout is 10s, which this import can exceed while the
+// rest of the suite is transforming/collecting in parallel — an intermittent
+// `Hook timed out in 10000ms` that has nothing to do with the behaviour under
+// test. A larger, explicit budget here removes the flake without touching any
+// assertion.
 beforeAll(async () => {
   ({ default: TasksPage } = await import("@/app/(dashboard)/tasks/page"));
-});
+}, 30_000);
 
 async function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

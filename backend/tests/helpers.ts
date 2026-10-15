@@ -41,6 +41,8 @@ export async function cleanupDb() {
     "notifications",
     "ai_conversations",
     "ai_messages",
+    "ai_pending_actions",
+    "ai_artifacts",
     "ai_study_plans",
     "ai_study_plan_entries",
     "ai_connections",

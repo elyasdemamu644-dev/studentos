@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { readTools } from "./read-tools";
 import { analyzeTools } from "./analyze-tools";
 import { actionTools } from "./action-tools";
+import { artifactTools } from "./artifact-tools";
 import { confirmPendingActionsTool } from "./confirm-tool";
 import { deleteTaskTool, deleteNoteTool, deleteStudySessionTool, createStudyPlanTool, addStudyPlanEntryTool, pushDailyAgendaTool, bulkUpdateTaskStatusTool } from "./missing-tools";
 import { EntityResolutionError } from "./resolver";
@@ -56,6 +57,7 @@ for (const tool of [
   ...readTools,
   ...analyzeTools,
   ...actionTools,
+  ...artifactTools,
   confirmPendingActionsTool,
   deleteTaskTool,
   deleteNoteTool,

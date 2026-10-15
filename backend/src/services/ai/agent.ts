@@ -93,6 +93,8 @@ export interface AgentRunResult {
   toolActivity: ToolActivityEntry[];
   /** Actions the model asked for that still need the student's confirmation. */
   proposedActions: ProposedAction[];
+  /** Ids of artifacts (generated files) created during this run. */
+  createdArtifactIds: string[];
   /** True when at least one tool ran. */
   usedTools: boolean;
   rounds: number;
@@ -124,6 +126,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       content: legacy.content,
       toolActivity: [],
       proposedActions: [],
+      createdArtifactIds: [],
       usedTools: false,
       rounds: 1,
       finish: "no_tool_support",
@@ -158,6 +161,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
 
   const toolActivity: ToolActivityEntry[] = [];
   const proposals: ProposedAction[] = [];
+  const createdArtifactIds: string[] = [];
   const maxRounds = clamp(input.maxRounds ?? config.aiAgentMaxToolRounds, MAX_TOOL_ROUNDS);
   const maxToolCalls = clamp(config.aiAgentMaxToolCalls, MAX_TOOL_CALLS);
   const maxProposals = clamp(config.aiAgentMaxProposedActions, MAX_PROPOSED_ACTIONS);
@@ -184,6 +188,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
         content: nonEmpty(turn.content) ?? fallbackText(toolActivity, proposals),
         toolActivity,
         proposedActions: proposals,
+        createdArtifactIds,
         usedTools: toolActivity.length > 0,
         rounds,
         finish: proposals.length > 0 ? "confirmation_pending" : "answered",
@@ -206,6 +211,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       runnable,
       input,
       Math.max(0, maxProposals - proposals.length),
+      createdArtifactIds,
     );
     toolActivity.push(...activity);
 
@@ -249,6 +255,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     content: budgetNote ? `${finalContent}\n\n${budgetNote}` : finalContent,
     toolActivity,
     proposedActions: proposals,
+    createdArtifactIds,
     usedTools: toolActivity.length > 0,
     rounds,
     finish: proposals.length > 0 ? "confirmation_pending" : "tool_limit",
@@ -263,6 +270,7 @@ async function runToolCalls(
   toolCalls: ChatToolCall[],
   input: AgentRunInput,
   remainingProposals: number,
+  createdArtifactIds: string[],
 ): Promise<{ results: AiToolResult[]; roundProposals: ProposedAction[]; activity: ToolActivityEntry[] }> {
   // The allow-list is scoped to this turn. A write tool that is not on it is
   // refused by the registry, whatever the model asks for.
@@ -270,6 +278,7 @@ async function runToolCalls(
     userId: input.userId,
     conversationId: input.conversationId,
     approvedActions: input.approvedActions ?? null,
+    createdArtifactIds,
   };
 
   const results: AiToolResult[] = [];

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { confirmationStore, summarizeOutcomes, type ConfirmationActionOutcome } from "@/services/ai/confirmations";
+import { updatePersistedStatus } from "@/services/ai/pending-action-repository";
 
 // Type-only import: erased at compile time, so it does not close the runtime
 // cycle with registry.ts (which imports this module to build its table).
@@ -50,16 +51,21 @@ export const confirmPendingActionsTool: AiToolDefinition = {
         "That proposal is no longer pending — it was already applied, cancelled, or it expired. Re-check with a read tool and offer the actions again.",
       );
     }
+    // Claim it durably before the writes, so a restart mid-apply cannot make the
+    // same proposal confirmable again.
+    await updatePersistedStatus(proposal.id, "EXECUTED");
 
     const executed = await executeProposalActions(proposal.actions, ctx, executeTool);
     const summary = summarizeOutcomes(executed);
 
-    confirmationStore.complete(proposal.id, {
+    const result = {
       executed: executed.filter((e) => e.ok).length,
       verified: executed.filter((e) => e.ok && e.verified).length,
       failed: executed.filter((e) => !e.ok).length,
       summary,
-    });
+    };
+    confirmationStore.complete(proposal.id, result);
+    await updatePersistedStatus(proposal.id, "EXECUTED", result);
 
     return {
       ...ok({ executed, confirmationId: proposal.id }, summary),
@@ -84,7 +90,7 @@ export const confirmPendingActionsTool: AiToolDefinition = {
  */
 export async function executeProposalActions(
   actions: ProposedAction[],
-  ctx: { userId: string; conversationId: string },
+  ctx: { userId: string; conversationId: string; createdArtifactIds?: string[] },
   runner: typeof executeTool,
 ): Promise<ConfirmationActionOutcome[]> {
   const outcomes: ConfirmationActionOutcome[] = [];
@@ -92,7 +98,12 @@ export async function executeProposalActions(
   for (const action of actions) {
     const result = await runner(
       { name: action.tool, arguments: action.arguments },
-      { userId: ctx.userId, conversationId: ctx.conversationId, approvedActions: [action] },
+      {
+        userId: ctx.userId,
+        conversationId: ctx.conversationId,
+        approvedActions: [action],
+        ...(ctx.createdArtifactIds ? { createdArtifactIds: ctx.createdArtifactIds } : {}),
+      },
     );
 
     if (!result.ok) {

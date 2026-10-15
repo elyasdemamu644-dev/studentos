@@ -991,6 +991,7 @@ describe("first prompt with no existing conversations", () => {
       if (url === `${base}/ai/conversations/${NEW_ID}` && method === "PATCH") {
         return env(newConversation);
       }
+      if (url.includes("/artifacts")) return env({ artifacts: [] });
       throw new Error("no mock for " + method + " " + url);
     });
   });
@@ -1126,6 +1127,7 @@ describe("banner retry after the reconcile refetch", () => {
       if (url === `${base}/ai/conversations/${CONVERSATION.id}` && method === "PATCH") {
         return env(CONVERSATION);
       }
+      if (url.includes("/artifacts")) return env({ artifacts: [] });
       if (url.includes(`/ai/conversations/${CONVERSATION.id}/messages`)) {
         if (method === "POST") {
           postCount += 1;
@@ -1269,6 +1271,7 @@ describe("switching and reloading conversations", () => {
       if (url === `${base}/ai/conversations?limit=100`) {
         return env({ items: [FIRST, SECOND], hasMore: false, nextCursor: null });
       }
+      if (url.includes("/artifacts")) return env({ artifacts: [] });
       for (const conversation of [FIRST, SECOND]) {
         if (url === `${base}/ai/conversations/${conversation.id}/messages`) {
           return env(transcripts[conversation.id]);
@@ -1324,5 +1327,192 @@ describe("switching and reloading conversations", () => {
     expect(
       messageGets().some(([input]) => String(input).includes(SECOND.id)),
     ).toBe(true);
+  });
+});
+
+// ── Confirming a proposed change ─────────────
+// Confirm used to look like nothing happened: the card became "decided" but the
+// assistant's outcome summary never reached the transcript. The API stores that
+// message and returns it, so this checks the reply is shown and cached.
+
+describe("confirming a proposed change", () => {
+  const fetchMock = vi.fn();
+  const REPLY_TEXT = "1 of 1 action applied and verified";
+  const REPLY_CONTENT = 'Added "Read chapter 9" to your tasks.';
+
+  const pendingAction = {
+    id: "action-1",
+    title: "Add a task",
+    status: "PENDING",
+    actions: [{ tool: "create_task", description: 'Add task "Read chapter 9"' }],
+    createdAt: "2026-09-30T08:00:00.000Z",
+    expiresAt: "2999-01-01T00:00:00.000Z",
+    result: null,
+  };
+
+  function env(data: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => ({ success: true, data }),
+    } as unknown as Response;
+  }
+
+  beforeEach(() => {
+    setTokens("test-access-token", "test-refresh-token");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = "http://localhost:3001/api/v1";
+      if (url === `${base}/ai/conversations?limit=100`) {
+        return env({ items: [CONVERSATION], hasMore: false, nextCursor: null });
+      }
+      if (url.includes("/artifacts")) return env({ artifacts: [] });
+      if (url === `${base}/ai/conversations/${CONVERSATION.id}/messages`) {
+        return env([message({ id: "user-1", role: "USER", content: "Add a task to read chapter 9" })]);
+      }
+      if (url === `${base}/ai/conversations/${CONVERSATION.id}/pending-action` && method === "GET") {
+        return env({ pendingAction });
+      }
+      if (url === `${base}/ai/conversations/${CONVERSATION.id}/pending-action/action-1/confirm`) {
+        return env({
+          pendingAction: {
+            ...pendingAction,
+            status: "EXECUTED",
+            result: { executed: 1, verified: 1, failed: 0, summary: REPLY_TEXT },
+          },
+          status: "EXECUTED",
+          summary: REPLY_TEXT,
+          executed: [
+            {
+              tool: "create_task",
+              description: "Add task",
+              ok: true,
+              verified: true,
+              verification: "Verified: title=Read chapter 9",
+            },
+          ],
+          reply: message({ id: "reply-1", role: "ASSISTANT", content: REPLY_CONTENT }),
+        });
+      }
+      throw new Error("no mock for " + method + " " + url);
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("shows and caches the assistant's outcome summary after Confirm", async () => {
+    window.localStorage.setItem("studentos.ai.activeConversation", CONVERSATION.id);
+
+    const { default: AiPage } = await import("@/app/(dashboard)/ai/page");
+    const { client } = renderWithQuery(<AiPage />);
+
+    const confirmButton = await screen.findByRole("button", { name: /^confirm$/i });
+    expect(screen.queryByText(REPLY_CONTENT)).not.toBeInTheDocument();
+
+    await userEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(REPLY_CONTENT)).toBeInTheDocument();
+    });
+    const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+    expect(cached?.some((entry) => entry.id === "reply-1")).toBe(true);
+  });
+});
+
+// ── Generated files (artifacts) ─────────────
+// A confirmed action can save a document. The API links it to the assistant's
+// reply, and the chip downloads the bytes through the authenticated API (a plain
+// link would 401), so this checks both the chip and the token-bearing request.
+
+describe("generated files", () => {
+  const fetchMock = vi.fn();
+
+  const ARTIFACT = {
+    id: "artifact-1",
+    conversationId: CONVERSATION.id,
+    messageId: "reply-1",
+    resourceId: "resource-1",
+    name: "Chapter 9 study guide",
+    description: null,
+    mimeType: "text/plain",
+    size: 2048,
+    createdAt: "2026-09-30T08:00:02.000Z",
+  };
+
+  function renderTranscript(messages: AiMessage[]) {
+    return renderWithQuery(
+      <MessageList
+        messages={messages}
+        isLoading={false}
+        isError={false}
+        error={null}
+        onRetryLoad={() => {}}
+        generating={false}
+        liveActivity={[]}
+        activityRun={null}
+        onRetryMessage={() => {}}
+        empty={<p>empty</p>}
+      />,
+    );
+  }
+
+  beforeEach(() => {
+    setTokens("test-access-token", "test-refresh-token");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("shows a generated file on an assistant reply, and not on a user message", () => {
+    renderTranscript([message({ id: "reply-1", artifacts: [ARTIFACT] })]);
+
+    expect(screen.getByText("Chapter 9 study guide")).toBeInTheDocument();
+    expect(screen.getByText(/Generated file/i)).toBeInTheDocument();
+  });
+
+  it("downloads a generated file through the authenticated API", async () => {
+    const blob = new Blob(["# Chapter 9"], { type: "text/plain" });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        "content-disposition": 'attachment; filename="Chapter-9-study-guide.md"',
+      }),
+      blob: async () => blob,
+    } as unknown as Response);
+
+    const createObjectURL = vi.fn(() => "blob:mock-artifact");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    renderTranscript([message({ id: "reply-1", artifacts: [ARTIFACT] })]);
+
+    await userEvent.click(screen.getByRole("button", { name: /Chapter 9 study guide/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/ai/artifacts/artifact-1/download");
+    // The download carries the bearer token, which is why the chip is a button.
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer test-access-token");
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(blob));
+    expect(anchorClick).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-artifact");
   });
 });

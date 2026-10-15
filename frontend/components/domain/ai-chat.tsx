@@ -9,6 +9,7 @@ import {
   CircleSlash,
   Clock,
   Copy,
+  Download,
   FileUp,
   FileText,
   Link2,
@@ -50,8 +51,8 @@ import {
   type MarkdownBlock,
 } from "@/features/ai/chat-utils";
 import { formatTime, formatBytes } from "@/lib/format";
-import type { AiActionOutcome, AiMessage, AiToolActivity, PendingAction } from "@/types/api-types";
-import { useUploadAttachment } from "@/features/ai/hooks";
+import type { AiActionOutcome, AiArtifact, AiMessage, AiToolActivity, PendingAction } from "@/types/api-types";
+import { useDownloadArtifact, useUploadAttachment } from "@/features/ai/hooks";
 import { api } from "@/lib/api/client";
 
 // ── Markdown ─────────────────────────────────
@@ -300,6 +301,60 @@ function ToolActivityFeed({ activity }: { activity: AiToolActivity[] }) {
   );
 }
 
+/** Trigger a browser download for a fetched blob, then release the object URL. */
+function saveBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Files the assistant generated in this reply.
+ *
+ * The bytes are owner-scoped and require the bearer token, so a plain link
+ * would 401 — each chip fetches the blob through the authenticated API and
+ * saves it. Rendered for assistant messages only.
+ */
+function ArtifactChips({ artifacts }: { artifacts: AiArtifact[] }) {
+  const download = useDownloadArtifact();
+
+  const onDownload = (artifact: AiArtifact) => {
+    download.mutate(artifact, {
+      onSuccess: ({ blob, fileName }) => {
+        saveBlob(blob, fileName ?? artifact.name);
+      },
+    });
+  };
+
+  return (
+    <div className="mt-1.5 flex flex-col items-start gap-1.5" aria-label="Generated files">
+      {artifacts.map((artifact) => (
+        <button
+          key={artifact.id}
+          type="button"
+          onClick={() => onDownload(artifact)}
+          disabled={download.isPending}
+          className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-left text-xs shadow-card transition-colors hover:border-primary/50 hover:bg-accent disabled:opacity-60"
+        >
+          <FileText className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+          <span className="min-w-0">
+            <span className="block max-w-[18rem] truncate font-medium text-foreground">{artifact.name}</span>
+            <span className="text-[10px] text-muted-foreground">
+              Generated file · {formatBytes(artifact.size)}
+            </span>
+          </span>
+          <Download className="ml-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   onRetry,
@@ -354,6 +409,10 @@ function MessageBubble({
             <Markdown content={message.content} />
           )}
         </div>
+
+        {!isUser && message.artifacts && message.artifacts.length > 0 && (
+          <ArtifactChips artifacts={message.artifacts} />
+        )}
 
         <div
           className={cn(

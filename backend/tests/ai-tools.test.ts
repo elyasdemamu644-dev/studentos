@@ -2158,6 +2158,7 @@ describe("Post-write verification", () => {
       "create_goal", "update_goal_progress", "create_milestone", "update_milestone",
       "create_note", "update_note",
       "create_resource", "update_resource",
+      "create_artifact",
       "create_event", "update_event",
       "create_grade", "update_grade",
       "create_course", "update_course",
@@ -2273,5 +2274,133 @@ describe("Course create and update tools", () => {
 
     const stored = await prisma.course.findFirst({ where: { id: theirs.body.data.id, userId: other.id } });
     expect(stored?.name).toBe("Theirs");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("AI reliability: attachments, durable proposals and confirm replies", () => {
+  beforeEach(async () => {
+    const a = await seedStudent("ai-reliability", "REL301", "Reliability");
+    userA = { token: a.token, id: a.id };
+    useFakeConnection();
+  });
+
+  async function newConversation() {
+    const created = await authRequestJson("post", `${BASE}/ai/conversations`, userA.token, { title: "Reliability" });
+    return created.body.data.id as string;
+  }
+
+  async function uploadedResource(userId: string, fileName: string, mimeType: string) {
+    return prisma.resource.create({
+      data: {
+        userId,
+        title: fileName,
+        storageType: "UPLOAD",
+        fileName,
+        fileSize: 42,
+        mimeType,
+        resourceType: "DOCUMENT",
+      },
+    });
+  }
+
+  it("persists attachment ids on the stored message and returns their metadata", async () => {
+    const conversationId = await newConversation();
+    const resource = await uploadedResource(userA.id, "chapter-9.txt", "text/plain");
+
+    const sent = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content: "Summarise this",
+      generateReply: false,
+      attachmentIds: [resource.id],
+    });
+
+    expect(sent.status).toBe(201);
+    expect(sent.body.data.message.attachments).toEqual([
+      expect.objectContaining({
+        resourceId: resource.id,
+        fileName: "chapter-9.txt",
+        mimeType: "text/plain",
+        fileSize: 42,
+      }),
+    ]);
+
+    const stored = await prisma.aiMessage.findUnique({ where: { id: sent.body.data.message.id } });
+    expect(stored?.attachmentIds).toEqual([resource.id]);
+
+    const history = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token);
+    const userMessage = history.body.data.find((m: { id: string }) => m.id === sent.body.data.message.id);
+    expect(userMessage.attachments[0].resourceId).toBe(resource.id);
+  });
+
+  it("drops an attachment id the student does not own", async () => {
+    const other = await seedStudent("ai-reliability-other", "REL302", "Other");
+    const conversationId = await newConversation();
+    const foreign = await uploadedResource(other.id, "secret.txt", "text/plain");
+
+    const sent = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content: "Read this",
+      generateReply: false,
+      attachmentIds: [foreign.id],
+    });
+
+    expect(sent.status).toBe(201);
+    expect(sent.body.data.message.attachments).toEqual([]);
+  });
+
+  it("recovers a proposal parked before a restart and still confirms it", async () => {
+    const conversationId = await newConversation();
+    const script = scriptedFetch([
+      toolCallTurn("create_task", { title: "Recovered task" }),
+      textTurn("Add it?"),
+    ]);
+    vi.stubGlobal("fetch", script.mock);
+
+    const proposed = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content: "Add a task to recover",
+    });
+    expect(proposed.body.data.pendingAction.status).toBe("PENDING");
+    const actionId = proposed.body.data.pendingAction.id as string;
+
+    // Drop the in-memory store, as a process restart would.
+    confirmationStore.reset();
+    expect(confirmationStore.getPending(userA.id, conversationId)).toBeNull();
+
+    const recovered = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/pending-action`, userA.token);
+    expect(recovered.status).toBe(200);
+    expect(recovered.body.data.pendingAction.id).toBe(actionId);
+
+    const confirmed = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/pending-action/${actionId}/confirm`,
+      userA.token,
+    );
+    expect(confirmed.status).toBe(200);
+    expect(await prisma.task.count({ where: { userId: userA.id, title: "Recovered task" } })).toBe(1);
+  });
+
+  it("returns the assistant summary as the confirm reply", async () => {
+    const conversationId = await newConversation();
+    confirmationStore.create({
+      userId: userA.id,
+      conversationId,
+      title: "Add a task",
+      actions: [{ tool: "create_task", description: "Add", arguments: { title: "Reply task" } }],
+    });
+    const pending = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/pending-action`, userA.token);
+    const actionId = pending.body.data.pendingAction.id as string;
+
+    const confirmed = await authRequestJson(
+      "post",
+      `${BASE}/ai/conversations/${conversationId}/pending-action/${actionId}/confirm`,
+      userA.token,
+    );
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.data.reply).toBeTruthy();
+    expect(confirmed.body.data.reply.role).toBe("ASSISTANT");
+    expect(confirmed.body.data.reply.content).toBe(confirmed.body.data.summary);
+
+    const history = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token);
+    expect(history.body.data.some((m: { id: string }) => m.id === confirmed.body.data.reply.id)).toBe(true);
   });
 });

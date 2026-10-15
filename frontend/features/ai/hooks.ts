@@ -2,12 +2,25 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { AiActionOutcome, AiAgentRun, AiMessage, Conversation } from "@/types/api-types";
+import type { AiActionOutcome, AiAgentRun, AiArtifact, AiMessage, Conversation } from "@/types/api-types";
 import { formatApiError } from "@/components/states";
+import type { ConversationFile } from "./conversation-files";
 import * as api from "./ai-api";
 
 export const conversationsKey = ["ai", "conversations"];
 export const messagesKey = (conversationId: string | undefined) => ["ai", "messages", conversationId];
+/**
+ * The generated files of one conversation.
+ *
+ * Fetched from the artifacts endpoint rather than scraped off `message.artifacts`
+ * so a file that is both linked to its reply and listed by the conversation is
+ * fetched once, from a source that survives a reload.
+ */
+export const artifactsKey = (conversationId: string | undefined) => [
+  "ai",
+  "artifacts",
+  conversationId,
+];
 export const pendingActionKey = (conversationId: string | undefined) => [
   "ai",
   "pending-action",
@@ -54,6 +67,15 @@ export function useMessages(conversationId: string | undefined) {
   return useQuery({
     queryKey: messagesKey(conversationId),
     queryFn: () => api.listMessages(conversationId!),
+    enabled: Boolean(conversationId),
+  });
+}
+
+/** The files the assistant generated in a conversation. */
+export function useArtifacts(conversationId: string | undefined) {
+  return useQuery({
+    queryKey: artifactsKey(conversationId),
+    queryFn: () => api.listArtifacts(conversationId!),
     enabled: Boolean(conversationId),
   });
 }
@@ -222,6 +244,11 @@ export function useSendMessage() {
       if (result.agent) {
         qc.setQueryData(agentRunsKey(input.conversationId), result.agent);
       }
+      // A turn can have generated files — either through the REST confirm path
+      // or by running `confirm_pending_actions` during the turn — so the
+      // conversation's Files list is stale. The `onSettled` refetch of the
+      // messages covers the attachments that arrived with this reply.
+      qc.invalidateQueries({ queryKey: artifactsKey(input.conversationId) });
       // The reply is new, so the row's preview and recency are stale.
       qc.invalidateQueries({ queryKey: conversationsKey });
     },
@@ -267,6 +294,19 @@ export function useConfirmPendingAction() {
     onSuccess: (result, { conversationId }) => {
       qc.setQueryData(["ai", "pending-action", conversationId], result.pendingAction);
       qc.setQueryData(actionOutcomesKey(conversationId), result.executed);
+      // A confirmed proposal can save files, so the conversation's Files list
+      // must not stay stale after the student approves it.
+      qc.invalidateQueries({ queryKey: artifactsKey(conversationId) });
+      // Show the assistant's outcome summary in the transcript. The API stores
+      // this message, so a later reload reproduces it; appending it here means
+      // the student sees the result of Confirm immediately, without a gap.
+      if (result.reply) {
+        const reply = result.reply;
+        qc.setQueryData<AiMessage[]>(messagesKey(conversationId), (current) => [
+          ...(current ?? []).filter((message) => message.id !== reply.id),
+          reply,
+        ]);
+      }
       // Report the server's own count, not a blanket "applied": a batch where a
       // step failed or could not be verified on re-read must not read as success.
       if (result.status === "EXECUTED") {
@@ -418,4 +458,36 @@ export function isAiNotConfigured(error: unknown): boolean {
     return code === "AI_PROVIDER_NOT_CONFIGURED";
   }
   return false;
+}
+
+/**
+ * Fetch a generated file's bytes. The caller saves the returned blob (the hook
+ * has no DOM side effects), preferring the server's filename and falling back
+ * to the artifact's own name.
+ */
+export function useDownloadArtifact() {
+  return useMutation({
+    mutationFn: (artifact: Pick<AiArtifact, "id" | "name">) => api.downloadArtifact(artifact.id),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not download the file"),
+  });
+}
+
+/**
+ * Download either kind of conversation file.
+ *
+ * A generated file and an uploaded one are fetched from different
+ * endpoints, so the caller passes the unified `ConversationFile` and this picks
+ * the right one. The mutation has no DOM side effects (the panel saves the
+ * blob), which keeps it testable and reusable.
+ */
+export function useDownloadConversationFile() {
+  return useMutation({
+    mutationFn: (file: ConversationFile) =>
+      file.kind === "artifact"
+        ? api.downloadArtifact(file.artifactId ?? file.id)
+        : api.downloadAttachment(file.resourceId ?? file.id),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not download the file"),
+  });
 }

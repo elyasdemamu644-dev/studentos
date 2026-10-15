@@ -88,6 +88,7 @@ function stubWorkspaceApi() {
     if (url.startsWith(`${base}/ai/conversations?`)) {
       return envelope({ items: [CONVERSATION], hasMore: false, nextCursor: null });
     }
+    if (url.includes("/artifacts")) return envelope({ artifacts: [] });
     if (url.includes("/messages")) return envelope([]);
     if (url.includes("/pending-action")) return envelope(null);
     if (url === `${base}/dashboard`) return envelope(DASHBOARD);
@@ -109,20 +110,29 @@ let AiPage: ComponentType;
 
 const history = () => screen.queryByRole("navigation", { name: "Conversation history" });
 const context = () => screen.queryByRole("complementary", { name: "StudentOS context" });
+const files = () => screen.queryByRole("complementary", { name: "Conversation files" });
 const chat = () => screen.queryByRole("region", { name: "AI conversation" });
 const composer = () => screen.queryByLabelText("Message StudentOS AI");
 
 /**
- * The two collapsible panels, by the names their own collapse control answers
- * to. `Hide …` and `Show …` are the only two names any of them answers to.
- * The AI chat is absent on purpose: it is permanent and owns no control.
+ * The collapsible panels, by the names their own collapse control answers to
+ * and their position in the row. `Hide …` and `Show …` are the only names any
+ * of them answers to. The AI chat is absent on purpose: it is permanent and
+ * owns no control, so it is at index 1 with nothing between the two lists.
  */
 const PANELS = [
-  { name: "Chat History", hide: "Hide chat history", show: "Show chat history" },
+  { name: "Chat History", hide: "Hide chat history", show: "Show chat history", index: 0 },
+  {
+    name: "Conversation Files",
+    hide: "Hide conversation files",
+    show: "Show conversation files",
+    index: 2,
+  },
   {
     name: "StudentOS Context",
     hide: "Hide StudentOS context",
     show: "Show StudentOS context",
+    index: 3,
   },
 ] as const;
 
@@ -131,7 +141,7 @@ function controlsFor(accessibleName: string) {
   return screen.queryAllByRole("button", { name: accessibleName });
 }
 
-/** The row of three boxes, i.e. the workspace's last child. */
+/** The row of boxes, i.e. the workspace's last child. */
 function panelRow(container: HTMLElement) {
   const workspace = container.firstElementChild as HTMLElement;
   const row = workspace.lastElementChild as HTMLElement;
@@ -163,31 +173,35 @@ describe("AI workspace panels", () => {
     vi.restoreAllMocks();
   });
 
-  it("opens with history, chat and context on screen at once", async () => {
+  it("opens with history, chat, files and context on screen at once", async () => {
     renderWithQuery(<AiPage />);
 
     expect(await screen.findByRole("navigation", { name: "Conversation history" })).toBeInTheDocument();
     expect(history()).toBeInTheDocument();
     expect(chat()).toBeInTheDocument();
+    expect(files()).toBeInTheDocument();
     expect(context()).toBeInTheDocument();
     expect(composer()).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Conversation type" })).toHaveClass("w-16");
     expect(screen.getByRole("combobox", { name: "Conversation type" }).textContent).toContain("Chat");
   });
 
-  it("renders the three sections as separate boxes of one consistent kind", async () => {
+  it("renders the sections as separate boxes of one consistent kind", async () => {
     const { container } = renderWithQuery(<AiPage />);
     await screen.findByRole("navigation", { name: "Conversation history" });
 
     const { row, panels } = panelRow(container);
 
-    // Three boxes on one row, in the order the product describes them. The chat
+    // Four boxes on one row, in the order the product describes them. The chat
     // box is titled "AI Assistant": that is the label its top bar carries, now
     // that the workspace controls live in it instead of in a bar of their own.
-    expect(panels).toHaveLength(3);
+    // Conversation Files sits next to the chat because it is scoped to the open
+    // conversation; the app-wide context is last.
+    expect(panels).toHaveLength(4);
     expect(panels.map((panel) => panel.querySelector("h2")?.textContent)).toEqual([
       "Chat History",
       "AI Assistant",
+      "Conversation Files",
       "StudentOS Context",
     ]);
 
@@ -325,12 +339,12 @@ describe("AI workspace panels", () => {
     expect(controlsFor("Hide context panel")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /context panel/i })).not.toBeInTheDocument();
 
-    // Three boxes, and only the two collapsible ones carry a disclosure control.
-// Counted inside the panels, not across the workspace, because Radix's own
-// Select trigger in the toolbar also sets `aria-controls`.
-const { panels } = panelRow(container);
-expect(panels.filter((box) => box.querySelector("button[aria-controls]"))).toHaveLength(2);
-expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
+    // Four boxes, and only the three collapsible ones carry a disclosure
+    // control. Counted inside the panels, not across the workspace, because
+    // Radix's own Select trigger in the toolbar also sets `aria-controls`.
+    const { panels } = panelRow(container);
+    expect(panels.filter((box) => box.querySelector("button[aria-controls]"))).toHaveLength(3);
+    expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
   });
 
   it("hands the chat the width when history collapses, leaving the others alone", async () => {
@@ -370,7 +384,7 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     await screen.findByRole("navigation", { name: "Conversation history" });
 
     const { panels } = panelRow(container);
-    for (const index of [0, 2]) {
+    for (const index of [0, 2, 3]) {
       const box = panels[index];
 
       // Expanded: header first, then the body it labels.
@@ -417,31 +431,40 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     expect(history()).toBeInTheDocument();
   });
 
-  // All four combinations of the two collapsible panels, not just the default.
-  // Each has to be reachable, and each has to be reversible from the same two
+  // Every combination of the three collapsible panels, not just the default.
+  // Each has to be reachable, and each has to be reversible from the same three
   // controls — while the chat stays open throughout, because it has no control.
   it.each([
-    { history: true, context: true, name: "both expanded" },
-    { history: false, context: true, name: "chat history collapsed" },
-    { history: true, context: false, name: "StudentOS context collapsed" },
-    { history: false, context: false, name: "both collapsed" },
+    { history: true, files: true, context: true, name: "all three expanded" },
+    { history: false, files: true, context: true, name: "chat history collapsed" },
+    { history: true, files: false, context: true, name: "conversation files collapsed" },
+    { history: true, files: true, context: false, name: "StudentOS context collapsed" },
+    { history: false, files: false, context: true, name: "history and files collapsed" },
+    { history: false, files: true, context: false, name: "history and context collapsed" },
+    { history: true, files: false, context: false, name: "files and context collapsed" },
+    { history: false, files: false, context: false, name: "all three collapsed" },
   ])(
     "stays usable with $name",
-    async ({ history: historyWanted, context: contextWanted }) => {
+    async ({
+      history: historyWanted,
+      files: filesWanted,
+      context: contextWanted,
+    }) => {
       const { container } = renderWithQuery(<AiPage />);
       await screen.findByRole("navigation", { name: "Conversation history" });
 
-      const wanted = [historyWanted, contextWanted];
+      const wanted = [historyWanted, filesWanted, contextWanted];
 
       for (let i = 0; i < PANELS.length; i += 1) {
         if (!wanted[i]) await userEvent.click(screen.getByRole("button", { name: PANELS[i].hide }));
       }
 
-      // Three boxes either way — a rail is still a box.
+      // Four boxes either way — a rail is still a box.
       const { panels } = panelRow(container);
-      expect(panels).toHaveLength(3);
+      expect(panels).toHaveLength(4);
 
       expect(Boolean(history())).toBe(historyWanted);
+      expect(Boolean(files())).toBe(filesWanted);
       expect(Boolean(context())).toBe(contextWanted);
 
       // The chat is untouched in every combination.
@@ -454,8 +477,9 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
       // single control, and a collapsed one is a narrow rail rather than either
       // gone or full width.
       for (let i = 0; i < PANELS.length; i += 1) {
-        // `PANELS` skips the permanent chat, so index into the row by position.
-        const box = panels[i === 0 ? 0 : 2];
+        // `PANELS` skips the permanent chat, so index into the row by the
+        // position each entry records.
+        const box = panels[PANELS[i].index];
         expect(controlsFor(wanted[i] ? PANELS[i].hide : PANELS[i].show)).toHaveLength(1);
         expect(box.getAttribute("data-collapsed")).toBe(wanted[i] ? null : "true");
         expect(hasClass(box, "w-12")).toBe(!wanted[i]);
@@ -463,12 +487,13 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
         expect(box.firstElementChild?.tagName).toBe("HEADER");
       }
 
-      // And every combination has to be reversible from the same two controls.
+      // And every combination has to be reversible from the same controls.
       for (let i = 0; i < PANELS.length; i += 1) {
         if (!wanted[i]) await userEvent.click(screen.getByRole("button", { name: PANELS[i].show }));
       }
 
       expect(history()).toBeInTheDocument();
+      expect(files()).toBeInTheDocument();
       expect(context()).toBeInTheDocument();
       expect(chat()).toBeInTheDocument();
       expect(composer()).toBeInTheDocument();
@@ -480,12 +505,13 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     await screen.findByRole("navigation", { name: "Conversation history" });
 
     const { panels } = panelRow(container);
-    const [historyBox, chatBox, contextBox] = panels;
+    const [historyBox, chatBox, filesBox, contextBox] = panels;
 
-    // The chat is the one that absorbs whatever the other two give up; the other
-    // two are fixed supporting columns, not equal thirds.
+    // The chat is the one that absorbs whatever the others give up; the others
+    // are fixed supporting columns, not equal thirds.
     expect(hasClass(chatBox, "flex-1")).toBe(true);
     expect(hasClass(historyBox, "w-64")).toBe(true);
+    expect(hasClass(filesBox, "w-72")).toBe(true);
     expect(hasClass(contextBox, "w-72")).toBe(true);
 
     // The composer is the one part of the chat the student cannot work around,
@@ -493,16 +519,19 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     expect(composer()!.closest(".surface-blur")!.className).toContain("shrink-0");
 
     await userEvent.click(screen.getByRole("button", { name: "Hide chat history" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hide conversation files" }));
     await userEvent.click(screen.getByRole("button", { name: "Hide StudentOS context" }));
 
     // A rail, not zero: the panel keeps its header, so it keeps its control.
     expect(hasClass(historyBox, "w-12")).toBe(true);
+    expect(hasClass(filesBox, "w-12")).toBe(true);
     expect(hasClass(contextBox, "w-12")).toBe(true);
     expect(hasClass(chatBox, "flex-1")).toBe(true);
 
     await userEvent.click(screen.getByRole("button", { name: "Show chat history" }));
 
     expect(hasClass(historyBox, "w-64")).toBe(true);
+    expect(hasClass(filesBox, "w-12")).toBe(true);
     expect(hasClass(contextBox, "w-12")).toBe(true);
   });
 
@@ -528,6 +557,18 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     await userEvent.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
+    // The files trigger is the counterpart of the Files column, so it, too,
+    // disappears at exactly the width where the column appears.
+    const filesButton = screen.getByRole("button", { name: "Open conversation files" });
+    expect(filesButton.className).toContain("min-[1600px]:hidden");
+
+    await userEvent.click(filesButton);
+    const filesDrawer = await screen.findByRole("dialog");
+    expect(within(filesDrawer).getByText("Conversation Files")).toBeInTheDocument();
+
+    await userEvent.click(within(filesDrawer).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
     // The unconditional trigger still has to open the drawer it promises.
     await userEvent.click(historyButton);
     const historyDrawer = await screen.findByRole("dialog");
@@ -547,6 +588,7 @@ expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
     for (const name of [
       "Conversation messages",
       "Conversation history list",
+      "Conversation files list",
       "StudentOS context details",
     ]) {
       const region = await screen.findByRole(name === "Conversation messages" ? "log" : "region", {

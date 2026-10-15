@@ -6,10 +6,17 @@ import { studentContextBuilder } from "./context";
 import { runAgent, type ToolActivityEntry } from "./agent";
 import { extractStructured } from "./structured";
 import { confirmationStore, summarizeOutcomes, toPendingActionResponse } from "./confirmations";
+import {
+  loadPendingAction,
+  persistPendingAction,
+  supersedePersisted,
+  updatePersistedStatus,
+} from "./pending-action-repository";
 import { executeProposalActions } from "./tools/confirm-tool";
 import { executeTool } from "./tools/registry";
 import type { ProposedAction } from "./tools/types";
 import { getAiAttachmentContent } from "./attachments";
+import { artifactsService, type AiArtifactDto } from "./artifacts";
 import type {
   CreateConversationInput,
   CreateMessageInput,
@@ -114,7 +121,30 @@ export const aiService = {
       where: { conversationId },
       orderBy: { createdAt: "asc" },
     });
-    return messages.map(mapMessage);
+    // One lookup for every attachment across the transcript, so a reloaded
+    // conversation shows the same file chips it showed when the files were sent.
+    const attachments = await loadAttachments(
+      userId,
+      messages.flatMap((message) => message.attachmentIds ?? []),
+    );
+    // Generated files are loaded once for the whole conversation and grouped by
+    // the message they were attached to, so a reload shows them on the right
+    // reply without a per-message query.
+    const artifacts = await artifactsService.listForConversation(userId, conversationId);
+    const artifactsByMessage = new Map<string, AiArtifactDto[]>();
+    for (const artifact of artifacts) {
+      if (!artifact.messageId) continue;
+      const bucket = artifactsByMessage.get(artifact.messageId) ?? [];
+      bucket.push(artifact);
+      artifactsByMessage.set(artifact.messageId, bucket);
+    }
+    return messages.map((message) =>
+      mapMessage(
+        message,
+        attachmentsFor(message.attachmentIds, attachments),
+        artifactsByMessage.get(message.id) ?? [],
+      ),
+    );
   },
 
   /**
@@ -130,6 +160,9 @@ export const aiService = {
    */
   async addMessage(userId: string, conversationId: string, input: CreateMessageInput, signal?: AbortSignal) {
     await assertConversationOwnership(userId, conversationId);
+    // Bring back a proposal parked before a restart, so the agent knows what the
+    // student is still being asked to approve.
+    await rehydratePending(userId, conversationId);
 
     const role = input.role ?? "USER";
     const wantsReply = input.generateReply ?? true;
@@ -193,7 +226,16 @@ export const aiService = {
             data: { contextSnapshot: context },
           })
         : await prisma.aiMessage.create({
-            data: { conversationId, userId, role: "USER", content: input.content, contextSnapshot: context },
+            data: {
+              conversationId,
+              userId,
+              role: "USER",
+              content: input.content,
+              contextSnapshot: context,
+              // Store the file ids so the transcript can render the attachments
+              // again after a reload; the files themselves stay on `Resource`.
+              attachmentIds,
+            },
           });
       await touchConversation(conversationId);
 
@@ -232,7 +274,7 @@ export const aiService = {
       if (signal?.aborted) throw new AiProviderCancelledError();
 
       const pending = run.proposedActions.length
-        ? storeProposal(userId, conversationId, run)
+        ? await storeProposal(userId, conversationId, run)
         : confirmationStore.getPending(userId, conversationId);
 
       // Persist the assistant reply. A provider failure never reaches this
@@ -240,11 +282,16 @@ export const aiService = {
       const assistantMessage = await prisma.aiMessage.create({
         data: { conversationId, userId, role: "ASSISTANT", content: run.content },
       });
+      // A chat-side confirmation ("create it") runs the write tools inside this
+      // same turn, so any file it generated is linked to the reply it produced.
+      const replyArtifacts = await linkArtifacts(userId, run.createdArtifactIds, assistantMessage.id);
       await touchConversation(conversationId);
 
+      const userAttachmentMap = await loadAttachments(userId, userMessage.attachmentIds ?? []);
+
       return {
-        message: mapMessage(userMessage),
-        reply: mapMessage(assistantMessage),
+        message: mapMessage(userMessage, attachmentsFor(userMessage.attachmentIds, userAttachmentMap)),
+        reply: mapMessage(assistantMessage, [], replyArtifacts),
         toolActivity: run.toolActivity,
         pendingAction: toPendingActionResponse(pending),
         agent: {
@@ -260,12 +307,14 @@ export const aiService = {
 
     // Store-only path (no provider call).
     const message = await prisma.aiMessage.create({
-      data: { conversationId, userId, role, content: input.content },
+      data: { conversationId, userId, role, content: input.content, attachmentIds },
     });
     await touchConversation(conversationId);
 
+    const storedAttachmentMap = await loadAttachments(userId, message.attachmentIds ?? []);
+
     return {
-      message: mapMessage(message),
+      message: mapMessage(message, attachmentsFor(message.attachmentIds, storedAttachmentMap)),
       reply: null,
       toolActivity: [] as ToolActivityEntry[],
       pendingAction: toPendingActionResponse(confirmationStore.getPending(userId, conversationId)),
@@ -297,6 +346,7 @@ export const aiService = {
   /** The proposal the student is currently being asked to approve, if any. */
   async getPendingAction(userId: string, conversationId: string) {
     await assertConversationOwnership(userId, conversationId);
+    await rehydratePending(userId, conversationId);
     return toPendingActionResponse(confirmationStore.getPending(userId, conversationId));
   },
 
@@ -310,6 +360,7 @@ export const aiService = {
    */
   async confirmAction(userId: string, conversationId: string, actionId: string) {
     await assertConversationOwnership(userId, conversationId);
+    await rehydratePending(userId, conversationId);
 
     const existing = confirmationStore.get(userId, conversationId, actionId);
     if (!existing) throw new NotFoundError("Pending action not found");
@@ -319,6 +370,9 @@ export const aiService = {
 
     const proposal = confirmationStore.consume(userId, conversationId, actionId);
     if (!proposal) throw new ConflictError("This action has already been applied");
+    // Claim it durably before the writes, so a crash mid-apply cannot leave the
+    // stored proposal PENDING and re-executable on restart.
+    await updatePersistedStatus(proposal.id, "EXECUTED");
 
     const executed = await executeProposalActions(
       proposal.actions,
@@ -327,21 +381,36 @@ export const aiService = {
     );
 
     const summary = summarizeOutcomes(executed);
-    confirmationStore.complete(proposal.id, {
+    const result = {
       executed: executed.filter((e) => e.ok).length,
       verified: executed.filter((e) => e.ok && e.verified).length,
       failed: executed.filter((e) => !e.ok).length,
       summary,
-    });
+    };
+    confirmationStore.complete(proposal.id, result);
+    await updatePersistedStatus(proposal.id, "EXECUTED", result);
 
     // PARTIAL, not EXECUTED, whenever any step failed *or* wrote something we
     // could not read back and match.
     const clean = executed.length > 0 && executed.every((e) => e.ok && e.verified);
 
+    // Create an assistant message summarizing the outcome
+    const assistantMessage = await prisma.aiMessage.create({
+      data: { conversationId, userId, role: "ASSISTANT", content: summary },
+    });
+    // Any file this confirmation generated belongs to the reply that reports it.
+    const artifactIds = executed
+      .filter((e) => e.tool === "create_artifact" && e.recordId)
+      .map((e) => e.recordId as string);
+    const replyArtifacts = await linkArtifacts(userId, artifactIds, assistantMessage.id);
+    await touchConversation(conversationId);
+
     return {
       status: clean ? ("EXECUTED" as const) : ("PARTIAL" as const),
       summary,
       executed,
+      reply: mapMessage(assistantMessage, [], replyArtifacts),
+      artifacts: replyArtifacts,
       pendingAction: toPendingActionResponse(confirmationStore.get(userId, conversationId, actionId)),
     };
   },
@@ -349,12 +418,31 @@ export const aiService = {
   /** Drop a pending proposal. Idempotent: cancelling twice is not an error. */
   async cancelAction(userId: string, conversationId: string, actionId: string) {
     await assertConversationOwnership(userId, conversationId);
+    await rehydratePending(userId, conversationId);
 
     const existing = confirmationStore.get(userId, conversationId, actionId);
     if (!existing) throw new NotFoundError("Pending action not found");
 
     const cancelled = confirmationStore.cancel(userId, conversationId, actionId);
+    await updatePersistedStatus(actionId, "CANCELLED");
     return { pendingAction: toPendingActionResponse(cancelled) };
+  },
+
+  // ── Generated files (artifacts) ────────────
+
+  /** Every file generated in a conversation, for a "Files" view. */
+  async listArtifacts(userId: string, conversationId: string) {
+    await assertConversationOwnership(userId, conversationId);
+    return artifactsService.listForConversation(userId, conversationId);
+  },
+
+  async getArtifact(userId: string, id: string) {
+    return artifactsService.get(userId, id);
+  },
+
+  /** Fetch a generated file's bytes for the owner. */
+  async downloadArtifact(userId: string, id: string) {
+    return artifactsService.getDownload(userId, id);
   },
 
   // ── Study plans ────────────────────────────
@@ -545,7 +633,7 @@ export const aiService = {
  * plan names its course), so the student sees a specific headline rather than
  * "3 changes".
  */
-function storeProposal(
+async function storeProposal(
   userId: string,
   conversationId: string,
   run: { proposedActions: ProposedAction[]; toolActivity: ToolActivityEntry[] },
@@ -554,12 +642,42 @@ function storeProposal(
   const summary = run.toolActivity.find((a) => a.status === "proposed")?.summary;
   const title = firstProposal?.description?.slice(0, 120) ?? summary ?? "Proposed changes";
 
-  return confirmationStore.create({
+  const action = confirmationStore.create({
     userId,
     conversationId,
     title,
     actions: run.proposedActions,
   });
+
+  // Mirror into `ai_pending_actions` so an approval survives a restart. The
+  // in-memory map stays the live source of truth for this process; the row is
+  // what another process (or the same one after a restart) rehydrates from.
+  await supersedePersisted(userId, conversationId, action.id);
+  await persistPendingAction(action);
+  return action;
+}
+
+/**
+ * Pull a durable proposal back into the in-memory store.
+ *
+ * Called before any read or decision so a proposal parked before a restart is
+ * still visible and still confirmable. A proposal already in memory wins, so a
+ * decision made in this process is never overwritten by the stored copy.
+ */
+async function rehydratePending(userId: string, conversationId: string): Promise<void> {
+  if (confirmationStore.getPending(userId, conversationId)) return;
+  const persisted = await loadPendingAction(userId, conversationId);
+  if (persisted) confirmationStore.hydrate(persisted);
+}
+
+/**
+ * Attach newly generated files to the assistant message that reports them and
+ * return the linked artifacts, in one step. A no-op when nothing was generated.
+ */
+async function linkArtifacts(userId: string, artifactIds: string[], messageId: string): Promise<AiArtifactDto[]> {
+  if (artifactIds.length === 0) return [];
+  await artifactsService.linkToMessage(userId, artifactIds, messageId);
+  return artifactsService.listForMessage(userId, messageId);
 }
 
 /** One sentence describing what applying a proposal actually did. */
@@ -616,14 +734,78 @@ function mapConversation(record: {
   };
 }
 
-function mapMessage(record: {
+/** Wire shape of one attachment on a stored message. */
+interface AttachmentDto {
   id: string;
-  conversationId: string;
-  role: string;
-  content: string;
-  contextSnapshot: string | null;
-  createdAt: Date;
-}) {
+  resourceId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  resourceType: string;
+}
+
+/**
+ * Resolve stored attachment ids to their resource metadata, owner-scoped.
+ *
+ * The message row only keeps ids; the file itself lives on a `Resource`. One
+ * query for the whole page and a map lookup per message keeps a transcript with
+ * many attachments from paying an N+1. Ids the student cannot read (another
+ * account's file, or a deleted resource) simply do not resolve and are dropped.
+ */
+async function loadAttachments(userId: string, ids: string[]): Promise<Map<string, AttachmentDto>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const map = new Map<string, AttachmentDto>();
+  if (unique.length === 0) return map;
+
+  const resources = await prisma.resource.findMany({
+    where: { userId, id: { in: unique } },
+    select: {
+      id: true,
+      fileName: true,
+      title: true,
+      mimeType: true,
+      fileSize: true,
+      resourceType: true,
+    },
+  });
+
+  for (const resource of resources) {
+    map.set(resource.id, {
+      id: resource.id,
+      resourceId: resource.id,
+      fileName: resource.fileName ?? resource.title ?? "file",
+      mimeType: resource.mimeType ?? "application/octet-stream",
+      fileSize: resource.fileSize ?? 0,
+      resourceType: resource.resourceType,
+    });
+  }
+  return map;
+}
+
+/** The resolved attachments for one message, in the order they were attached. */
+function attachmentsFor(
+  ids: string[] | null | undefined,
+  map: Map<string, AttachmentDto>,
+): AttachmentDto[] {
+  if (!ids || ids.length === 0) return [];
+  return ids
+    .map((id) => map.get(id))
+    .filter((attachment): attachment is AttachmentDto => Boolean(attachment));
+}
+
+function mapMessage(
+  record: {
+    id: string;
+    conversationId: string;
+    role: string;
+    content: string;
+    contextSnapshot: string | null;
+    createdAt: Date;
+    attachmentIds?: string[] | null;
+  },
+  attachments: AttachmentDto[] = [],
+  artifacts: AiArtifactDto[] = [],
+) {
   return {
     id: record.id,
     conversationId: record.conversationId,
@@ -631,6 +813,8 @@ function mapMessage(record: {
     content: record.content,
     contextSnapshot: record.contextSnapshot ?? null,
     createdAt: record.createdAt.toISOString(),
+    attachments,
+    artifacts,
   };
 }
 

@@ -1391,11 +1391,43 @@ components:
           type:
             - string
             - 'null'
+        attachments:
+          type: array
+          description: Files the student attached to this message (user turns).
+          items:
+            $ref: '#/components/schemas/AiMessageAttachment'
+        artifacts:
+          type: array
+          description: Files the assistant generated on this message (assistant turns).
+          items:
+            $ref: '#/components/schemas/AiArtifact'
         createdAt:
           type: string
           format: date-time
           description: ISO-8601 timestamp
       description: '`contextSnapshot` is the exact context sent to the model on an assistant turn.'
+    AiMessageAttachment:
+      type: object
+      required:
+        - id
+        - resourceId
+        - fileName
+        - mimeType
+        - fileSize
+        - resourceType
+      properties:
+        id:
+          type: string
+        resourceId:
+          type: string
+        fileName:
+          type: string
+        mimeType:
+          type: string
+        fileSize:
+          type: integer
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
     AiMessageResult:
       type: object
       required:
@@ -1590,8 +1622,47 @@ components:
             summary:
               type: string
       description: >-
-        Held in process memory, not the database: a restart or a second instance loses it. Proposals expire after 30
-        minutes.
+        Mirrored to the `AiPendingAction` table, so a pending proposal survives an API restart (the in-process store is
+        the synchronous source). Proposals expire after 30 minutes.
+    AiArtifact:
+      type: object
+      required:
+        - id
+        - conversationId
+        - name
+        - mimeType
+        - size
+        - createdAt
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        messageId:
+          type:
+            - string
+            - 'null'
+        resourceId:
+          type:
+            - string
+            - 'null'
+        name:
+          type: string
+        description:
+          type:
+            - string
+            - 'null'
+        mimeType:
+          type: string
+        size:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp
+      description: >-
+        A file the assistant generated (study guide, summary, revision sheet), saved as an `UPLOAD` resource. The bytes
+        are owner-scoped and require the bearer token: retrieve them from `GET /ai/artifacts/{artifactId}/download`.
     ConfirmResult:
       type: object
       required:
@@ -1606,6 +1677,14 @@ components:
             - PARTIAL
         summary:
           type: string
+        reply:
+          anyOf:
+            - $ref: '#/components/schemas/AiMessage'
+            - type: 'null'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiArtifact'
         executed:
           type: array
           items:
@@ -6525,6 +6604,118 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateSettingsRequest'
+  /ai/provider-selection:
+    get:
+      tags:
+        - AI
+      summary: Resolve which provider/model the next AI turn will use
+      operationId: getAiProviderSelection
+      responses:
+        '200':
+          description: >-
+            The effective mode: the explicit `ai.providerMode` setting when set (`default` or `personal`), otherwise
+            `personal` when an active connection exists, else `default`. Also reports whether a default provider is
+            configured, and the default provider/model names.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - mode
+                          - defaultAvailable
+                          - defaultProvider
+                          - defaultModel
+                          - personalConnectionAvailable
+                        properties:
+                          mode:
+                            type: string
+                            enum:
+                              - personal
+                              - default
+                          defaultAvailable:
+                            type: boolean
+                          defaultProvider:
+                            anyOf:
+                              - $ref: '#/components/schemas/AiProvider'
+                              - type: 'null'
+                          defaultModel:
+                            type: string
+                          personalConnectionAvailable:
+                            type: boolean
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: >-
+        Resolves the effective provider for the caller without revealing any stored credential: `mode` is the explicit
+        `ai.providerMode` setting when set (`default` or `personal`), otherwise `personal` when an active personal
+        connection exists, else `default`.
+  /ai/attachments/upload:
+    post:
+      tags:
+        - AI
+      summary: Upload a message attachment
+      operationId: uploadAiAttachment
+      description: >-
+        `multipart/form-data` with a required `file` part plus `conversationId` (and optional `title`/`description`).
+        Stores the bytes as an `UPLOAD` resource owned by the caller and returns the attachment metadata to pass back in
+        the next message's `attachmentIds`. A `conversationId` that is not the caller's → 404.
+      responses:
+        '201':
+          description: The stored attachment's metadata and its backing resource id.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - resourceId
+                          - attachment
+                        properties:
+                          resourceId:
+                            type: string
+                          attachment:
+                            $ref: '#/components/schemas/AiMessageAttachment'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - conversationId
+              properties:
+                file:
+                  type: string
+                  format: binary
+                conversationId:
+                  type: string
+                title:
+                  type: string
+                description:
+                  type: string
   /ai/conversations:
     get:
       tags:
@@ -6959,6 +7150,82 @@ paths:
             type: string
             minLength: 1
         - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/conversations/{id}/artifacts:
+    get:
+      tags:
+        - AI
+      summary: List generated files in a conversation
+      operationId: listArtifacts
+      responses:
+        '200':
+          description: Every artifact the assistant generated in this conversation, oldest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - artifacts
+                        properties:
+                          artifacts:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/AiArtifact'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      description: Every artifact the assistant generated in this conversation, oldest first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/artifacts/{artifactId}/download:
+    get:
+      tags:
+        - AI
+      summary: Download a generated file
+      operationId: downloadArtifact
+      description: >-
+        Streams the raw bytes of a generated artifact to its owner. Returns the file itself with
+        `Content-Type`/`Content-Length`/`Content-Disposition` (attachment) headers; it is one of the few endpoints that
+        returns non-JSON. Requires the bearer token, so the chat fetches it as a blob rather than linking directly.
+      responses:
+        '200':
+          description: The file bytes, streamed with an attachment `Content-Disposition` and the artifact's filename.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      parameters:
+        - name: artifactId
           in: path
           required: true
           schema:

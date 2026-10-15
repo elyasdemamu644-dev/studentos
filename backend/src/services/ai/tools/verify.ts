@@ -8,6 +8,7 @@ import { resourcesService } from "@/services/resources";
 import { eventsService } from "@/services/events";
 import { gradesService } from "@/services/grades";
 import { coursesService } from "@/services/courses";
+import { artifactsService } from "@/services/ai/artifacts";
 import { aiService } from "@/services/ai/service";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,6 +203,27 @@ const VERIFIERS: Record<string, Verifier> = {
     read: async (userId, id) => await resourcesService.getById(userId, id) as unknown as Record<string, unknown>,
     fields: { title: "title", description: "description", url: "url", resourceType: "resourceType", courseId: "courseId" },
     report: ["title", "url", "resourceType"],
+  },
+
+  // ── AI artifacts (generated files) ──────────────────────────────────────
+  //
+  // An artifact is verified against what is now on disk: the stored text is
+  // read back and compared with the content the student approved, so a file
+  // that was recorded but never written is reported as unverified.
+  create_artifact: {
+    read: async (userId, id) => {
+      const { artifact, text } = await artifactsService.readText(userId, id);
+      return {
+        id: artifact.id,
+        name: artifact.name,
+        description: artifact.description,
+        content: text,
+        mimeType: artifact.mimeType,
+        size: artifact.size,
+      };
+    },
+    fields: { name: "name", description: "description", content: "content" },
+    report: ["name", "mimeType", "size"],
   },
 
   // ── Calendar ────────────────────────────────────────────────────────────

@@ -129,6 +129,18 @@ export const confirmationStore = {
   },
 
   /**
+   * Insert a proposal loaded from durable storage.
+   *
+   * The in-memory map is a fast path for the live process; the database is the
+   * source of truth across a restart. A proposal already in memory is left as
+   * it is, so a rehydrate can never clobber a decision made in this process.
+   */
+  hydrate(action: PendingAction): void {
+    const entry = bucket(action.userId, action.conversationId);
+    if (!entry.has(action.id)) entry.set(action.id, action);
+  },
+
+  /**
    * Mark a proposal as no longer actionable. Idempotent for non-pending states
    * so a double-click on "Cancel" cannot resurrect a cancelled proposal.
    */

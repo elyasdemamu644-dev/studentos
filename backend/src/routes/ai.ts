@@ -252,6 +252,32 @@ router.post("/conversations/:id/pending-action/:actionId/cancel", zValidator("pa
   } catch (error) { next(error); }
 });
 
+// ── Generated files (artifacts) ────────────────
+//
+// Files the assistant generated in a conversation, and their bytes. The list is
+// conversation-scoped; the download is owner-scoped and streams the raw file
+// (like the resource download, this endpoint is not JSON-wrapped).
+
+router.get("/conversations/:id/artifacts", zValidator("params", idParam), async (req: AuthRequest, res, next) => {
+  try {
+    const artifacts = await aiService.listArtifacts(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: { artifacts } });
+  } catch (error) { next(error); }
+});
+
+const artifactParam = { artifactId: z.string().min(1) };
+
+router.get("/artifacts/:artifactId/download", zValidator("params", artifactParam), async (req: AuthRequest, res, next) => {
+  try {
+    const file = await aiService.downloadArtifact(req.currentUser!.id, String(req.params.artifactId));
+    res.setHeader("Content-Type", file.mimeType);
+    res.setHeader("Content-Length", String(file.buffer.length));
+    res.setHeader("Content-Disposition", contentDisposition(file.fileName));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    return res.status(200).send(file.buffer);
+  } catch (error) { next(error); }
+});
+
 // ── Study plans ────────────────────────────────
 
 router.get("/study-plans", zValidator("query", queryStudyPlanSchema), async (req: AuthRequest, res, next) => {
@@ -315,3 +341,9 @@ router.patch("/study-plans/:id/entries/:entryId", zValidator("params", studyPlan
 });
 
 export default router;
+
+/** RFC 6266 Content-Disposition with an ASCII fallback + UTF-8 form. */
+function contentDisposition(fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}

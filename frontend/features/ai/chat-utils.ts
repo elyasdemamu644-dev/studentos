@@ -298,7 +298,12 @@ export function stripMarkdown(text: string): string {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/^\s{0,3}(#{1,6})\s+/gm, "")
     .replace(/^\s*([-*•]|\d+[.)])\s+/gm, "")
-    .replace(/(\*\*|__|\*|_|~~)/g, "")
+    .replace(/(\*\*|~~|\*|__)/g, "")
+    .replace(/_/g, (match, offset, source) => {
+      const before = source.charAt(offset - 1);
+      const after = source.charAt(offset + 1);
+      return /[\w]/.test(before) && /[\w]/.test(after) ? match : "";
+    })
     .replace(/^\s{0,3}>\s?/gm, "")
     .replace(/^\s*\|?[\s:|-]*\|[\s:|-]*$/gm, " ")
     .replace(/\|/g, " ")
@@ -450,7 +455,7 @@ export function safeHref(href: string): string | null {
 }
 
 const INLINE_PATTERN =
-  /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|(?<!!)\[[^\]]+\]\([^)\s]+\)|\*[^*]+\*|_[^_]+_)/;
+  /(`[^`]+`|\*\*[^*]+\*\*|(?<![\w])__[^_]+__(?![\w])|(?<!!)\[[^\]]+\]\([^)\s]+\)|\*[^*]+\*|(?<![\w])_[^_]+_(?![\w]))/;
 
 /** Tokenize one line: code, bold, italic, links, plain text. Nesting is one level deep. */
 export function parseInline(text: string): InlineToken[] {

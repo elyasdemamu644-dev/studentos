@@ -351,6 +351,24 @@ export interface AiMessageAttachment {
   resourceType: ResourceType;
 }
 
+/**
+ * A file the assistant generated and saved (a study guide, summary, revision
+ * sheet). The bytes live behind `GET /ai/artifacts/:id/download` and are fetched
+ * with the bearer token, so the chat renders a chip with a download action
+ * rather than a plain link.
+ */
+export interface AiArtifact {
+  id: string;
+  conversationId: string;
+  messageId: string | null;
+  resourceId: string | null;
+  name: string;
+  description: string | null;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
 export interface AiMessage {
   id: string;
   conversationId: string;
@@ -366,6 +384,8 @@ export interface AiMessage {
   failed?: boolean;
   /** Attachments associated with this message (for user messages). */
   attachments?: AiMessageAttachment[];
+  /** Files the assistant generated on this message (for assistant messages). */
+  artifacts?: AiArtifact[];
 }
 
 export type StudyPlanEntryStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED";

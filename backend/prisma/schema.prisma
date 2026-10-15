@@ -6,7 +6,6 @@
 //  - File storage: S3-compatible, resources have storageType URL|UPLOAD
 //  - Notifications: MVP delivery is IN_APP only
 //  - AI: context builder feeds controlled context; conversations/messages persisted
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -19,50 +18,45 @@ datasource db {
 // ─────────────────────────────────────────────
 // 1. USERS & AUTH
 // ─────────────────────────────────────────────
-
 model User {
-  id             String   @id @default(cuid())
-  email          String   @unique
-  passwordHash   String
-  firstName      String
-  lastName       String
-  university     String?
-  department     String?
-  academicYear   String?
-  timezone       String   @default("UTC")
-  profilePicture String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
+  id               String            @id @default(cuid())
+  email            String            @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  university       String?
+  department       String?
+  academicYear     String?
+  timezone         String            @default("UTC")
+  profilePicture   String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   // Auth tokens (refresh token stored here for rotation/invalidation)
-  refreshTokens RefreshToken[]
-
+  refreshTokens    RefreshToken[]
   // Academic structure
-  academicYears AcademicYear[]
-  semesters     Semester[]     @relation("SemestersByUser")
-  courses       Course[]
-
+  academicYears    AcademicYear[]
+  semesters        Semester[]        @relation("SemestersByUser")
+  courses          Course[]
   // Direct resource ownership (courses, tasks, notes, etc. are under semesters/courses mostly)
   // But some top-level entities belong directly to user:
-  tasks         Task[] // standalone tasks not tied to a course
-  notes         Note[]
-  events        Event[]
-  goals         Goal[]
-  notifications Notification[]
-  studySessions StudySession[]
-  resources     Resource[] // top-level resources not under a course
-  grades        Grade[]
-
+  tasks            Task[] // standalone tasks not tied to a course
+  notes            Note[]
+  events           Event[]
+  goals            Goal[]
+  notifications    Notification[]
+  studySessions    StudySession[]
+  resources        Resource[] // top-level resources not under a course
+  grades           Grade[]
   // AI
-  aiConversations AiConversation[]
-  aiMessages      AiMessage[]
-  aiConnections   AiConnection[]
-
+  aiConversations  AiConversation[]
+  aiMessages       AiMessage[]
+  aiConnections    AiConnection[]
+  aiPendingActions AiPendingAction[]
+  aiArtifacts      AiArtifact[]
   // AI study plans (owned by user but entries belong to tasks)
-  aiStudyPlans AiStudyPlan[]
-
+  aiStudyPlans     AiStudyPlan[]
   // Settings (key/value for flexible preferences)
-  settings UserSetting[]
+  settings         UserSetting[]
 
   @@map("users")
 }
@@ -96,7 +90,6 @@ model UserSetting {
 // ─────────────────────────────────────────────
 // 2. ACADEMIC STRUCTURE
 // ─────────────────────────────────────────────
-
 model AcademicYear {
   id        String             @id @default(cuid())
   userId    String
@@ -107,7 +100,6 @@ model AcademicYear {
   status    AcademicYearStatus @default(UPCOMING)
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
-
   semesters Semester[]
 
   @@index([userId, startDate])
@@ -130,10 +122,9 @@ model Semester {
   status         SemesterStatus @default(UPCOMING)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
-
-  courses Course[]
-  user    User     @relation("SemestersByUser", fields: [userId], references: [id], onDelete: Cascade)
-  userId  String
+  courses        Course[]
+  user           User           @relation("SemestersByUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
 
   @@index([userId, startDate])
   @@map("semesters")
@@ -148,23 +139,21 @@ enum SemesterStatus {
 // ─────────────────────────────────────────────
 // 3. COURSES
 // ─────────────────────────────────────────────
-
 model Course {
-  id          String       @id @default(cuid())
-  userId      String
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  semesterId  String?
-  semester    Semester?    @relation(fields: [semesterId], references: [id], onDelete: SetNull)
-  name        String
-  code        String? // e.g. "SE-204"
-  description String?
-  instructor  String?
-  credits     Int? // e.g. 5
-  color       String       @default("#6366f1") // hex color, shadcn-compatible
-  status      CourseStatus @default(ACTIVE)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  semesterId    String?
+  semester      Semester?      @relation(fields: [semesterId], references: [id], onDelete: SetNull)
+  name          String
+  code          String? // e.g. "SE-204"
+  description   String?
+  instructor    String?
+  credits       Int? // e.g. 5
+  color         String         @default("#6366f1") // hex color, shadcn-compatible
+  status        CourseStatus   @default(ACTIVE)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   // Child entities
   tasks         Task[]
   notes         Note[]
@@ -186,32 +175,28 @@ enum CourseStatus {
 // ─────────────────────────────────────────────
 // 4. TASKS & SUBTASKS
 // ─────────────────────────────────────────────
-
 model Task {
-  id               String       @id @default(cuid())
+  id               String         @id @default(cuid())
   userId           String
-  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   courseId         String?
-  course           Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  course           Course?        @relation(fields: [courseId], references: [id], onDelete: SetNull)
   title            String
   description      String?
-  type             TaskType     @default(OTHER)
-  priority         TaskPriority @default(MEDIUM)
-  status           TaskStatus   @default(TODO)
+  type             TaskType       @default(OTHER)
+  priority         TaskPriority   @default(MEDIUM)
+  status           TaskStatus     @default(TODO)
   dueDate          DateTime?
   estimatedMinutes Int? // estimated duration in minutes
   completedAt      DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
   // Subtasks
-  subtasks TaskSubtask[]
-
+  subtasks         TaskSubtask[]
   // Study sessions that track this task
-  studySessions StudySession[]
-
+  studySessions    StudySession[]
   // Tags (simple many-to-many via join, or use a tags array column if MVP wants simplicity)
-  taskTags TaskTag[]
+  taskTags         TaskTag[]
 
   // Owner-scoped access paths. Every task query filters by userId first, then
   // narrows by status (dashboard totals, filters) or sorts by dueDate
@@ -277,7 +262,6 @@ model TaskTag {
 // ─────────────────────────────────────────────
 // @ignore MVP-defer: postponed to v1.1 per blueprint §11.
 // When we implement recurrence, this holds the rule and generated instances link back.
-
 // model TaskRecurrenceRule {
 //   id        String   @id @default(cuid())
 //   taskId    String   @unique
@@ -297,11 +281,9 @@ model TaskTag {
 //   BIWEEKLY
 //   MONTHLY
 // }
-
 // ─────────────────────────────────────────────
 // 5. NOTES
 // ─────────────────────────────────────────────
-
 model Note {
   id        String   @id @default(cuid())
   userId    String
@@ -320,7 +302,6 @@ model Note {
 // ─────────────────────────────────────────────
 // 6. RESOURCES (URL + S3 UPLOAD)
 // ─────────────────────────────────────────────
-
 model Resource {
   id           String              @id @default(cuid())
   userId       String
@@ -339,6 +320,7 @@ model Resource {
   resourceType ResourceType        @default(OTHER)
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
+  artifacts    AiArtifact[]
 
   @@index([userId, createdAt])
   @@map("resources")
@@ -362,7 +344,6 @@ enum ResourceType {
 // ─────────────────────────────────────────────
 // 7. EVENTS / CALENDAR
 // ─────────────────────────────────────────────
-
 model Event {
   id          String    @id @default(cuid())
   userId      String
@@ -398,7 +379,6 @@ enum EventType {
 // ─────────────────────────────────────────────
 // 8. STUDY SESSIONS
 // ─────────────────────────────────────────────
-
 model StudySession {
   id              String    @id @default(cuid())
   userId          String
@@ -422,20 +402,18 @@ model StudySession {
 // ─────────────────────────────────────────────
 // 9. GOALS & MILESTONES
 // ─────────────────────────────────────────────
-
 model Goal {
-  id          String     @id @default(cuid())
+  id          String          @id @default(cuid())
   userId      String
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   description String?
   deadline    DateTime?
-  status      GoalStatus @default(ACTIVE)
-  progress    Int        @default(0) // 0-100
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  milestones GoalMilestone[]
+  status      GoalStatus      @default(ACTIVE)
+  progress    Int             @default(0) // 0-100
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  milestones  GoalMilestone[]
 
   @@index([userId, status])
   @@map("goals")
@@ -471,7 +449,6 @@ enum MilestoneStatus {
 // ─────────────────────────────────────────────
 // 10. GRADES (was missing from §32, added here)
 // ─────────────────────────────────────────────
-
 model Grade {
   id         String    @id @default(cuid())
   userId     String
@@ -506,7 +483,6 @@ enum GradeType {
 // ─────────────────────────────────────────────
 // 11. NOTIFICATIONS
 // ─────────────────────────────────────────────
-
 model Notification {
   id          String               @id @default(cuid())
   userId      String
@@ -555,17 +531,17 @@ enum NotificationStatus {
 // ─────────────────────────────────────────────
 // 12. AI CONVERSATIONS & MESSAGES
 // ─────────────────────────────────────────────
-
 model AiConversation {
-  id        String             @id @default(cuid())
-  userId    String
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String // e.g. "Database normalization session"
-  type      AiConversationType @default(CHAT)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
-
-  messages AiMessage[]
+  id             String             @id @default(cuid())
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String // e.g. "Database normalization session"
+  type           AiConversationType @default(CHAT)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  messages       AiMessage[]
+  pendingActions AiPendingAction[]
+  aiArtifacts    AiArtifact[]
 
   @@index([userId, updatedAt])
   @@map("ai_conversations")
@@ -580,17 +556,19 @@ enum AiConversationType {
 }
 
 model AiMessage {
-  id              String         @id @default(cuid())
+  id              String            @id @default(cuid())
   conversationId  String
-  conversation    AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role            AiMessageRole  @default(USER)
+  conversation    AiConversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role            AiMessageRole     @default(USER)
   content         String
   // Optional: store the AI's raw context snapshot for debugging/replay
   contextSnapshot String? // JSON-safe string of what was sent to the model
-  createdAt       DateTime       @default(now())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attachmentIds   String[]          @default([])
+  createdAt       DateTime          @default(now())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artifacts       AiArtifact[]
+  pendingActions  AiPendingAction[]
 
   @@index([conversationId, createdAt])
   @@map("ai_messages")
@@ -605,19 +583,18 @@ enum AiMessageRole {
 // ─────────────────────────────────────────────
 // 12. AI CONNECTIONS (user-owned provider connections)
 // ─────────────────────────────────────────────
-
 model AiConnection {
-  id                  String   @id @default(cuid()) @map("id")
-  userId              String   @map("user_id")
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider            String   @map("provider")
-  model               String?  @map("model")
-  endpoint            String?  @map("endpoint")
-  credentialsEncrypted String  @map("credentials_encrypted")
-  enabled             Boolean  @default(true) @map("enabled")
-  isActive            Boolean  @default(false) @map("is_active")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(cuid()) @map("id")
+  userId               String   @map("user_id")
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider             String   @map("provider")
+  model                String?  @map("model")
+  endpoint             String?  @map("endpoint")
+  credentialsEncrypted String   @map("credentials_encrypted")
+  enabled              Boolean  @default(true) @map("enabled")
+  isActive             Boolean  @default(false) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@unique([userId, provider])
   @@map("ai_connections")
@@ -626,18 +603,16 @@ model AiConnection {
 // ─────────────────────────────────────────────
 // 13. AI STUDY PLANS (created by AI, linked to tasks/events)
 // ─────────────────────────────────────────────
-
 model AiStudyPlan {
-  id        String    @id @default(cuid())
+  id        String             @id @default(cuid())
   userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String // e.g. "Database Exam Prep — 6 days"
   examDate  DateTime?
   courseId  String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  entries AiStudyPlanEntry[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  entries   AiStudyPlanEntry[]
 
   @@index([userId, updatedAt])
   @@map("ai_study_plans")
@@ -664,4 +639,49 @@ enum StudyPlanEntryStatus {
   IN_PROGRESS
   COMPLETED
   SKIPPED
+}
+
+// AI Pending Actions
+model AiPendingAction {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String?
+  message        AiMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  title          String
+  actions        Json
+  status         String         @default("PENDING")
+  result         Json?
+  createdAt      DateTime       @default(now())
+  expiresAt      DateTime
+  decidedAt      DateTime?
+  updatedAt      DateTime       @updatedAt
+
+  @@index([userId, conversationId, status])
+  @@index([conversationId, createdAt])
+  @@map("ai_pending_actions")
+}
+
+// AI Artifacts (generated files)
+model AiArtifact {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String?
+  message        AiMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  resourceId     String?
+  resource       Resource?      @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  name           String
+  description    String?
+  mimeType       String?
+  size           Int?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([userId, conversationId, createdAt])
+  @@map("ai_artifacts")
 }

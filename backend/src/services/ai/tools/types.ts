@@ -79,6 +79,14 @@ export interface AiToolContext {
   conversationId: string;
   /** Exact calls the student approved for this turn, or `null` when none. */
   approvedActions: ProposedAction[] | null;
+  /**
+   * Collector for artifacts a tool creates during this turn.
+   *
+   * A generated file is written before the assistant's reply row exists, so the
+   * ids are gathered here and linked to that reply once it is stored. Absent on
+   * any path that does not track artifacts.
+   */
+  createdArtifactIds?: string[];
 }
 
 export interface AiToolDefinition {

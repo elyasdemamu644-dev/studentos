@@ -270,6 +270,20 @@ describe("markdown rendering", () => {
     expect(parseInline("2 * 3 = 6")).toEqual([{ kind: "text", value: "2 * 3 = 6" }]);
   });
 
+  it("never reads intraword underscores as emphasis", () => {
+    expect(parseInline("UI_DEFAULT_WORKS_2026")).toEqual([
+      { kind: "text", value: "UI_DEFAULT_WORKS_2026" },
+    ]);
+    expect(parseInline("snake_case names like current_semester stay intact")).toEqual([
+      { kind: "text", value: "snake_case names like current_semester stay intact" },
+    ]);
+    expect(parseInline("snake_case with _real_ emphasis")).toEqual([
+      { kind: "text", value: "snake_case with " },
+      { kind: "em", value: [{ kind: "text", value: "real" }] },
+      { kind: "text", value: " emphasis" },
+    ]);
+  });
+
   it("tokenizes a link", () => {
     expect(parseInline("see [the notes](https://example.com/notes) now")).toEqual([
       { kind: "text", value: "see " },
