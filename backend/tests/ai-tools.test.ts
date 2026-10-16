@@ -498,6 +498,65 @@ describe("WRITE tools and the confirmation gate", () => {
     expect(result.ok).toBe(false);
     expect(result.error?.message).not.toMatch(/prisma|SQL|stack|at Object/i);
   });
+
+  it("keeps a goal's deadline when update_goal_progress omits it", async () => {
+    const goal = await authRequestJson("post", `${BASE}/goals`, userA.token, {
+      title: "Keep my deadline",
+      deadline: "2035-05-01T09:00:00.000Z",
+    });
+    const goalId = goal.body.data.id as string;
+
+    const result = await executeTool(
+      { name: "update_goal_progress", arguments: { goalId, progress: 40 } },
+      ctxFor(userA, "conv-goal-keep", [
+        { tool: "update_goal_progress", description: "u", arguments: { goalId, progress: 40 } },
+      ]),
+    );
+
+    expect(result.ok).toBe(true);
+    const stored = await prisma.goal.findUnique({ where: { id: goalId } });
+    expect(stored?.progress).toBe(40);
+    expect(stored?.deadline).not.toBeNull();
+    expect(stored?.deadline?.toISOString()).toBe("2035-05-01T09:00:00.000Z");
+  });
+
+  it("clears a goal's deadline only when null is passed explicitly", async () => {
+    const goal = await authRequestJson("post", `${BASE}/goals`, userA.token, {
+      title: "Clear my deadline",
+      deadline: "2035-05-01T09:00:00.000Z",
+    });
+    const goalId = goal.body.data.id as string;
+
+    const result = await executeTool(
+      { name: "update_goal_progress", arguments: { goalId, deadline: null } },
+      ctxFor(userA, "conv-goal-clear", [
+        { tool: "update_goal_progress", description: "u", arguments: { goalId, deadline: null } },
+      ]),
+    );
+
+    expect(result.ok).toBe(true);
+    const stored = await prisma.goal.findUnique({ where: { id: goalId } });
+    expect(stored?.deadline).toBeNull();
+  });
+
+  it("rejects a malformed deadline instead of silently clearing it", async () => {
+    const goal = await authRequestJson("post", `${BASE}/goals`, userA.token, {
+      title: "Malformed deadline",
+      deadline: "2035-05-01T09:00:00.000Z",
+    });
+    const goalId = goal.body.data.id as string;
+
+    const result = await executeTool(
+      { name: "update_goal_progress", arguments: { goalId, deadline: "not-a-date" } },
+      ctxFor(userA, "conv-goal-bad", [
+        { tool: "update_goal_progress", description: "u", arguments: { goalId, deadline: "not-a-date" } },
+      ]),
+    );
+
+    expect(result.ok).toBe(false);
+    const stored = await prisma.goal.findUnique({ where: { id: goalId } });
+    expect(stored?.deadline).not.toBeNull();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -781,6 +840,38 @@ describe("Agent loop", () => {
 
     // Nothing was written: the writes are still proposals, not records.
     expect(await prisma.task.count({ where: { userId: userA.id, title: { startsWith: "Runaway" } } })).toBe(0);
+  });
+
+  it("caps proposals from an ANALYZE tool so build_study_plan cannot bypass the budget", async () => {
+    // build_study_plan is kind ANALYZE but its result carries proposed actions.
+    // A large request (30 days x 4 sessions + tasks) must still be capped to the
+    // per-turn proposal budget rather than bypassing the WRITE-only check.
+    const harness = openAiProvider([
+      toolCallTurn("build_study_plan", {
+        courseId: courseA,
+        days: 30,
+        sessionsPerDay: 4,
+        includeTasks: true,
+      }),
+      textTurn("Here is your plan."),
+    ]);
+
+    const run = await runAgent({
+      provider: harness.provider,
+      userId: userA.id,
+      conversationId: "conv-agent-plan",
+      history: [],
+      userMessage: "Plan my exam prep",
+      maxRounds: 4,
+    });
+
+    expect(run.proposedActions.length).toBeLessThanOrEqual(MAX_PROPOSED_ACTIONS);
+    expect(run.proposedActions.length).toBeGreaterThan(0);
+    expect(run.finish).toBe("confirmation_pending");
+    // The activity feed is honest about the cap.
+    const proposed = run.toolActivity.find((a) => a.tool === "build_study_plan");
+    expect(proposed?.status).toBe("proposed");
+    expect(proposed?.summary).toMatch(/dropped to respect the per-turn limit/i);
   });
 
   it("proposes a write instead of performing it, then stops calling tools", async () => {

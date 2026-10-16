@@ -49,7 +49,8 @@ export const aiService = {
     if (type) where.type = type;
     const records = await prisma.aiConversation.findMany({
       where,
-      orderBy: { updatedAt: "desc" },
+      // id tiebreaker keeps cursor pagination stable when updatedAt ties.
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       // One extra field per row: the newest message, so a chat list can show a
       // real preview without an N+1 fetch of every conversation's history.
@@ -452,7 +453,8 @@ export const aiService = {
     const records = await prisma.aiStudyPlan.findMany({
       where: { userId },
       include: { entries: { orderBy: { dayNumber: "asc" } } },
-      orderBy: { createdAt: "desc" },
+      // id tiebreaker keeps cursor pagination stable when createdAt ties.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });

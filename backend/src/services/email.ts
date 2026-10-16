@@ -3,6 +3,7 @@ import os from "node:os";
 import tls from "node:tls";
 
 import { config } from "@/config";
+import { connectViaEgressProxy } from "@/utils/proxy-connect";
 import {
   ApiError,
   EmailNotConfiguredError,
@@ -246,9 +247,16 @@ export async function smtpSend(smtp: SmtpConfig, message: EmailMessage): Promise
 
   let active: net.Socket;
   try {
-    active = smtp.secure
-      ? tls.connect({ host: smtp.host, port: smtp.port, servername: smtp.host })
-      : net.connect({ host: smtp.host, port: smtp.port });
+    if (config.isProduction) {
+      const tunnel = await connectViaEgressProxy(smtp.host, smtp.port, smtp.timeoutMs);
+      active = smtp.secure
+        ? tls.connect({ socket: tunnel, servername: smtp.host })
+        : tunnel;
+    } else {
+      active = smtp.secure
+        ? tls.connect({ host: smtp.host, port: smtp.port, servername: smtp.host })
+        : net.connect({ host: smtp.host, port: smtp.port });
+    }
   } catch {
     throw new EmailProviderError("SMTP connection could not be opened");
   }

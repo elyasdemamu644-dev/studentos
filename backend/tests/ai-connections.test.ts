@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import request from "supertest";
 import { app } from "@/app";
 import { prisma } from "@/utils/prisma";
+import { setSsrfPolicyForTests } from "@/services/ai/provider";
 import { registerAndLogin, authRequestJson } from "./helpers";
 
 const BASE = "/api/v1/ai-connections";
@@ -1198,9 +1199,56 @@ describe("AI Connections — StudentOS Phase 2", () => {
       const bobList = await authRequestJson("get", BASE, bob.token);
       // Bob's list should be empty (no connections of his own)
       expect(bobList.status).toBe(200);
-      // Items belong to bob only — alice's connections must not appear
+      // Items belong to bob only �?" alice's connections must not appear
       const bobIds = bobList.body.data.items.map((i: { id: string }) => i.id);
       expect(bobIds).not.toContain(aliceConn.id);
     });
+  });
+});
+
+// The `/test` endpoint accepts a user-supplied endpoint, so it is the most
+// direct way an authenticated user could try to make the server call an
+// internal address. Under the production (strict) policy every such probe must
+// fail closed *before* any outbound request is made.
+describe("AI Connections — outbound SSRF boundary (POST /test)", () => {
+  const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setSsrfPolicyForTests(undefined);
+  });
+
+  it("refuses the cloud metadata endpoint without any network call", async () => {
+    setSsrfPolicyForTests({ allowPrivate: false });
+    const { token } = await registerAndLogin("ssrf-metadata@studentos.test", "Pass123!");
+
+    const res = await authRequestJson("post", `${BASE}/test`, token, {
+      provider: "openai",
+      endpoint: "http://169.254.169.254/latest/meta-data/",
+      credentials: jsonCreds(OPENAI_CREDS),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.success).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a private literal endpoint without any network call", async () => {
+    setSsrfPolicyForTests({ allowPrivate: false });
+    const { token } = await registerAndLogin("ssrf-private@studentos.test", "Pass123!");
+
+    const res = await authRequestJson("post", `${BASE}/test`, token, {
+      provider: "openai",
+      endpoint: "http://10.0.0.5/v1",
+      credentials: jsonCreds(OPENAI_CREDS),
+    });
+
+    expect(res.body.data.success).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

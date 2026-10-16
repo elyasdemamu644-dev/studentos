@@ -3,10 +3,27 @@ import {
   NotFoundError,
   ValidationApiError,
 } from "@/config/errors";
+import type { SemesterStatus } from "../schemas/semesters";
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
+
+/** Parse a date string, rejecting anything that is not a real calendar date. */
+function parseDate(value: string, field: string): Date {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new ValidationApiError(`Invalid ${field}`);
+  }
+  return date;
+}
+
+/** Ensure a semester's start is strictly before its end. */
+function assertOrderedRange(start: Date, end: Date): void {
+  if (start >= end) {
+    throw new ValidationApiError("Start date must be before end date");
+  }
+}
 
 function toResponse(record: {
   id: string;
@@ -77,7 +94,7 @@ export const semestersService = {
     academicYearId: string;
     startDate: string;
     endDate: string;
-    status?: string;
+    status?: SemesterStatus;
   }) {
     const year = await prisma.academicYear.findFirst({
       where: { id: input.academicYearId, userId },
@@ -87,11 +104,9 @@ export const semestersService = {
       throw new NotFoundError("Academic year not found");
     }
 
-    const start = new Date(input.startDate);
-    const end = new Date(input.endDate);
-    if (start >= end) {
-      throw new ValidationApiError("Start date must be before end date");
-    }
+    const start = parseDate(input.startDate, "start date");
+    const end = parseDate(input.endDate, "end date");
+    assertOrderedRange(start, end);
 
     const record = await prisma.semester.create({
       data: {
@@ -100,7 +115,7 @@ export const semestersService = {
         name: input.name,
         startDate: start,
         endDate: end,
-        status: (input.status as any) ?? "UPCOMING",
+        status: input.status ?? "UPCOMING",
       },
       select,
     });
@@ -113,32 +128,30 @@ export const semestersService = {
     name?: string;
     startDate?: string;
     endDate?: string;
-    status?: string;
+    status?: SemesterStatus;
   }) {
     const existing = await prisma.semester.findFirst({
       where: { id, userId },
-      select: { id: true },
+      select: { id: true, startDate: true, endDate: true },
     });
 
     if (!existing) {
       throw new NotFoundError("Semester not found");
     }
 
-    if (input.startDate && input.endDate) {
-      const start = new Date(input.startDate);
-      const end = new Date(input.endDate);
-      if (start >= end) {
-        throw new ValidationApiError("Start date must be before end date");
-      }
-    }
+    // Validate against the merged state so a partial update (only start or only
+    // end) cannot invert the range relative to the stored value.
+    const start = input.startDate !== undefined ? parseDate(input.startDate, "start date") : existing.startDate;
+    const end = input.endDate !== undefined ? parseDate(input.endDate, "end date") : existing.endDate;
+    assertOrderedRange(start, end);
 
     const record = await prisma.semester.update({
       where: { id },
       data: {
         ...(input.name !== undefined && { name: input.name }),
-        ...(input.startDate !== undefined && { startDate: new Date(input.startDate) }),
-        ...(input.endDate !== undefined && { endDate: new Date(input.endDate) }),
-        ...(input.status !== undefined && { status: input.status as any }),
+        ...(input.startDate !== undefined && { startDate: start }),
+        ...(input.endDate !== undefined && { endDate: end }),
+        ...(input.status !== undefined && { status: input.status }),
       },
       select,
     });

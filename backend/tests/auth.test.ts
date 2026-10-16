@@ -53,6 +53,23 @@ describe("Auth Module — StudentOS MVP", () => {
         .send({ email: "dup@studentos.test", password: "x" })
         .expect(409);
     });
+
+    it("normalises the email to lower case", async () => {
+      const res = await request(app)
+        .post(`${BASE}/auth/register`)
+        .send({ email: "Mixed.Case@StudentOS.test", password: "SafePass1!" })
+        .expect(201);
+
+      expect(res.body.data.email).toBe("mixed.case@studentos.test");
+    });
+
+    it("treats a differently-cased duplicate as the same account", async () => {
+      await registerAndLogin("case-dup@studentos.test", "SafePass1!");
+      await request(app)
+        .post(`${BASE}/auth/register`)
+        .send({ email: "CASE-DUP@studentos.test", password: "x" })
+        .expect(409);
+    });
   });
 
   // ── Login ─────────────────────────────────────────────────────
@@ -96,6 +113,46 @@ describe("Auth Module — StudentOS MVP", () => {
         .post(`${BASE}/auth/login`)
         .send({ email: "nobody@studentos.test", password: "x" })
         .expect(401);
+    });
+
+    it("accepts the email regardless of casing", async () => {
+      await request(app)
+        .post(`${BASE}/auth/login`)
+        .send({ email: "LOGIN@StudentOS.test", password: creds.password })
+        .expect(200);
+    });
+  });
+
+  // ── Change password ───────────────────────────────────────────
+  describe("POST /auth/me/change-password", () => {
+    let token: string;
+
+    beforeAll(async () => {
+      const auth = await registerAndLogin("change-pass@studentos.test", "SafePass1!");
+      token = auth.token;
+    });
+
+    it("rejects a wrong current password with 401, not 404", async () => {
+      const res = await authRequestJson("post", `${BASE}/auth/me/change-password`, token, {
+        currentPassword: "wrong-password",
+        newPassword: "BrandNewPass1!",
+      });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe("UNAUTHORIZED");
+    });
+
+    it("changes the password when the current password is correct", async () => {
+      const changed = await authRequestJson("post", `${BASE}/auth/me/change-password`, token, {
+        currentPassword: "SafePass1!",
+        newPassword: "BrandNewPass1!",
+      });
+      expect(changed.status).toBe(200);
+
+      await request(app)
+        .post(`${BASE}/auth/login`)
+        .send({ email: "change-pass@studentos.test", password: "BrandNewPass1!" })
+        .expect(200);
     });
   });
 

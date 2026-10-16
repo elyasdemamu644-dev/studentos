@@ -5,18 +5,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Format a number of minutes as a human duration, e.g. 95 -> "1h 35m". */
-export function formatMinutes(minutes: number | null | undefined): string {
-  if (minutes === null || minutes === undefined) return "0m";
-  const total = Math.max(0, Math.round(minutes));
-  const hours = Math.floor(total / 60);
-  const mins = total % 60;
-  if (hours === 0) return `${mins}m`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-}
-
-/** Format a number of minutes as "Hh Mm" compact, e.g. 95 -> "1h 35m". */
+/** Clamp a number to the inclusive [min, max] range. */
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

@@ -19,7 +19,8 @@ export const gradesService = {
     const records = await prisma.grade.findMany({
       where,
       include: { course: { select: { id: true, code: true, name: true } } },
-      orderBy: { recordedAt: "desc" },
+      // id tiebreaker keeps cursor pagination stable when recordedAt ties.
+      orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });

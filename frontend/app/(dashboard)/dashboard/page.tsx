@@ -45,7 +45,7 @@ import type {
   DashboardEvent,
   DashboardTask,
 } from "@/types/api-types";
-import { dueLabel, formatMinutes, relativeTime } from "@/lib/format";
+import { dueLabel, formatMinutes, gradeTone, relativeTime } from "@/lib/format";
 import { TASK_STATUS_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
@@ -744,20 +744,22 @@ export default function DashboardPage() {
           ) : (
             <ul className="space-y-1.5">
               {data.recentGrades.slice(0, 5).map((g) => {
-                const scoreTone =
-                  g.score === null
-                    ? "bg-muted text-muted-foreground"
-                    : g.score >= 90
-                      ? "bg-success/10 text-success"
-                      : g.score >= 80
-                        ? "bg-primary/10 text-primary"
-                        : g.score >= 70
-                          ? "bg-warning/15 text-warning"
-                          : "bg-danger/15 text-danger";
+                // The row border also reflects the grade instead of the old
+                // hard-coded green, which painted every row as a success.
+                const { text: scoreTone, border: borderTone } = {
+                  muted: { text: "bg-muted text-muted-foreground", border: "border-border" },
+                  success: { text: "bg-success/10 text-success", border: "border-success/30" },
+                  primary: { text: "bg-primary/10 text-primary", border: "border-primary/30" },
+                  warning: { text: "bg-warning/15 text-warning", border: "border-warning/30" },
+                  danger: { text: "bg-danger/15 text-danger", border: "border-danger/30" },
+                }[gradeTone(g.score, g.maxScore)];
                 return (
                   <li
                     key={g.id}
-                    className="flex items-center gap-3 rounded-lg border border-success/30 px-2 py-2 transition-colors hover:bg-muted/40"
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg border px-2 py-2 transition-colors hover:bg-muted/40",
+                      borderTone,
+                    )}
                   >
                     <CourseSwatch id={g.course?.id ?? "default"} className="h-7 w-7 shrink-0 rounded-md" />
                     <span className="min-w-0 flex-1">

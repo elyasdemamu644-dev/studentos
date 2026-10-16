@@ -34,7 +34,8 @@ export const eventsService = {
     const records = await prisma.event.findMany({
       where,
       include: { course: { select: { id: true, code: true, name: true } } },
-      orderBy: { startAt: "asc" },
+      // id tiebreaker keeps cursor pagination stable when startAt ties.
+      orderBy: [{ startAt: "asc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });

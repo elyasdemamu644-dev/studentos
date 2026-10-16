@@ -42,6 +42,7 @@ import {
   useSessions,
   useStartSession,
 } from "@/features/study/hooks";
+import { GENERAL_COURSE, resolveCourseId } from "@/features/study/course-selection";
 import type { StudySession } from "@/types/api-types";
 import { formatMinutes, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -129,7 +130,7 @@ export default function StudyPage() {
     autoOpenedRef.current = false;
     void startSession
       .mutateAsync({
-        courseId: courseId || null,
+        courseId: resolveCourseId(courseId),
         topic: topic.trim() || null,
         startedAt: new Date().toISOString(),
       })
@@ -281,7 +282,7 @@ export default function StudyPage() {
                     <SelectValue placeholder="General study" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__general">General study</SelectItem>
+                    <SelectItem value={GENERAL_COURSE}>General study</SelectItem>
                     {(courses.data ?? []).map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.name}

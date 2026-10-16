@@ -167,19 +167,3 @@ export async function hashCredentials(creds: string): Promise<string> {
   const hash = createHash("sha256").update(Buffer.concat([key, Buffer.from(input, "utf8")])).digest("hex");
   return hash;
 }
-
-/**
- * Encrypt credentials obtained via decrypt() (base64-encoded ciphertext).
- * Wraps the base64 string so it can be stored/transmitted safely.
- */
-export function encryptCredentials(ciphertextBase64: string): string {
-  return Buffer.from(ciphertextBase64, "base64").toString("base64");
-}
-
-/**
- * Decrypt credentials that were encrypted via encryptCredentials().
- * Returns the original base64-encoded ciphertext from decrypt().
- */
-export function decryptCredentials(encryptedBase64: string): string {
-  return Buffer.from(encryptedBase64, "base64").toString("base64");
-}

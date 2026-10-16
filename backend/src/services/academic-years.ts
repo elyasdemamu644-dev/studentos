@@ -27,6 +27,22 @@ function sanitize<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+/** Parse a date string, rejecting anything that is not a real calendar date. */
+function parseDate(value: string, field: string): Date {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new ValidationApiError(`Invalid ${field}`);
+  }
+  return date;
+}
+
+/** Ensure an academic year's start is strictly before its end. */
+function assertOrderedRange(start: Date, end: Date): void {
+  if (start >= end) {
+    throw new ValidationApiError("Start date must be before end date");
+  }
+}
+
 function toResponse(record: {
   id: string;
   name: string;
@@ -98,11 +114,9 @@ export const academicYearsService = {
     userId: string,
     input: AcademicYearCreate,
   ) {
-    const start = new Date(input.startDate);
-    const end = new Date(input.endDate);
-    if (start >= end) {
-      throw new ValidationApiError("Start date must be before end date");
-    }
+    const start = parseDate(input.startDate, "start date");
+    const end = parseDate(input.endDate, "end date");
+    assertOrderedRange(start, end);
 
     // Check for duplicate name within the user's years
     const existing = await prisma.academicYear.findFirst({
@@ -149,19 +163,17 @@ export const academicYearsService = {
       throw new NotFoundError("Academic year not found");
     }
 
-    // If dates are being updated, validate the range
-    if (input.startDate && input.endDate) {
-      if (new Date(input.startDate) > new Date(input.endDate)) {
-        throw new ValidationApiError("Start date must be on or before end date");
-      }
-    }
+    // Validate the merged state so a partial update cannot invert the range.
+    const start = input.startDate !== undefined ? parseDate(input.startDate, "start date") : existing.startDate;
+    const end = input.endDate !== undefined ? parseDate(input.endDate, "end date") : existing.endDate;
+    assertOrderedRange(start, end);
 
     // Build the update data object with only the provided fields
     const updateData: Prisma.AcademicYearUpdateInput = {};
     if (input.name !== undefined) updateData.name = input.name;
-    if (input.startDate !== undefined) updateData.startDate = new Date(input.startDate);
-    if (input.endDate !== undefined) updateData.endDate = new Date(input.endDate);
-    if ((input as any).status !== undefined) updateData.status = (input as any).status;
+    if (input.startDate !== undefined) updateData.startDate = start;
+    if (input.endDate !== undefined) updateData.endDate = end;
+    if (input.status !== undefined) updateData.status = input.status;
 
     const year = await prisma.academicYear.update({
       where: { id },

@@ -6,6 +6,7 @@ import {
   formatDate,
   formatMinutes,
   formatTime,
+  gradeTone,
   relativeTime,
 } from "@/lib/format";
 
@@ -62,6 +63,24 @@ describe("lib/format formatBytes", () => {
     expect(formatBytes(undefined)).toBe("—");
     expect(formatBytes(-1)).toBe("—");
     expect(formatBytes(Number.NaN)).toBe("—");
+  });
+});
+
+describe("lib/format gradeTone", () => {
+  it("buckets on the percentage, not the raw score", () => {
+    expect(gradeTone(45, 50)).toBe("success");
+    expect(gradeTone(41, 50)).toBe("primary");
+    expect(gradeTone(36, 50)).toBe("warning");
+    expect(gradeTone(20, 50)).toBe("danger");
+  });
+
+  it("treats a score with no maxScore as a percentage", () => {
+    expect(gradeTone(92, null)).toBe("success");
+    expect(gradeTone(0, 0)).toBe("danger");
+  });
+
+  it("is muted without a score", () => {
+    expect(gradeTone(null, 100)).toBe("muted");
   });
 });
 

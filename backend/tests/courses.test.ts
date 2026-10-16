@@ -296,6 +296,36 @@ describe("Courses Module — StudentOS MVP", () => {
         .expect(404);
     });
 
+    it("refuses to delete a course that still has related records", async () => {
+      const courseWithData = await authRequestJson(accessToken)
+        .post(`${BASE}/courses`)
+        .send({ semesterId, name: "Has Data", code: "CS-809" });
+      const courseIdToKeep = courseWithData.data.id as string;
+
+      await authRequestJson(accessToken)
+        .post(`${BASE}/tasks`)
+        .send({ title: "Child task", courseId: courseIdToKeep });
+
+      await authRequestJson(accessToken)
+        .delete(`${BASE}/courses/${courseIdToKeep}`)
+        .expect(409);
+
+      // The course and its task association survive the refused delete. The
+      // relation is `onDelete: SetNull`, so without the guard the course would
+      // be gone and the task would be silently detached.
+      await authRequestJson(accessToken)
+        .get(`${BASE}/courses/${courseIdToKeep}`)
+        .expect(200);
+
+      const tasks = await authRequestJson(accessToken)
+        .get(`${BASE}/tasks`)
+        .expect(200);
+      const child = (tasks.body.data.items as Array<{ title: string; courseId: string | null }>).find(
+        (t) => t.title === "Child task",
+      );
+      expect(child?.courseId).toBe(courseIdToKeep);
+    });
+
     it("returns 404 for another user's course", async () => {
       const anotherSem = await authRequestJson(anotherAccessToken)
         .post(`${BASE}/academics/semesters`)

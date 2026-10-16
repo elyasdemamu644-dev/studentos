@@ -54,11 +54,21 @@ export function GoalCard({ goal, onEdit }: { goal: Goal; onEdit: (goal: Goal) =>
     void createMilestone.mutateAsync({ title, position: items.length }).then(() => setMilestoneDraft(""));
   };
 
+  const milestonePercent =
+    items.length > 0 ? Math.round((completedMilestones / items.length) * 100) : 0;
+
   const setStatus = (status: "ACTIVE" | "COMPLETED" | "CANCELLED") => {
-    void updateGoal.mutateAsync({
-      id: goal.id,
-      input: { status, progress: status === "COMPLETED" ? 100 : goal.progress },
-    });
+    // Completing forces 100%. Reopening a completed goal must not keep that
+    // 100% (which previously left an "active" goal reading as finished) — fall
+    // back to the milestone-derived percentage instead. Reactivating a
+    // cancelled goal preserves its existing progress.
+    const progress =
+      status === "COMPLETED"
+        ? 100
+        : status === "ACTIVE" && goal.status === "COMPLETED"
+          ? milestonePercent
+          : goal.progress;
+    void updateGoal.mutateAsync({ id: goal.id, input: { status, progress } });
   };
 
   return (

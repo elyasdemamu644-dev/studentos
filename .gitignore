@@ -65,3 +65,5 @@ verify_phase1.py
 # Local test-run output.
 test-output.txt
 backend/test-results.txt
+**/.env
+!.env.example

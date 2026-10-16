@@ -99,7 +99,8 @@ export const notificationsService = {
     const [records, unreadCount] = await Promise.all([
       prisma.notification.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        // id tiebreaker keeps cursor pagination stable when createdAt ties.
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit + 1,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       }),

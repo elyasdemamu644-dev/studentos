@@ -6,6 +6,7 @@ import { CheckCircle2, KeyRound, Pencil, Plug, Plus, Power, Sparkles, Trash2 } f
 import type { AiConnection } from "@/types/api-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
 import { ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
@@ -30,6 +31,7 @@ function ConnectionRow({
   const activate = useActivateConnection();
   const remove = useDeleteConnection();
   const update = useUpdateConnection();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const busy = activate.isPending || remove.isPending || update.isPending;
 
@@ -81,12 +83,24 @@ function ConnectionRow({
           variant="ghost"
           size="icon"
           disabled={busy}
-          onClick={() => remove.mutate(connection.id)}
+          onClick={() => setConfirmOpen(true)}
           aria-label={`Delete ${AI_PROVIDER_LABELS[connection.provider]}`}
         >
           <Trash2 className="h-4 w-4 text-danger" aria-hidden />
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Delete connection"
+        description={`This removes the ${AI_PROVIDER_LABELS[connection.provider]} connection and its stored credentials. This cannot be undone.`}
+        confirmLabel="Delete connection"
+        busy={remove.isPending}
+        onConfirm={() =>
+          remove.mutate(connection.id, { onSuccess: () => setConfirmOpen(false) })
+        }
+      />
     </li>
   );
 }

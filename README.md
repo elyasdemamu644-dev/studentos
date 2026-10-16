@@ -136,7 +136,7 @@ Resources: auth, academics (years + semesters), courses, tasks (+ subtasks, tags
 
 `docs/api/openapi.yaml` is the OpenAPI 3.1.1 contract for the whole surface (60 paths / 111 operations, regenerated 2026-10-07). It is derived from the code by hand, so the code remains authoritative on any conflict.
 
-Migrations live in `backend/prisma/migrations/` — `20261006000000_init_from_schema` (the whole schema) and `20261007000000_add_owner_indexes`. `npx prisma migrate deploy` applies them from empty and is the command to use in production; `prisma migrate status` reports "Database schema is up to date!".
+Migrations live in `backend/prisma/migrations/`: `20261006000000_init_from_schema`, `20261007000000_add_owner_indexes`, and `20261014000000_add_ai_persistence`. Use `prisma migrate status` to inspect a database and `prisma migrate deploy` to apply reviewed pending migrations.
 
 ## Production run-book
 

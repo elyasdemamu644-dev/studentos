@@ -1,6 +1,7 @@
 import { app } from "@/app";
 import { config, validateConfig } from "@/config";
 import { prisma } from "@/utils/prisma";
+import { initializeOutboundProxy } from "@/utils/outbound-client";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -19,6 +20,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 async function main(): Promise<void> {
   // Fail fast if required env vars are missing.
   validateConfig();
+  initializeOutboundProxy();
 
   // Connect to the database and verify connectivity.
   try {

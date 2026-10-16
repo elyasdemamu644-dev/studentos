@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { clearSession, getRefreshToken, hasSession, setTokens, type SessionUser } from "@/lib/api/auth-session";
 import { SessionExpiredError } from "@/lib/api/errors";
 import * as authApi from "./auth-api";
+import { ME_KEY } from "./keys";
 
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -29,8 +30,6 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-const ME_KEY = ["auth", "me"] as const;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();

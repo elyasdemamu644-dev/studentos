@@ -49,6 +49,22 @@ export function dueLabel(dueDate: string | null | undefined, status?: string): D
   return { label: `Due ${format(date, "MMM d")}`, tone: "ok" };
 }
 
+export type GradeTone = "muted" | "success" | "primary" | "warning" | "danger";
+
+/**
+ * Tone bucket for a grade. Thresholds are on the *percentage* (score /
+ * maxScore), not the raw score: 45/50 is a 90% grade, not a failing one. When
+ * maxScore is missing the score is treated as the percentage.
+ */
+export function gradeTone(score: number | null, maxScore: number | null): GradeTone {
+  if (score === null) return "muted";
+  const percent = maxScore && maxScore > 0 ? (score / maxScore) * 100 : score;
+  if (percent >= 90) return "success";
+  if (percent >= 80) return "primary";
+  if (percent >= 70) return "warning";
+  return "danger";
+}
+
 export function formatMinutes(minutes: number | null | undefined): string {
   if (!minutes || minutes <= 0) return "0 min";
   const h = Math.floor(minutes / 60);

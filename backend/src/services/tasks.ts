@@ -75,6 +75,9 @@ export const tasksService = {
       orderBy: [
         { dueDate: "asc" },
         { createdAt: "desc" },
+        // Unique tiebreaker: cursor pagination is keyed by id, so the ordering
+        // must be total or ties in dueDate/createdAt can skip or duplicate rows.
+        { id: "desc" },
       ],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

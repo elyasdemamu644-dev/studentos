@@ -8,6 +8,7 @@ import {
   updateTaskSchema,
   queryTaskSchema,
   type TaskCreate,
+  type TaskListQuery,
   type TaskUpdate,
 } from "../schemas/tasks";
 
@@ -16,7 +17,8 @@ router.use(authenticate);
 
 router.get("/", zValidator("query", queryTaskSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { limit, cursor, status, priority, type, courseId, dueBefore, dueAfter, search } = req.query as any;
+    const { limit, cursor, status, priority, type, courseId, dueBefore, dueAfter, search } =
+      req.query as unknown as TaskListQuery;
     const result = await tasksService.list(req.currentUser!.id, {
       status, priority, type, courseId, dueBefore, dueAfter, search,
       limit: limit ? Number(limit) : undefined,

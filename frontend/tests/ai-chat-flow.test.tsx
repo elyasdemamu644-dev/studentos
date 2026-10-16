@@ -633,6 +633,37 @@ describe("composer", () => {
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
+  it("uploads several attachments without one clobbering another's progress", async () => {
+    // Regression: the upload loop used to `.map` over the props captured when
+    // the callback was created, so a later attachment's state write wiped the
+    // earlier one's resourceId. Send then stayed disabled forever.
+    let counter = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      counter += 1;
+      return stubResponse({
+        success: true,
+        data: { resourceId: `uploaded-resource-${counter}`, attachment: {} },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setTokens("test-access-token", "test-refresh-token");
+
+    renderWithQuery(<Harness onSend={() => {}} />);
+    await userEvent.type(screen.getByLabelText("Message StudentOS AI"), "Review these files");
+    await userEvent.upload(screen.getByLabelText("Choose files to attach"), [
+      new File([new Uint8Array([0, 1])], "first.txt", { type: "text/plain" }),
+      new File([new Uint8Array([2, 3])], "second.txt", { type: "text/plain" }),
+    ]);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("first.txt")).toBeInTheDocument();
+    expect(screen.getByText("second.txt")).toBeInTheDocument();
+    // Both uploads landed: the composer is ready to send.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled(),
+    );
+  });
+
   it("does not retry a failed upload indefinitely or allow it to be silently sent", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       stubResponse(

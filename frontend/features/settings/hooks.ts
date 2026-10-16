@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Settings } from "@/types/api-types";
+import { ME_KEY } from "@/features/auth/keys";
 import * as api from "./settings-api";
 
 export function useSettings() {
@@ -27,7 +28,7 @@ export function useUpdateProfile() {
   return useMutation({
     mutationFn: (data: Parameters<typeof api.updateProfile>[0]) => api.updateProfile(data),
     onSuccess: (updatedUser) => {
-      qc.setQueryData(["auth", "user"], updatedUser);
+      qc.setQueryData(ME_KEY, updatedUser);
       toast.success("Profile updated");
     },
     onError: () => toast.error("Could not update profile"),

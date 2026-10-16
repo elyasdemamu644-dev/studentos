@@ -1,6 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import Image from "next/image";
 import {
   ArrowDown,
@@ -667,6 +677,16 @@ export function ChatEmptyState({
  * workspace's column, so it must not shrink (`shrink-0`) — a squeezed composer
  * is the one part of the chat the student cannot work around.
  */
+export type ComposerAttachment = {
+  id: string;
+  file: File;
+  preview?: string;
+  uploading: boolean;
+  progress: number;
+  error?: string;
+  resourceId?: string;
+};
+
 export function ChatComposer({
   draft,
   onDraftChange,
@@ -689,24 +709,8 @@ export function ChatComposer({
   disabledReason?: string;
   placeholder: string;
   conversationId: string;
-  attachments: Array<{
-    id: string;
-    file: File;
-    preview?: string;
-    uploading: boolean;
-    progress: number;
-    error?: string;
-    resourceId?: string;
-  }>;
-  onAttachmentsChange: (attachments: Array<{
-    id: string;
-    file: File;
-    preview?: string;
-    uploading: boolean;
-    progress: number;
-    error?: string;
-    resourceId?: string;
-  }>) => void;
+  attachments: Array<ComposerAttachment>;
+  onAttachmentsChange: Dispatch<SetStateAction<Array<ComposerAttachment>>>;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -714,6 +718,10 @@ export function ChatComposer({
   const state = composerState(draft, { busy, disabled });
 
   const uploadAttachment = useUploadAttachment();
+  // Ids currently being uploaded. The auto-upload effect re-runs whenever the
+  // attachment list changes, so without this guard two overlapping runs could
+  // each pick up the same pending file and upload it twice.
+  const inFlightRef = useRef<Set<string>>(new Set());
   const [linkInputValue, setLinkInputValue] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
 
@@ -736,48 +744,62 @@ export function ChatComposer({
         uploading: false,
         progress: 0,
       }));
-      onAttachmentsChange([...attachments, ...newAttachments]);
+      onAttachmentsChange((prev) => [...prev, ...newAttachments]);
       if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [attachments, onAttachmentsChange],
+    [onAttachmentsChange],
   );
 
   const removeAttachment = useCallback(
     (id: string) => {
       const attachment = attachments.find((a) => a.id === id);
       if (attachment?.preview) URL.revokeObjectURL(attachment.preview);
-      onAttachmentsChange(attachments.filter((a) => a.id !== id));
+      onAttachmentsChange((prev) => prev.filter((a) => a.id !== id));
     },
     [attachments, onAttachmentsChange],
   );
 
   const uploadAttachments = useCallback(async () => {
-    const toUpload = attachments.filter((a) => !a.resourceId && !a.uploading && !a.error);
+    // Snapshot only the ids to upload. Every mutation below is a functional
+    // update, so finishing attachment A cannot clobber B's progress with a
+    // stale copy of the whole list (the old bug: each `.map` ran over the
+    // props captured when the callback was created, not the current state).
+    const toUpload = attachments
+      .filter((a) => !a.resourceId && !a.uploading && !a.error)
+      .map((a) => a.id);
     if (toUpload.length === 0) return;
 
-    for (const attachment of toUpload) {
-      onAttachmentsChange(
-        attachments.map((a) => (a.id === attachment.id ? { ...a, uploading: true, progress: 0 } : a)),
+    const idle = toUpload.filter((id) => !inFlightRef.current.has(id));
+    if (idle.length === 0) return;
+
+    for (const id of idle) {
+      if (inFlightRef.current.has(id)) continue;
+      const current = attachments.find((a) => a.id === id);
+      if (!current) continue;
+
+      inFlightRef.current.add(id);
+      onAttachmentsChange((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, uploading: true, progress: 0 } : a)),
       );
 
       try {
         const result = await uploadAttachment.mutateAsync({
-          file: attachment.file,
+          file: current.file,
           conversationId,
-          title: attachment.file.name,
+          title: current.file.name,
         });
 
-        onAttachmentsChange(
-          attachments.map((a) =>
-            a.id === attachment.id ? { ...a, uploading: false, progress: 100, resourceId: result.resourceId } : a,
+        onAttachmentsChange((prev) =>
+          prev.map((a) =>
+            a.id === id ? { ...a, uploading: false, progress: 100, resourceId: result.resourceId } : a,
           ),
         );
       } catch (error) {
-        onAttachmentsChange(
-          attachments.map((a) =>
-            a.id === attachment.id ? { ...a, uploading: false, error: formatApiError(error) } : a,
-          ),
+        onAttachmentsChange((prev) =>
+          prev.map((a) => (a.id === id ? { ...a, uploading: false, error: formatApiError(error) } : a)),
         );
+      } finally {
+        inFlightRef.current.delete(id);
       }
     }
   }, [attachments, conversationId, uploadAttachment, onAttachmentsChange]);
@@ -826,8 +848,8 @@ const validateAndAddLink = useCallback(async (url: string) => {
       { title: validatedUrl, description: "", storageType: "URL", url: validatedUrl, resourceType: "LINK" }
     );
 
-    onAttachmentsChange([
-      ...attachments,
+    onAttachmentsChange((prev) => [
+      ...prev,
       {
         id: `link-${Date.now()}`,
         file: new File([], "link", { type: "text/plain" }),
@@ -840,7 +862,7 @@ const validateAndAddLink = useCallback(async (url: string) => {
 } catch {
     toast.error("Could not add the link");
   }
-}, [attachments, onAttachmentsChange]);
+}, [onAttachmentsChange]);
 
   const hasAttachments = attachments.length > 0;
   const allUploaded = attachments.every((a) => a.resourceId);

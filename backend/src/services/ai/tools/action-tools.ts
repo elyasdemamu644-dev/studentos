@@ -520,7 +520,12 @@ const updateGoalProgressArgs = z.object({
   progress: z.number().int().min(0).max(100).optional().describe("New progress percentage, 0-100."),
   status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).optional(),
   title: z.string().min(1).max(200).optional(),
-  deadline: z.union([z.string(), z.null()]).optional().describe("New ISO-8601 deadline, or null to clear it."),
+  // `null` explicitly clears the deadline; omitting the field leaves it
+  // untouched. The string branch is date-validated so a malformed value is
+  // rejected here instead of silently coercing to "no deadline".
+  deadline: z
+    .union([dateArg("New ISO-8601 deadline, or null to clear it."), z.null()])
+    .optional(),
 });
 
 export const updateGoalProgressTool: AiToolDefinition = {
@@ -537,11 +542,20 @@ export const updateGoalProgressTool: AiToolDefinition = {
       ref: input.goal,
       entityName: "goal",
     });
+    // Preserve "omitted means unchanged": only a present field (including an
+    // explicit `null`, meaning clear) is forwarded to the service. Passing
+    // `null` for an omitted deadline would wipe an existing one on any update.
+    const deadline =
+      input.deadline === undefined
+        ? undefined
+        : input.deadline === null
+          ? null
+          : toDate(input.deadline) ?? null;
     const goal = await goalsService.update(ctx.userId, target.id, {
       progress: input.progress,
       status: input.status,
       title: input.title,
-      deadline: toDate(input.deadline) ?? null,
+      deadline,
     });
     return ok({ id: goal.id, title: goal.title, progress: goal.progress, status: goal.status }, `Updated goal "${goal.title}" (${goal.progress}%)`);
   },

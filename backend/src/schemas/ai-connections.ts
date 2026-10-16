@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isStructurallyValidEndpoint } from "@/utils/ssrf-guard";
 
 export const AiProviderSchema = z.enum([
   "openai",
@@ -20,28 +21,24 @@ export function isCredentialFreeProvider(provider: string): boolean {
   return (CREDENTIAL_FREE_PROVIDERS as readonly string[]).includes(provider);
 }
 
+// Endpoint syntax is validated structurally here (http/https, host present, no
+// embedded credentials). Private/loopback destinations are *not* rejected at
+// parse time — that depends on the deployment SSRF policy and is enforced on
+// the outbound request path (see `utils/ssrf-guard.ts` and `ai/provider.ts`),
+// so a self-hosted deployment can still save a LAN/loopback connection.
+const EndpointSchema = z
+  .string()
+  .trim()
+  .max(512)
+  .refine(isStructurallyValidEndpoint, { message: "Invalid endpoint URL" })
+  .optional()
+  .nullable();
+
 export const CreateAiConnectionSchema = z
   .object({
     provider: AiProviderSchema,
     model: z.string().trim().max(256).optional().nullable(),
-    endpoint: z
-      .string()
-      .trim()
-      .max(512)
-      .url()
-      .optional()
-      .nullable()
-      .refine((val) => {
-          // endpoint is optional; when provided it must be an http(s) URL.
-          // Presence requirements (ollama/custom) are enforced in superRefine below.
-          if (!val) return true;
-          if (val.startsWith("http://") || val.startsWith("https://")) {
-            return true;
-          }
-          return false;
-        },
-        { message: "Invalid endpoint URL" }
-      ),
+    endpoint: EndpointSchema,
     // Optional in the type, but required at runtime for every provider that
     // actually uses a key (see superRefine below). `credentialsEncrypted` is a
     // non-nullable column, and the route validator enforces the same rule.
@@ -73,13 +70,7 @@ export const UpdateAiConnectionSchema = z
   .object({
     provider: AiProviderSchema.optional(),
     model: z.string().trim().max(256).optional().nullable(),
-    endpoint: z
-      .string()
-      .trim()
-      .max(512)
-      .url()
-      .optional()
-      .nullable(),
+    endpoint: EndpointSchema,
     credentials: z.string().min(1).max(2000).optional(),
     enabled: z.boolean().optional(),
     isActive: z.boolean().optional(),
@@ -109,13 +100,7 @@ export const TestConnectionInputSchema = z
   .object({
     provider: AiProviderSchema,
     model: z.string().trim().max(256).optional().nullable(),
-    endpoint: z
-      .string()
-      .trim()
-      .max(512)
-      .url()
-      .optional()
-      .nullable(),
+    endpoint: EndpointSchema,
     // An ad-hoc test has no stored connection to read credentials from, so a key
     // must be supplied inline — except for credential-free providers like ollama.
     // POST /:id/test does not parse this schema; it takes credentials from the DB.

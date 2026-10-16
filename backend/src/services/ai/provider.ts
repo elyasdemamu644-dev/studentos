@@ -12,6 +12,13 @@
 import { ApiError } from "@/config/errors";
 import { config } from "@/config";
 import { isCredentialFreeProvider } from "@/schemas/ai-connections";
+import {
+  assertSafeOutboundUrl,
+  isStructurallyValidEndpoint,
+  SsrfBlockedError,
+  type SsrfPolicy,
+} from "@/utils/ssrf-guard";
+import { outboundFetch, OutboundNetworkError } from "@/utils/safe-fetch";
 import type { ProviderToolSchema } from "./tools/types";
 
 
@@ -230,11 +237,37 @@ class ProviderHttpError extends Error {
  * translated into a controlled {@link AiProviderTimeoutError} so callers get a
  * retryable 504 instead of an opaque abort. The timer is always cleared.
  */
+/**
+ * Test seam for the SSRF policy. Production code always uses
+ * `config.aiAllowPrivateEndpoints`; tests inject a resolver so the strict
+ * (production-like) path can be exercised without live DNS.
+ */
+let ssrfPolicyOverride: SsrfPolicy | undefined;
+
+export function setSsrfPolicyForTests(policy: SsrfPolicy | undefined): void {
+  ssrfPolicyOverride = policy;
+}
+
+function activeSsrfPolicy(): SsrfPolicy {
+  return ssrfPolicyOverride ?? {
+    allowPrivate: config.aiAllowPrivateEndpoints,
+    ...(config.isProduction ? { allowedHosts: config.egressAllowedHosts } : {}),
+  };
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number = config.aiRequestTimeoutMs
 ): Promise<Response> {
+  // Fail fast: enforce the SSRF policy once per request, before the retry loop,
+  // so a blocked endpoint is never retried. The transport below (see
+  // `utils/safe-fetch.ts`) independently re-resolves the host and pins the
+  // connection to the validated address, so even a rebinding resolver cannot
+  // redirect the socket to a private destination. A 3xx response is treated as a
+  // failure rather than followed, removing the redirect-based bypass.
+  await assertSafeOutboundUrl(url, activeSsrfPolicy());
+
   const maxNetworkRetries = 2;
   const externalSignal = init.signal;
   for (let attempt = 0; ; attempt += 1) {
@@ -249,11 +282,29 @@ async function fetchWithTimeout(
     }, timeoutMs);
     let retryNetworkFailure = false;
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      // The transport pins the connection to the addresses the SSRF policy
+      // validated, so a rebinding resolver cannot swap a public answer for a
+      // private one between validation and connect.
+      const res = await outboundFetch(
+        url,
+        { ...init, redirect: "manual", signal: controller.signal },
+        { policy: activeSsrfPolicy(), maxBytes: config.aiMaxResponseBytes },
+      );
+      if (res.status >= 300 && res.status < 400) {
+        throw new SsrfBlockedError(
+          "The AI provider endpoint returned a redirect, which is not allowed",
+        );
+      }
+      const contentLength = Number(res.headers?.get?.("content-length") ?? "");
+      if (Number.isFinite(contentLength) && contentLength > config.aiMaxResponseBytes) {
+        throw new AiProviderError("The AI provider response was too large to process");
+      }
+      return res;
     } catch (err) {
       if (externalSignal?.aborted) throw new AiProviderCancelledError();
       if (timedOut) throw new AiProviderTimeoutError(timeoutMs);
-      if (!(err instanceof TypeError) || attempt >= maxNetworkRetries) throw err;
+      const retryable = err instanceof TypeError || err instanceof OutboundNetworkError;
+      if (!retryable || attempt >= maxNetworkRetries) throw err;
       retryNetworkFailure = true;
     } finally {
       clearTimeout(timer);
@@ -954,6 +1005,11 @@ export class AiProvider {
       if (err instanceof AiProviderTimeoutError) throw err;
       if (err instanceof AiProviderCancelledError) throw err;
       if (err instanceof AiProviderError) throw err;
+      // A blocked endpoint is a deliberate policy decision, not an upstream
+      // failure. Surface it with its own code so operators can distinguish it.
+      if (err instanceof SsrfBlockedError) {
+        throw new AiProviderError(err.message, 502, "AI_PROVIDER_ENDPOINT_BLOCKED");
+      }
       if (err instanceof ProviderHttpError) {
         const { sanitizeMessage } = await import("@/services/ai-connections");
         throw mapUpstreamProviderError(err.statusCode, sanitizeMessage(err.message));
@@ -1011,6 +1067,9 @@ export class AiProvider {
       if (err instanceof AiProviderTimeoutError) throw err;
       if (err instanceof AiProviderCancelledError) throw err;
       if (err instanceof AiProviderError) throw err;
+      if (err instanceof SsrfBlockedError) {
+        throw new AiProviderError(err.message, 502, "AI_PROVIDER_ENDPOINT_BLOCKED");
+      }
       if (err instanceof ProviderHttpError) {
         const { sanitizeMessage } = await import("@/services/ai-connections");
         throw mapUpstreamProviderError(err.statusCode, sanitizeMessage(err.message));
@@ -1189,12 +1248,7 @@ function defaultEndpointFor(
 }
 
 function isValidHttpEndpoint(endpoint: string): boolean {
-  try {
-    const url = new URL(endpoint);
-    return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password;
-  } catch {
-    return false;
-  }
+  return isStructurallyValidEndpoint(endpoint);
 }
 
 /**

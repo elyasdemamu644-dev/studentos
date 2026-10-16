@@ -45,7 +45,8 @@ export const resourcesService = {
     const records = await prisma.resource.findMany({
       where,
       include: { course: { select: { id: true, code: true, name: true } } },
-      orderBy: { createdAt: "desc" },
+      // id tiebreaker keeps cursor pagination stable when createdAt ties.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
@@ -116,10 +117,16 @@ export const resourcesService = {
     const existing = await prisma.resource.findFirst({ where: { id, userId } });
     if (!existing) throw new NotFoundError("Resource not found");
 
-    // Check storage type after the update (either current or the new value).
-    const nextStorageType = input.storageType ?? existing.storageType;
-    assertStorageSupported(nextStorageType);
+    // The storage-type guard only applies to a storageType the client is
+    // *sending* through this JSON route. A partial update of an existing
+    // UPLOAD resource (e.g. renaming it) leaves storageType untouched and must
+    // not be rejected just because the stored value is UPLOAD — the file was
+    // already uploaded through the multipart route.
+    if (input.storageType !== undefined) {
+      assertStorageSupported(input.storageType);
+    }
 
+    const nextStorageType = input.storageType ?? existing.storageType;
     if (nextStorageType === "URL" && input.storageType !== undefined) {
       const url = input.url !== undefined ? input.url : existing.url;
       if (!url) {

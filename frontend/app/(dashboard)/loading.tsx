@@ -1,20 +1,11 @@
-"use client";
-
-import { Suspense } from "react";
-
-import { ErrorBoundary } from "@/components/states";
 import { ListSkeleton } from "@/components/feedback";
 
-export const dynamic = "force-dynamic";
-
-export default function DashboardGroupLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <ErrorBoundary>
-      <Suspense fallback={<ListSkeleton rows={3} label="Loading page" />}>{children}</Suspense>
-    </ErrorBoundary>
-  );
+/**
+ * Route-segment loading fallback for the dashboard group. Next.js renders this
+ * while a page under `(dashboard)` streams in. It is not a layout: it takes no
+ * children. (It previously wrapped `undefined` in a Suspense and an
+ * ErrorBoundary — both already provided by `layout.tsx` — so it showed nothing.)
+ */
+export default function DashboardLoading() {
+  return <ListSkeleton rows={3} label="Loading page" />;
 }

@@ -92,6 +92,35 @@ describe("Academics Module — StudentOS MVP", () => {
         .expect(400);
     });
 
+    it("rejects an unparseable date", async () => {
+      await authRequestJson(accessToken)
+        .post(`${BASE}/academics/academic-years`)
+        .send({
+          name: "Garbage Dates",
+          startDate: "not-a-date",
+          endDate: "2027-08-31",
+        })
+        .expect(400);
+    });
+
+    it("rejects a partial update that inverts the stored range", async () => {
+      // endDate stays 2027-08-31, so moving startDate past it must be refused.
+      await authRequestJson(accessToken)
+        .patch(`${BASE}/academics/academic-years/${academicYearId}`)
+        .send({ startDate: "2028-01-01" })
+        .expect(400);
+    });
+
+    it("accepts a partial update that keeps the range ordered", async () => {
+      const res = await authRequestJson(accessToken)
+        .patch(`${BASE}/academics/academic-years/${academicYearId}`)
+        .send({ startDate: "2026-08-01" })
+        .expect(200);
+
+      expect(res.data.data.startDate).toBe("2026-08-01");
+      expect(res.data.data.endDate).toBe("2027-08-31");
+    });
+
     it("gets a single academic year by id", async () => {
       const res = await authRequestJson(accessToken)
         .get(`${BASE}/academics/academic-years/${academicYearId}`)
@@ -179,6 +208,26 @@ describe("Academics Module — StudentOS MVP", () => {
           endDate: "2026-12-31",
         })
         .expect(404);
+    });
+
+    it("rejects a semester with an unparseable date", async () => {
+      await authRequestJson(accessToken)
+        .post(`${BASE}/academics/semesters`)
+        .send({
+          academicYearId,
+          name: "Garbage Dates",
+          startDate: "2027-01-01",
+          endDate: "nonsense",
+        })
+        .expect(400);
+    });
+
+    it("rejects a semester partial update that inverts the stored range", async () => {
+      // endDate stays 2026-12-31, so moving startDate past it must be refused.
+      await authRequestJson(accessToken)
+        .patch(`${BASE}/academics/semesters/${semesterId}`)
+        .send({ startDate: "2030-01-01" })
+        .expect(400);
     });
 
     it("gets a single semester by id", async () => {

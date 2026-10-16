@@ -26,7 +26,8 @@ export const goalsService = {
     const records = await prisma.goal.findMany({
       where,
       include: { milestones: { orderBy: { position: "asc" } } },
-      orderBy: { createdAt: "desc" },
+      // id tiebreaker keeps cursor pagination stable when createdAt ties.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });

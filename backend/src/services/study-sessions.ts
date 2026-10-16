@@ -62,7 +62,8 @@ export const studySessionsService = {
         include: {
           course: { select: { id: true, code: true, name: true } },
         },
-        orderBy: { startedAt: "desc" },
+        // id tiebreaker keeps cursor pagination stable when startedAt ties.
+        orderBy: [{ startedAt: "desc" }, { id: "desc" }],
         take: limit + 1,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       }),

@@ -47,14 +47,21 @@ export const authService = {
     academicYear?: string | null;
     timezone?: string;
   }) {
-    const existing = await prisma.user.findUnique({ where: { email } });
+    // Normalise the mailbox to lower case so the same address cannot exist as
+    // two accounts (and cannot fail login when typed with different casing).
+    // The conflict check is case-insensitive as well, so an account created
+    // before normalisation still blocks a duplicate.
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+    });
     if (existing) {
       throw new ConflictError("A user with this email already exists");
     }
     const passwordHash = await hashPassword(password);
     const user = await prisma.user.create({
       data: {
-        email,
+        email: normalizedEmail,
         passwordHash,
         firstName: firstName ?? "",
         lastName: lastName ?? "",
@@ -68,7 +75,11 @@ export const authService = {
   },
 
   async login(email: string, password: string) {
-    const user = await prisma.user.findUnique({ where: { email } });
+    // Match the mailbox case-insensitively so registration and login agree on
+    // the identity regardless of how the address was typed.
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email.trim(), mode: "insensitive" } },
+    });
     if (!user) { throw unauthorizedError("Invalid email or password"); }
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) { throw unauthorizedError("Invalid email or password"); }
@@ -174,7 +185,9 @@ export const authService = {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) { throw new NotFoundError("User"); }
     const valid = await verifyPassword(currentPassword, user.passwordHash);
-    if (!valid) { throw new NotFoundError("User"); }
+    // A wrong current password is an authentication failure (401), not a
+    // missing user (404) — the account exists and is owned by this caller.
+    if (!valid) { throw unauthorizedError("Current password is incorrect"); }
     const passwordHash = await hashPassword(newPassword);
     await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
   },

@@ -54,7 +54,8 @@ export const coursesService = {
           include: { academicYear: true },
         },
       },
-      orderBy: { createdAt: "desc" },
+      // id tiebreaker keeps cursor pagination stable when createdAt ties.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursor
         ? { cursor: { id: cursor }, skip: 1 }
@@ -194,8 +195,14 @@ export const coursesService = {
 
   /** Delete a course.
    *
-   * Only the owner can delete, and only if the course has no
-   * dependent data (tasks, notes, etc.).
+   * Only the owner can delete, and only if the course has no dependent data
+   * (tasks, notes, resources, events, sessions, grades, AI study plans).
+   *
+   * Every `Course` relation is declared `onDelete: SetNull`, so the database
+   * does not block the delete — it silently nulls `courseId` on the related
+   * rows, orphaning them from the course with no error to surface. The
+   * dependent counts are therefore checked up front and a `ConflictError` is
+   * raised instead, so nothing is detached behind the student's back.
    */
   async delete(userId: string, id: string) {
     const existing = await prisma.course.findFirst({
@@ -206,23 +213,26 @@ export const coursesService = {
       throw new NotFoundError("Course not found");
     }
 
-    try {
-      await prisma.course.delete({
-        where: { id },
-      });
-    } catch (error) {
-      // Prisma error code P2025 = record to delete does not exist
-      // (already deleted or foreign key violation)
-      if (error instanceof Error && "code" in error) {
-        const e = error as { code?: string };
-        if (e.code === "P2025") {
-          throw new ConflictError(
-            "Cannot delete a course that has associated data",
-          );
-        }
-      }
-      throw error;
+    const [tasks, notes, resources, events, sessions, grades, studyPlans] =
+      await Promise.all([
+        prisma.task.count({ where: { userId, courseId: id } }),
+        prisma.note.count({ where: { userId, courseId: id } }),
+        prisma.resource.count({ where: { userId, courseId: id } }),
+        prisma.event.count({ where: { userId, courseId: id } }),
+        prisma.studySession.count({ where: { userId, courseId: id } }),
+        prisma.grade.count({ where: { userId, courseId: id } }),
+        prisma.aiStudyPlan.count({ where: { userId, courseId: id } }),
+      ]);
+
+    const related = { tasks, notes, resources, events, sessions, grades, studyPlans };
+    const total = Object.values(related).reduce((sum, count) => sum + count, 0);
+    if (total > 0) {
+      throw new ConflictError(
+        "Cannot delete a course that still has related records. Remove or reassign its tasks, notes, resources, events, study sessions, grades and study plans first.",
+      );
     }
+
+    await prisma.course.delete({ where: { id } });
 
     return { deleted: true };
   },

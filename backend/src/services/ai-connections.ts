@@ -105,7 +105,8 @@ export async function listConnections(
   const take = limit + 1;
   const records = await prisma.aiConnection.findMany({
     where: { userId },
-    orderBy: { createdAt: "desc" },
+    // id tiebreaker keeps cursor pagination stable when createdAt ties.
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take,
     cursor: cursor ? { id: cursor }  : undefined,
     skip: cursor ? 1 : 0,

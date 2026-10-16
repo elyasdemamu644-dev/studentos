@@ -285,17 +285,21 @@ async function runToolCalls(
   const roundProposals: ProposedAction[] = [];
   const activity: ToolActivityEntry[] = [];
 
+  const limitMessage =
+    "This turn already has as many pending changes as it is allowed. Ask again for the rest.";
+
   for (const call of toolCalls) {
     const tool = getTool(call.function.name);
     const label = tool?.activityLabel ?? "Running a tool";
     const isWrite = tool?.kind === "WRITE";
+    const remaining = remainingProposals - roundProposals.length;
 
-    // The proposal budget is spent: refuse further writes with an explanation
-    // the model can act on, rather than silently dropping them.
-    if (isWrite && remainingProposals - roundProposals.length <= 0) {
-      const message = "This turn already has as many pending changes as it is allowed. Ask again for the rest.";
-      results.push({ ok: false, error: { code: "proposal_limit", message } });
-      activity.push({ tool: call.function.name, label, status: "error", summary: message });
+    // The proposal budget is spent: refuse further WRITE tools with an
+    // explanation the model can act on, rather than silently dropping them.
+    // (A write is refused before it executes, so nothing is queued.)
+    if (isWrite && remaining <= 0) {
+      results.push({ ok: false, error: { code: "proposal_limit", message: limitMessage } });
+      activity.push({ tool: call.function.name, label, status: "error", summary: limitMessage });
       continue;
     }
 
@@ -304,19 +308,39 @@ async function runToolCalls(
       ctx,
     );
 
-    results.push(result);
-
     if (result.proposedActions && result.proposedActions.length > 0) {
-      roundProposals.push(...result.proposedActions);
+      // ANALYZE tools (build_study_plan) also produce proposed actions, so the
+      // budget must cover *any* result that yields proposals — not only WRITE
+      // tools. Otherwise a single analysis call could bury the student under
+      // dozens of confirmations.
+      if (remaining <= 0) {
+        results.push({ ok: false, error: { code: "proposal_limit", message: limitMessage } });
+        activity.push({ tool: call.function.name, label, status: "error", summary: limitMessage });
+        continue;
+      }
+
+      const generated = result.proposedActions.length;
+      const accepted = result.proposedActions.slice(0, remaining);
+      if (accepted.length < generated) {
+        // Keep the model's own summary honest about the cap.
+        result.summary = `${result.summary ?? "Prepared changes"}. Only the first ${accepted.length} of ${generated} changes were kept to respect the per-turn limit.`;
+        result.proposedActions = accepted;
+      }
+
+      results.push(result);
+      roundProposals.push(...accepted);
       activity.push({
         tool: call.function.name,
         label,
         status: "proposed",
-        summary: `Waiting for your confirmation (${result.proposedActions.length} change${result.proposedActions.length === 1 ? "" : "s"})`,
+        summary: accepted.length === generated
+          ? `Waiting for your confirmation (${accepted.length} change${accepted.length === 1 ? "" : "s"})`
+          : `Waiting for your confirmation (${accepted.length} of ${generated} changes — the rest were dropped to respect the per-turn limit)`,
       });
       continue;
     }
 
+    results.push(result);
     activity.push(
       result.ok
         ? { tool: call.function.name, label, status: "success", summary: result.summary ?? "Done" }

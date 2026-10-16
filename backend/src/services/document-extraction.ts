@@ -224,14 +224,24 @@ export async function extractXlsxText(buffer: Buffer, mimeType: string): Promise
 
     const workbook = xlsxParse.read(buffer, { type: "buffer" });
 
+    // Render a sheet as text, one source row per line. `sheet_to_json` reads the
+    // sheet's `!ref` range and returns cells in order; iterating the sheet
+    // object directly also yielded the `!ref`/`!cols` metadata and visited
+    // cells out of order.
+    const sheetToText = (sheet: any): string => {
+      const rows: unknown[][] = xlsxParse.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+      return rows
+        .map((row) =>
+          Array.isArray(row) ? row.map((cell) => (cell == null ? "" : String(cell))).join(", ") : String(row),
+        )
+        .join("\n");
+    };
+
     // Handle CSV (single sheet)
     if (mimeType === "text/csv" || mimeType === "application/csv") {
-      const rawText = workbook.SheetNames.length > 0 ? workbook.Sheets[workbook.SheetNames[0]] : {};
-      const cellData: string[] = [];
-      Object.values(rawText).forEach((row: any) => {
-        row ? cellData.push(String(row)) : null;
-      });
-      const text = cellData.join("\n");
+      const firstSheetName = workbook.SheetNames[0];
+      const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+      const text = sheet ? sheetToText(sheet) : "";
       const truncated = truncateText(text);
 
       return {
@@ -249,15 +259,10 @@ export async function extractXlsxText(buffer: Buffer, mimeType: string): Promise
 
     sheetNames.forEach((sheetName) => {
       const sheet = workbook.Sheets[sheetName];
-      const rows: any[] = [];
-      for (const [cellAddr, cell] of Object.entries(sheet as any)) {
-        if (cellAddr.endsWith("")) { // header row marker
-          const rowVal = (cell as any).v ?? (cell as any).t ?? "";
-          rows.push(String(rowVal));
-        }
-      }
-      if (rows.length > 0) {
-        sheetTexts.push(`Sheet: ${sheetName}\n${rows.join("\n")}`);
+      if (!sheet) return;
+      const rowsText = sheetToText(sheet);
+      if (rowsText.trim().length > 0) {
+        sheetTexts.push(`Sheet: ${sheetName}\n${rowsText}`);
       }
     });
 

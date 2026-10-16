@@ -91,12 +91,13 @@ describe("POST /auth/google", () => {
   });
 
   it("links a Google identity to an existing account despite email case differences", async () => {
-    // Registration stores the email exactly as typed (no normalisation).
+    // Registration normalises the mailbox to lower case.
     const registered = await supertest(app)
       .post(`${BASE}/auth/register`)
       .send({ email: "Mixed.Case@Example.com", password: "Passw0rd!" });
     expect(registered.status).toBe(201);
     const registeredId = registered.body.data.id;
+    expect(registered.body.data.email).toBe("mixed.case@example.com");
 
     // Google reports the same mailbox in lowercase.
     mockedVerify.mockResolvedValue(stubClaims({ email: "mixed.case@example.com" }));
@@ -107,7 +108,7 @@ describe("POST /auth/google", () => {
 
     expect(google.status).toBe(200);
     expect(google.body.data.user.id).toBe(registeredId);
-    expect(google.body.data.user.email).toBe("Mixed.Case@Example.com");
+    expect(google.body.data.user.email).toBe("mixed.case@example.com");
   });
 
   it("rejects an invalid Google token with 401", async () => {

@@ -261,6 +261,47 @@ describe("Resource uploads", () => {
     });
   });
 
+  describe("PATCH /resources/:id on an UPLOAD resource", () => {
+    it("updates metadata of an uploaded file without a spurious 400", async () => {
+      const created = await upload(token, {
+        file: PDF,
+        filename: "rename-me.pdf",
+        contentType: "application/pdf",
+        fields: { title: "Before rename" },
+      });
+      expect(created.status).toBe(201);
+
+      const patched = await authRequestJson(
+        "patch",
+        `${BASE}/resources/${created.body.data.id}`,
+        token,
+        { title: "After rename" },
+      );
+
+      expect(patched.status).toBe(200);
+      expect(patched.body.data.title).toBe("After rename");
+      expect(patched.body.data.storageType).toBe("UPLOAD");
+    });
+
+    it("still refuses an explicit UPLOAD storageType sent over JSON", async () => {
+      const created = await upload(token, {
+        file: PDF,
+        filename: "no-switch.pdf",
+        contentType: "application/pdf",
+        fields: { title: "No switch" },
+      });
+
+      const patched = await authRequestJson(
+        "patch",
+        `${BASE}/resources/${created.body.data.id}`,
+        token,
+        { storageType: "UPLOAD" },
+      );
+
+      expect(patched.status).toBe(400);
+    });
+  });
+
   describe("POST /ai/attachments/upload", () => {
     it("accepts arbitrary binary content while storing an unknown type as octet-stream", async () => {
       const conversation = await authRequestJson("post", `${BASE}/ai/conversations`, token, {

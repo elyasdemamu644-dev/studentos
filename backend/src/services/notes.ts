@@ -24,7 +24,8 @@ export const notesService = {
     const records = await prisma.note.findMany({
       where,
       include: { course: { select: { id: true, code: true, name: true } } },
-      orderBy: { updatedAt: "desc" },
+      // id tiebreaker keeps cursor pagination stable when updatedAt ties.
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });

@@ -1,24 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clamp, readableForeground, isHexColor, formatMinutes as compactMinutes } from "@/lib/utils";
-
-describe("lib/utils formatMinutes", () => {
-  it("handles nullish and small values", () => {
-    expect(compactMinutes(null)).toBe("0m");
-    expect(compactMinutes(undefined)).toBe("0m");
-    expect(compactMinutes(0)).toBe("0m");
-    expect(compactMinutes(5)).toBe("5m");
-  });
-
-  it("renders hours and minutes", () => {
-    expect(compactMinutes(95)).toBe("1h 35m");
-    expect(compactMinutes(120)).toBe("2h");
-    expect(compactMinutes(59)).toBe("59m");
-  });
-
-  it("clamps negative durations", () => {
-    expect(compactMinutes(-10)).toBe("0m");
-  });
-});
+import { clamp, readableForeground, isHexColor } from "@/lib/utils";
 
 describe("lib/utils clamp", () => {
   it("bounds values within the range", () => {

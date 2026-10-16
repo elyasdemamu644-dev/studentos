@@ -3,6 +3,7 @@ import request from "supertest";
 
 import { app } from "@/app";
 import { registerAndLogin } from "./helpers";
+import { prisma } from "@/utils/prisma";
 
 const BASE = "/api/v1";
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -18,6 +19,7 @@ const FORBIDDEN_IN_BODY = /prisma|unique constraint|constraint_|relation\s|"SELE
 describe("API contract safety", () => {
   let accessToken = "";
   let yearId = "";
+  let userId = "";
 
   beforeAll(async () => {
     const user = await registerAndLogin({
@@ -25,6 +27,7 @@ describe("API contract safety", () => {
       password: "SafePass1!",
     });
     accessToken = user.accessToken;
+    userId = user.user.id;
 
     const year = await request(app)
       .post(`${BASE}/academics/academic-years`)
@@ -193,6 +196,45 @@ describe("API contract safety", () => {
       const res = await request(app).get(`${BASE}${path}?limit=2`).set(auth(accessToken));
       expect(res.status, `GET ${path}?limit=2`).toBe(200);
     }
+  });
+
+  it("paginates stably when the sort key ties", async () => {
+    // Regression: list endpoints ordered only by a non-unique column
+    // (createdAt/dueDate/…) while the cursor is the id. With tied sort keys the
+    // database's ordering among ties is unspecified, so walking the cursor could
+    // skip or repeat rows. Force a full tie and assert we see every row once.
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i += 1) {
+      const created = await request(app)
+        .post(`${BASE}/tasks`)
+        .set(auth(accessToken))
+        .send({ title: `Tied task ${i}` })
+        .expect(201);
+      ids.push(created.body.data.id);
+    }
+
+    // Collapse every task onto one createdAt/dueDate so the primary sort keys tie.
+    const tiedAt = new Date("2035-01-01T00:00:00.000Z");
+    await prisma.task.updateMany({
+      where: { userId, title: { startsWith: "Tied task" } },
+      data: { createdAt: tiedAt, dueDate: tiedAt },
+    });
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 20; page += 1) {
+      const url: string = `${BASE}/tasks?limit=2${cursor ? `&cursor=${cursor}` : ""}`;
+      const res = await request(app).get(url).set(auth(accessToken)).expect(200);
+      const items: Array<{ id: string }> = res.body.data.items;
+      seen.push(...items.map((t) => t.id));
+      if (!res.body.data.hasMore) break;
+      cursor = res.body.data.nextCursor;
+      expect(cursor).toBeTruthy();
+    }
+
+    const tiedSeen = seen.filter((id) => ids.includes(id));
+    expect(tiedSeen).toHaveLength(ids.length);
+    expect(new Set(tiedSeen).size).toBe(ids.length);
   });
 
   it("does not duplicate entity fields at the top level of a course response", async () => {
