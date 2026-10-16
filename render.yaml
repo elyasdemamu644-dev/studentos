@@ -40,7 +40,10 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     # Migrations then boot, in one controlled step on this single instance.
-    dockerCommand: /bin/sh -c ./node_modules/.bin/prisma migrate deploy && node dist/server.js
+    # Render already runs this string under `sh -c`, so it must NOT be
+    # re-wrapped: an inner unquoted `/bin/sh -c` would exec Prisma with no
+    # subcommand and the `&&` would never reach the server.
+    dockerCommand: ./node_modules/.bin/prisma migrate deploy && node dist/server.js
     envVars:
       - key: NODE_ENV
         value: production
