@@ -50,6 +50,10 @@ jobs:
         run: pnpm --filter @studentos/api exec tsc --noEmit
       - name: Build API
         run: pnpm --filter @studentos/api build
+      - name: Build production API container
+        run: docker build --target api -t studentos-api:ci .
+      - name: Build restricted egress gateway container
+        run: docker build --target egress -t studentos-egress:ci .
 
   web:
     runs-on: ubuntu-latest
@@ -71,6 +75,8 @@ jobs:
         run: pnpm --filter @studentos/web lint
       - name: Build web
         run: pnpm --filter @studentos/web build
+      - name: Build production web container
+        run: docker build -f frontend/Dockerfile --build-arg NEXT_PUBLIC_API_URL=https://example.invalid/api/v1 -t studentos-web:ci .
 
   lint:
     runs-on: ubuntu-latest
@@ -85,3 +91,34 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+
+  deploy-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: render.yaml has no localhost URLs and keeps secrets dashboard-managed
+        run: |
+          set -euo pipefail
+          if grep -nE 'localhost|127\.0\.0\.1' render.yaml; then
+            echo "::error::render.yaml must not reference localhost"; exit 1
+          fi
+          awk '
+            /^[[:space:]]*-[[:space:]]*key:[[:space:]]*(DATABASE_URL|JWT_SECRET|ENCRYPTION_KEY|EGRESS_DATABASE_HOST|EGRESS_ALLOWED_DESTINATIONS|OPENROUTER_API_KEY|GOOGLE_CLIENT_ID|NEXT_PUBLIC_GOOGLE_CLIENT_ID)[[:space:]]*$/ { want=1; next }
+            want==1 && /^[[:space:]]*sync:[[:space:]]*false/ { want=0; next }
+            want==1 && !/^[[:space:]]*$/ { printf "secret key on line %d is not sync:false: %s\n", NR, $0; bad=1; want=0 }
+            END { exit bad }
+          ' render.yaml
+      - name: Validate render.yaml against Render's published Blueprint schema
+        run: |
+          set -euo pipefail
+          npx --yes js-yaml@4.1.0 render.yaml > "$RUNNER_TEMP/render-yaml.json"
+          curl -fsSL https://render.com/schema/render.yaml.json -o "$RUNNER_TEMP/render-yaml-schema.json"
+          npx --yes ajv-cli@5 validate --spec=draft2020 --strict=false \
+            -s "$RUNNER_TEMP/render-yaml-schema.json" \
+            -d "$RUNNER_TEMP/render-yaml.json"
+      - name: Every migration directory carries its SQL
+        run: |
+          set -euo pipefail
+          for dir in backend/prisma/migrations/*/; do
+            if [ ! -f "$dir/migration.sql" ]; then echo "missing migration.sql in $dir"; exit 1; fi
+          done

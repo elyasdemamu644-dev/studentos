@@ -36,6 +36,9 @@ yarn-error.log*
 
 # Uploads (local-disk storage provider)
 backend/uploads/
+# Root-level fallback: config defaults UPLOAD_DIR to <cwd>/uploads, which is
+# the repo root if the bundled server is ever started from there.
+/uploads/
 
 # Testing
 coverage/

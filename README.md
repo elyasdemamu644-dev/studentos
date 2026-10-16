@@ -140,15 +140,16 @@ Migrations live in `backend/prisma/migrations/`: `20261006000000_init_from_schem
 
 ## Production run-book
 
+The chosen deployment — two Docker web services on Render's free plan plus an external Neon Postgres — is documented step by step in [docs/deployment/render.md](docs/deployment/render.md); the container-based Compose/Caddy/fallback variant and its free-tier caveats live in [docs/deployment/free-production.md](docs/deployment/free-production.md). `render.yaml` is the infrastructure blueprint, validated by CI's `deploy-config` job. No production resource or migration is created automatically.
+
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @studentos/api build          # typecheck gate (dist/ is not the runtime)
-cd backend && npx prisma migrate deploy    # applies migrations, safe from empty
-pnpm --filter @studentos/api start          # tsx src/server.ts
+pnpm --filter @studentos/api build
+pnpm --filter @studentos/api start          # runs the compiled dist/server.js
 curl -fsS http://localhost:3001/health       # {"database":"connected"} or HTTP 503
 ```
 
-`NODE_ENV=production` + 32+ character `JWT_SECRET`/`ENCRYPTION_KEY` + an explicit `CORS_ORIGINS` are enforced at boot. The server fails fast if the database is unreachable, handles `EADDRINUSE`, and shuts down on `SIGTERM`/`SIGINT` (10 s force exit). `/health` pings the database and answers `503` when it is down.
+Production boot additionally requires TLS database configuration, exact outbound destination approvals, an explicit egress mode (`proxy` needs `EGRESS_PROXY_URL`; Render's free tier runs `direct`, which enforces the same SSRF guard and allowlist in-process and forbids `EMAIL_ENABLED`), and explicit trusted-proxy/CORS settings. Apply reviewed migrations with `prisma migrate deploy` only after taking and testing a backup; do not use `db push` against production. The server fails fast if the database is unreachable, handles `EADDRINUSE`, and shuts down on `SIGTERM`/`SIGINT` (10 s force exit). `/health` pings the database and answers `503` when it is down.
 
 ## Testing notes
 

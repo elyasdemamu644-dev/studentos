@@ -1,0 +1,118 @@
+# StudentOS — Render Blueprint (IaC)
+#
+# Two Docker web services on Render's Free plan + an external Neon PostgreSQL
+# database (created in the Render/Neon dashboard, referenced below).
+#
+# Validate before use:  https://render.com/docs/blueprint-spec
+# (CI runs the schema check on every push — `deploy-config` job in
+#  .github/workflows/ci.yml; the operator runbook is docs/deployment/render.md)
+#
+# SECRET RULES
+#   - Secrets are `sync: false`: Render prompts for them in the dashboard when
+#     the Blueprint is created. They never live in this file or in git.
+#   - JWT_SECRET / ENCRYPTION_KEY must each be a base64url-encoded 32-byte value
+#     (43 chars of [A-Za-z0-9_-]). Generate locally, e.g.:
+#       node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+#     Generate two independent values. The API refuses to boot with a
+#     placeholder or a short secret (backend/src/config/index.ts).
+#   - EGRESS_DATABASE_HOST and EGRESS_ALLOWED_DESTINATIONS come from the Neon
+#     project: the pooled hostname, and the exact host:port approvals.
+#
+# MIGRATION STRATEGY
+#   `dockerCommand` runs `prisma migrate deploy` once, before the server
+#   starts, on the single instance Render's Free plan runs (Free services do
+#   not support scaling or Render's paid-only `preDeployCommand`). If this
+#   service is ever scaled beyond one instance, move migrations to a separate
+#   one-off job so replicas cannot migrate concurrently.
+
+version: "1"
+
+services:
+  # ─────────────────────────────────────────────
+  # API — Express 5 + Prisma (root Dockerfile, stage `api` is the last stage)
+  # ─────────────────────────────────────────────
+  - type: web
+    name: studentos-api
+    runtime: docker
+    region: oregon
+    plan: free
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    # Migrations then boot, in one controlled step on this single instance.
+    dockerCommand: /bin/sh -c ./node_modules/.bin/prisma migrate deploy && node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      # Render's load balancer terminates TLS and forwards to this service, so
+      # exactly one trusted proxy hop sits in front of it.
+      - key: TRUST_PROXY
+        value: "1"
+      # No Docker-host firewall exists on Render, so outbound traffic runs in
+      # the code-level `direct` egress mode: the SSRF guard, DNS pinning and
+      # exact destination allowlist still apply to every AI/JWKS request.
+      # (`proxy` mode would require an EGRESS_PROXY_URL that Render cannot
+      # host on the Free plan — see docs/deployment/render.md.)
+      - key: EGRESS_MODE
+        value: direct
+      # Exact HTTPS origins allowed to call the API. Must match the web
+      # service's real onrender.com host (see note at the bottom of this file).
+      - key: CORS_ORIGINS
+        value: https://studentos-web.onrender.com
+      - key: AI_ENABLED
+        value: "true"
+      - key: AI_PROVIDER
+        value: openrouter
+      - key: AI_ALLOW_PRIVATE_ENDPOINTS
+        value: "false"
+      # Email dispatch is off: Render blocks outbound SMTP (25/465/587) on the
+      # Free plan, and `EGRESS_MODE=direct` refuses EMAIL_ENABLED by design.
+      - key: EMAIL_ENABLED
+        value: "false"
+      - key: UPLOAD_MAX_FILE_SIZE_BYTES
+        value: "52428800"
+      # Ephemeral disk: uploaded files are wiped on every deploy/restart of the
+      # Free plan instance (no persistent volume there). S3/R2 is required for
+      # durable uploads — see docs/deployment/render.md.
+      - key: UPLOAD_DIR
+        value: /app/uploads
+      # ── Dashboard-managed values (never in git) ──────────────────────
+      - key: DATABASE_URL # Neon pooled TLS connection string (sslmode=require)
+        sync: false
+      - key: JWT_SECRET # base64url 32-byte secret
+        sync: false
+      - key: ENCRYPTION_KEY # independent base64url 32-byte secret
+        sync: false
+      - key: EGRESS_DATABASE_HOST # exact Neon hostname from DATABASE_URL
+        sync: false
+      - key: EGRESS_ALLOWED_DESTINATIONS # e.g. <neon-host>:5432,openrouter.ai:443,www.googleapis.com:443
+        sync: false
+      - key: OPENROUTER_API_KEY # optional; default-provider AI answers 503 without it
+        sync: false
+      - key: GOOGLE_CLIENT_ID # optional; enables POST /auth/google
+        sync: false
+
+  # ─────────────────────────────────────────────
+  # Web — Next.js 14 standalone (frontend/Dockerfile)
+  # ─────────────────────────────────────────────
+  - type: web
+    name: studentos-web
+    runtime: docker
+    region: oregon
+    plan: free
+    dockerContext: .
+    dockerfilePath: ./frontend/Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      # Baked into the client bundle at build time (Render exposes env vars to
+      # the Docker build as build arguments, and the Dockerfile declares this
+      # ARG). Must match the API service's real onrender.com host.
+      - key: NEXT_PUBLIC_API_URL
+        value: https://studentos-api.onrender.com/api/v1
+      # Optional; must match the API's GOOGLE_CLIENT_ID.
+      - key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
+        sync: false

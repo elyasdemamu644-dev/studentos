@@ -163,7 +163,12 @@ export const config = {
   // Root directory for the local-disk storage provider (used when no S3 bucket
   // is configured). Never serve this directory directly — downloads go through
   // the owner-scoped `GET /resources/:id/download` route.
-  uploadDir: process.env.UPLOAD_DIR ?? path.resolve(__dirname, "../../uploads"),
+  // Anchored to the working directory, NOT to `__dirname`: this file is
+  // bundled into `dist/server.js` (esbuild), where `__dirname` is the dist
+  // folder and a relative path would escape the app directory entirely — the
+  // upload then fails with 503 STORAGE_ERROR in production. Deployments set
+  // UPLOAD_DIR explicitly; the default only serves local dev and tests.
+  uploadDir: process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), "uploads"),
 
   // Email dispatch (notification delivery). Opt-in: disabled until
   // EMAIL_ENABLED=true AND SMTP_HOST is set, otherwise dispatch endpoints

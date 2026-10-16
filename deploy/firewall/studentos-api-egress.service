@@ -1,0 +1,12 @@
+[Unit]
+Description=Restrict StudentOS API container outbound forwarding
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/studentos-limit-api-egress
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
