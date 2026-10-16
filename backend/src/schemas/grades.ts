@@ -2,13 +2,13 @@ import { z } from "zod";
 import {
   createGradeSchema,
   updateGradeSchema,
-} from "@studentos/shared/schemas/grades";
+} from "@tutor-walle/shared/schemas/grades";
 
 export { createGradeSchema, updateGradeSchema };
 export type {
   CreateGradeInput,
   UpdateGradeInput,
-} from "@studentos/shared/schemas/grades";
+} from "@tutor-walle/shared/schemas/grades";
 
 // ─────────────────────────────────────────────
 // List query

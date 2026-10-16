@@ -23,7 +23,7 @@ import { CourseSwatch } from "@/components/domain/course-swatch";
 import { ListSkeleton } from "@/components/feedback";
 
 /**
- * The StudentOS Context panel — a compact, real-time view of the student's
+ * The Tutor Walle Context panel — a compact, real-time view of the student's
  * academic state, shown alongside the AI chat so the assistant's answers
  * can be grounded in what the student actually has.
  *
@@ -198,13 +198,13 @@ export function AiContextPanel() {
   return (
     <aside
       className="flex h-full min-h-0 flex-col overflow-hidden"
-      aria-label="StudentOS context"
+      aria-label="Tutor Walle context"
     >
       <div
         className="min-h-0 flex-1 overflow-y-auto"
         tabIndex={0}
         role="region"
-        aria-label="StudentOS context details"
+        aria-label="Tutor Walle context details"
       >
         {dashboard.isPending ? (
           <div className="space-y-2 p-3">
@@ -361,7 +361,7 @@ export function AiContextDrawer() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Open StudentOS context"
+        aria-label="Open Tutor Walle context"
         aria-expanded={open}
         aria-haspopup="dialog"
         className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-ai px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-card transition-colors hover:text-foreground max-sm:h-11 max-sm:w-11 max-sm:justify-center max-sm:gap-0 max-sm:px-0 lg:h-11 lg:w-11 lg:justify-center lg:gap-0 lg:px-0 min-[1360px]:hidden"
@@ -374,7 +374,7 @@ export function AiContextDrawer() {
         open={open}
         onOpenChange={setOpen}
         side="right"
-        title="StudentOS Context"
+        title="Tutor Walle Context"
         description="What the assistant can read"
       >
         <AiContextPanel />

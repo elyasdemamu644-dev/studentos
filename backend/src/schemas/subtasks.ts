@@ -2,13 +2,13 @@ import { z } from "zod";
 import {
   createSubtaskSchema,
   updateSubtaskSchema,
-} from "@studentos/shared/schemas/tasks";
+} from "@tutor-walle/shared/schemas/tasks";
 
 export { createSubtaskSchema, updateSubtaskSchema };
 export type {
   CreateSubtaskInput,
   UpdateSubtaskInput,
-} from "@studentos/shared/schemas/tasks";
+} from "@tutor-walle/shared/schemas/tasks";
 
 // ─────────────────────────────────────────────
 // List query

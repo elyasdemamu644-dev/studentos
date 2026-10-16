@@ -948,7 +948,7 @@ describe("Agent loop", () => {
       conversationId: "conv-agent-6",
       history: [],
       userMessage: "How am I doing?",
-      context: JSON.stringify({ studentos: { courses: [] } }),
+      context: JSON.stringify({ tutorWalle: { courses: [] } }),
     });
 
     expect(run.finish).toBe("no_tool_support");
@@ -1096,7 +1096,7 @@ describe("Provider tool-call support", () => {
 
     const result = await provider.chat({
       messages: [{ role: "user", content: "hi" }],
-      context: '{"studentos":{}}',
+      context: '{"tutorWalle":{}}',
     });
     expect(result.content).toBe("grounded");
   });
@@ -1547,7 +1547,7 @@ describe("AI HTTP surface: persistence around a failing provider", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The question is stored with a snapshot of the student's own StudentOS data,
+// The question is stored with a snapshot of the student's own Tutor Walle data,
 // so a reload (or a later turn) can still see what grounded the answer — and
 // one student's data must never appear in another's snapshot.
 // ─────────────────────────────────────────────────────────────────────────────

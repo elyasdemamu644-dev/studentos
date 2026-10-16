@@ -90,7 +90,7 @@ export default function CourseDetailPage() {
   const upcoming = roll.events.upcoming;
   const nextExam = roll.nextExam;
   // Hand the course straight to the assistant — the AI page prefills its
-  // composer from ?prompt= and the panel shows StudentOS context alongside.
+  // composer from ?prompt= and the panel shows Tutor Walle context alongside.
   const askPrompt = `Help me study ${data.name}${data.code ? ` (${data.code})` : ""}. What are the key topics, and what should I focus on in my next study session?`;
   const askAiUrl = `/ai?prompt=${encodeURIComponent(askPrompt)}&courseId=${data.id}${data.semester?.id ? `&semesterId=${data.semester.id}` : ""}`;
 

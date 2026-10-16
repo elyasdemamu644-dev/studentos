@@ -117,7 +117,7 @@ describe("LocalDiskStorage", () => {
   let storage: LocalDiskStorage;
 
   beforeAll(async () => {
-    root = await fs.mkdtemp(path.join(os.tmpdir(), "studentos-storage-"));
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "tutor-walle-storage-"));
     storage = new LocalDiskStorage(root);
   });
 

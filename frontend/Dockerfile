@@ -12,15 +12,15 @@ COPY frontend frontend
 COPY packages packages
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-RUN pnpm --filter @studentos/web build
+RUN pnpm --filter @tutor-walle/web build
 
 FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 WORKDIR /app
-RUN groupadd --system --gid 10001 studentos && useradd --system --uid 10001 --gid studentos --home-dir /app studentos
-COPY --from=build --chown=studentos:studentos /workspace/frontend/.next/standalone ./
-COPY --from=build --chown=studentos:studentos /workspace/frontend/.next/static ./frontend/.next/static
-USER studentos
+RUN groupadd --system --gid 10001 tutorwalle && useradd --system --uid 10001 --gid tutorwalle --home-dir /app tutorwalle
+COPY --from=build --chown=tutorwalle:tutorwalle /workspace/frontend/.next/standalone ./
+COPY --from=build --chown=tutorwalle:tutorwalle /workspace/frontend/.next/static ./frontend/.next/static
+USER tutorwalle
 EXPOSE 3000
 CMD ["node", "frontend/server.js"]
 

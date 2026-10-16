@@ -104,7 +104,7 @@ describe("AI structured extraction endpoint", () => {
     // and the schema + task reach the model in the user turn.
     const messages = wireMessages(script.bodies[0]);
     expect(messages[0].role).toBe("system");
-    expect(messages[0].content).toMatch(/StudentOS data/);
+    expect(messages[0].content).toMatch(/Tutor Walle data/);
     const user = messages.find((m) => m.role === "user");
     expect(user?.content).toMatch(/Required output schema/);
     expect(user?.content).toMatch(/What should I study next/);

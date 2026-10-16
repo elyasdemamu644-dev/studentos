@@ -1,10 +1,10 @@
 openapi: 3.1.1
 info:
-  title: StudentOS API
+  title: Tutor Walle API
   version: 0.1.0
   summary: Personal academic operating system for a single student.
   description: >-
-    REST API for the StudentOS web client (and any future client). Every path below is relative to the `/api/v1` server
+    REST API for the Tutor Walle web client (and any future client). Every path below is relative to the `/api/v1` server
     URL; `GET /health` sits outside `/api/v1` at the application root.
 
 
@@ -47,8 +47,8 @@ info:
 
     **Content type.** `application/json` only.
   contact:
-    name: StudentOS
-    url: https://github.com/elyasdemamu/StudentOS
+    name: Tutor Walle
+    url: https://github.com/elyasdemamu644-dev/tutor-walle
   license:
     name: MIT
 servers:
@@ -1505,7 +1505,7 @@ components:
           type: boolean
           default: true
           description: >-
-            True (default): inline the authenticated student's own StudentOS data so the
+            True (default): inline the authenticated student's own Tutor Walle data so the
             model grounds its answer in it. False: pure text → JSON with no context snapshot.
     StructuredOutputSchema:
       type: object
@@ -7526,7 +7526,7 @@ paths:
         Calls the live AI provider (the authenticated student's active connection, or the
         environment default) and returns only output that validates against the JSON Schema
         sent in the request — never raw model prose. The call is grounded in the student's own
-        StudentOS data by default (`ground: true`). This is a read-only path: it executes no
+        Tutor Walle data by default (`ground: true`). This is a read-only path: it executes no
         tools and writes nothing, so there is never a pending proposal to confirm. A reply that
         is not valid JSON or does not match the schema triggers one corrective retry; a provider
         that still never conforms answers 502 `AI_STRUCTURED_OUTPUT_INVALID`. A provider that is

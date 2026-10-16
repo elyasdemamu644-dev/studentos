@@ -174,7 +174,7 @@ describe("Email dispatch", () => {
     });
     // The recipient is always the authenticated owner — never an input.
     expect(captured?.to).toBe(ownerEmail);
-    expect(captured?.subject).toBe("[StudentOS] Task overdue");
+    expect(captured?.subject).toBe("[Tutor Walle] Task overdue");
     expect(captured?.text).toContain("CS101 essay is 1 day overdue.");
 
     const stored = await prisma.notification.findUnique({ where: { id: notification.id } });
@@ -483,9 +483,9 @@ describe("Notification email template", () => {
       message: '"Essay" is 1 day overdue.',
     });
 
-    expect(subject).toBe("[StudentOS] Task overdue");
+    expect(subject).toBe("[Tutor Walle] Task overdue");
     expect(text).toContain("Task overdue");
     expect(text).toContain('"Essay" is 1 day overdue.');
-    expect(text).toContain("— StudentOS");
+    expect(text).toContain("— Tutor Walle");
   });
 });

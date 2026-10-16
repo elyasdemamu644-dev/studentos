@@ -1,10 +1,10 @@
 {
-  "name": "student-os",
+  "name": "tutor-walle",
   "private": true,
   "scripts": {
     "dev": "turbo run dev",
     "predev": "kill-port 3000 3001",
-    "start": "pnpm --filter @studentos/api start",
+    "start": "pnpm --filter @tutor-walle/api start",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",

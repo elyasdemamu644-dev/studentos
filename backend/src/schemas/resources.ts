@@ -3,13 +3,13 @@ import {
   createResourceSchema,
   updateResourceSchema,
   resourceTypeSchema,
-} from "@studentos/shared/schemas/resources";
+} from "@tutor-walle/shared/schemas/resources";
 
 export { createResourceSchema, updateResourceSchema };
 export type {
   CreateResourceInput,
   UpdateResourceInput,
-} from "@studentos/shared/schemas/resources";
+} from "@tutor-walle/shared/schemas/resources";
 
 // ─────────────────────────────────────────────
 // Upload (multipart) text fields

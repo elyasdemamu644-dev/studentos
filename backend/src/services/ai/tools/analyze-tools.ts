@@ -31,7 +31,7 @@ function hasConflict(
 // ANALYZE tools
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Read-only computation over real StudentOS records. They reuse the module
+// Read-only computation over real Tutor Walle records. They reuse the module
 // services (and the dashboard aggregate) rather than re-querying or
 // re-interpreting data, so the numbers the AI reports are the same numbers the
 // UI shows.
@@ -597,7 +597,7 @@ const buildStudyPlanArgs = z.object({
 export const buildStudyPlanTool: AiToolDefinition = {
   name: "build_study_plan",
   description:
-    "Build a day-by-day study plan for a course or an upcoming exam from real StudentOS data. It only *proposes* sessions and tasks — the student is asked to confirm before anything is created. Always confirm the target course with the student first.",
+    "Build a day-by-day study plan for a course or an upcoming exam from real Tutor Walle data. It only *proposes* sessions and tasks — the student is asked to confirm before anything is created. Always confirm the target course with the student first.",
   kind: "ANALYZE",
   activityLabel: "Preparing a study plan",
   parameters: buildStudyPlanArgs,

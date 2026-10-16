@@ -43,7 +43,7 @@ function artifactAction(overrides: Partial<{ name: string; content: string }> = 
 }
 
 beforeAll(async () => {
-  storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), "studentos-artifacts-"));
+  storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), "tutor-walle-artifacts-"));
   setFileStorage(new LocalDiskStorage(storageRoot));
 
   const a = await registerAndLogin(`artifacts-a@test.com`, "Pass123!");

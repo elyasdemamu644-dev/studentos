@@ -1,4 +1,4 @@
-# StudentOS — production deployment on Render + Neon (free tier)
+# Tutor Walle — production deployment on Render + Neon (free tier)
 
 This is the **chosen** production path. The container-based alternative
 (Docker Compose + Caddy + host firewall on an Oracle Always Free VM) is kept in
@@ -20,8 +20,8 @@ npx ajv-cli validate --spec=draft2020 --strict=false -s /tmp/render.yaml.schema.
 
 | Piece | Choice | Why |
 | --- | --- | --- |
-| API | Render **web** service `studentos-api`, Docker (root `Dockerfile`, stage `api`), free plan, Oregon | Free plan has no one-off jobs, so `dockerCommand` runs `prisma migrate deploy && node dist/server.js` on the single instance |
-| Web | Render **web** service `studentos-web`, Docker (`frontend/Dockerfile`, Next standalone), free plan, Oregon | `NEXT_PUBLIC_API_URL` is baked into the client bundle at build time (Render passes env vars as Docker build args) |
+| API | Render **web** service `tutor-walle-api`, Docker (root `Dockerfile`, stage `api`), free plan, Oregon | Free plan has no one-off jobs, so `dockerCommand` runs `prisma migrate deploy && node dist/server.js` on the single instance |
+| Web | Render **web** service `tutor-walle-web`, Docker (`frontend/Dockerfile`, Next standalone), free plan, Oregon | `NEXT_PUBLIC_API_URL` is baked into the client bundle at build time (Render passes env vars as Docker build args) |
 | Database | **Neon** project (external to Render) | Render's own free Postgres expires after 30 days; Neon Free persists |
 | Outbound egress | `EGRESS_MODE=direct` (code-level guard), **no** gateway container | Render free services cannot reach each other over private traffic, so the compose topology (gateway on an internal network) cannot exist there. The SSRF guard, DNS pinning and exact `EGRESS_ALLOWED_DESTINATIONS` allowlist still run for every AI/JWKS request |
 | Email | `EMAIL_ENABLED=false` | Render blocks outbound SMTP (25/465/587) on the free plan, and `direct` mode refuses `EMAIL_ENABLED` by design |
@@ -110,11 +110,11 @@ refuses to bake a non-`https` API URL into the bundle.
 2. Watch the API logs until `listening on …` appears, then:
 
 ```bash
-curl -fsS https://studentos-api.onrender.com/health
+curl -fsS https://tutor-walle-api.onrender.com/health
 # {"status":"ok","database":"connected",...}
 ```
 
-3. `https://studentos-web.onrender.com/` should return the app shell. The
+3. `https://tutor-walle-web.onrender.com/` should return the app shell. The
    first request after the service has slept will be slow; a later
    `curl -o /dev/null -w '%{time_total}\n'` shows the warm latency.
 
@@ -132,12 +132,12 @@ Run against the real URLs (same sequence verified locally against the bundled
 container image, 26/26 green, before deployment):
 
 ```bash
-API=https://studentos-api.onrender.com/api/v1
-WEB=https://studentos-web.onrender.com
+API=https://tutor-walle-api.onrender.com/api/v1
+WEB=https://tutor-walle-web.onrender.com
 
 curl -fsS $API/health                                  # 200, database connected
 curl -fsS -X OPTIONS "$API/auth/login" \
-  -H 'Origin: https://studentos-web.onrender.com' \
+  -H 'Origin: https://tutor-walle-web.onrender.com' \
   -H 'Access-Control-Request-Method: POST' -i          # Access-Control-Allow-Origin echoes $WEB
 curl -fsS -X OPTIONS "$API/auth/login" \
   -H 'Origin: https://evil.example' -i                 # no Access-Control-Allow-Origin header

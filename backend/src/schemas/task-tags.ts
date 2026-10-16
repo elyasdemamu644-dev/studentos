@@ -1,12 +1,12 @@
 import { z } from "zod";
 import {
   createTaskTagSchema,
-} from "@studentos/shared/schemas/tasks";
+} from "@tutor-walle/shared/schemas/tasks";
 
 export { createTaskTagSchema };
 export type {
   CreateTaskTagInput,
-} from "@studentos/shared/schemas/tasks";
+} from "@tutor-walle/shared/schemas/tasks";
 
 // ─────────────────────────────────────────────
 // Update tag (rename / recolor)

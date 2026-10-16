@@ -61,7 +61,7 @@ describe("AiProvider#isConfigured (regression: ollama chat was a 503)", () => {
   });
 });
 
-describe("AiProvider#chat grounds the model in StudentOS data (regression: context was built and stored but never sent)", () => {
+describe("AiProvider#chat grounds the model in Tutor Walle data (regression: context was built and stored but never sent)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -90,7 +90,7 @@ describe("AiProvider#chat grounds the model in StudentOS data (regression: conte
     );
 
     const context = JSON.stringify({
-      studentos: {
+      tutorWalle: {
         courses: [{ id: "c1", name: "Database Systems", code: "CS-345", status: "ACTIVE" }],
         tasks: [],
       },
@@ -112,7 +112,7 @@ describe("AiProvider#chat grounds the model in StudentOS data (regression: conte
     expect(url).toBe("https://provider.test.local/chat/completions");
     expect(body.model).toBe("test-model");
     expect(body.messages[0].role).toBe("system");
-    expect(body.messages[0].content).toContain("StudentOS academic assistant");
+    expect(body.messages[0].content).toContain("Tutor Walle academic assistant");
     expect(body.messages[0].content).toContain(context);
     expect(body.messages[1]).toEqual({ role: "user", content: "How is my progress going?" });
   });

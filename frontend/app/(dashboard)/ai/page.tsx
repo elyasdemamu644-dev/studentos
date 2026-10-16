@@ -610,11 +610,11 @@ export default function AiPage() {
           <AiFilesPanel conversationId={selectedId} />
         </WorkspacePanel>
 
-        {/* StudentOS Context. A box only once the viewport can afford it;
+        {/* Tutor Walle Context. A box only once the viewport can afford it;
             below that the same panel is a drawer from the toolbar. */}
         <WorkspacePanel
-          title="StudentOS Context"
-          label="StudentOS context"
+          title="Tutor Walle Context"
+          label="Tutor Walle context"
           icon={Layers}
           collapsed={!contextOpen}
           onCollapsedChange={(collapsed) => setContextOpen(!collapsed)}

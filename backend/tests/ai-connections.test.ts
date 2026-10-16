@@ -135,7 +135,7 @@ function mockFetch(over: {
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe("AI Connections — StudentOS Phase 2", () => {
+describe("AI Connections — Tutor Walle Phase 2", () => {
   let alice: {
     token: string;
     user: { id: string; email: string };
@@ -147,8 +147,8 @@ describe("AI Connections — StudentOS Phase 2", () => {
   let connId: string;
 
   beforeAll(async () => {
-    alice = await registerAndLogin("alice@studentos.test", "Pass123!");
-    bob = await registerAndLogin("bob@studentos.test", "Pass123!");
+    alice = await registerAndLogin("alice@tutor-walle.test", "Pass123!");
+    bob = await registerAndLogin("bob@tutor-walle.test", "Pass123!");
   });
 
   beforeEach(async () => {
@@ -1225,7 +1225,7 @@ describe("AI Connections — outbound SSRF boundary (POST /test)", () => {
 
   it("refuses the cloud metadata endpoint without any network call", async () => {
     setSsrfPolicyForTests({ allowPrivate: false });
-    const { token } = await registerAndLogin("ssrf-metadata@studentos.test", "Pass123!");
+    const { token } = await registerAndLogin("ssrf-metadata@tutor-walle.test", "Pass123!");
 
     const res = await authRequestJson("post", `${BASE}/test`, token, {
       provider: "openai",
@@ -1240,7 +1240,7 @@ describe("AI Connections — outbound SSRF boundary (POST /test)", () => {
 
   it("refuses a private literal endpoint without any network call", async () => {
     setSsrfPolicyForTests({ allowPrivate: false });
-    const { token } = await registerAndLogin("ssrf-private@studentos.test", "Pass123!");
+    const { token } = await registerAndLogin("ssrf-private@tutor-walle.test", "Pass123!");
 
     const res = await authRequestJson("post", `${BASE}/test`, token, {
       provider: "openai",

@@ -2,7 +2,7 @@
 // Theme configuration
 // ─────────────────────────────────────────────
 //
-// StudentOS theming has two independent axes:
+// Tutor Walle theming has two independent axes:
 //
 //   Appearance — light | dark | system. Whether the sun is up.
 //   Theme      — default | paper | neon | aurora | focus. What the app

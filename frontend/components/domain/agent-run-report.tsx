@@ -34,7 +34,7 @@ const FINISH_COPY: Record<
 > = {
   answered: {
     label: "Answered",
-    detail: "The model replied using your StudentOS data.",
+    detail: "The model replied using your Tutor Walle data.",
     tone: "success",
   },
   confirmation_pending: {
@@ -51,7 +51,7 @@ const FINISH_COPY: Record<
   no_tool_support: {
     label: "No tool calling on this provider",
     detail:
-      "The configured provider cannot call StudentOS tools, so this answer came from the model alone and could not read or change your data.",
+      "The configured provider cannot call Tutor Walle tools, so this answer came from the model alone and could not read or change your data.",
     tone: "danger",
   },
 };
@@ -97,7 +97,7 @@ export function AgentRunReport({ run }: { run: AiAgentRun }) {
           </dl>
           {!run.toolSupport && (
             <p className="rounded-md bg-danger/10 px-2.5 py-2 text-danger">
-              This provider does not support tool calling, so the assistant cannot read your StudentOS
+              This provider does not support tool calling, so the assistant cannot read your Tutor Walle
               data or propose changes.
             </p>
           )}

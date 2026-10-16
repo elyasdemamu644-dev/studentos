@@ -1,12 +1,12 @@
 import { z } from "zod";
 import {
   updateNotificationSchema,
-} from "@studentos/shared/schemas/notifications";
+} from "@tutor-walle/shared/schemas/notifications";
 
 export { updateNotificationSchema };
 export type {
   UpdateNotificationInput,
-} from "@studentos/shared/schemas/notifications";
+} from "@tutor-walle/shared/schemas/notifications";
 
 // ─────────────────────────────────────────────
 // List query

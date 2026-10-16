@@ -15,12 +15,12 @@ import { registerAndLogin, authRequest, authRequestJson } from "./helpers";
 
 const BASE = "/api/v1";
 
-describe("Auth Module — StudentOS MVP", () => {
+describe("Auth Module — Tutor Walle MVP", () => {
   // ── Registration ──────────────────────────────────────────────
   describe("POST /auth/register", () => {
     it("creates a user and returns 201 with the user payload", async () => {
       const payload = {
-        email: "alice@studentos.test",
+        email: "alice@tutor-walle.test",
         password: "SafePass1!",
         firstName: "Alice",
         lastName: "Demo",
@@ -37,7 +37,7 @@ describe("Auth Module — StudentOS MVP", () => {
         success: true,
         data: {
           id: expect.any(String),
-          email: "alice@studentos.test",
+          email: "alice@tutor-walle.test",
           firstName: "Alice",
           lastName: "Demo",
           university: "Test University",
@@ -47,27 +47,27 @@ describe("Auth Module — StudentOS MVP", () => {
     });
 
     it("rejects duplicate emails with 409", async () => {
-      await registerAndLogin("dup@studentos.test", "SafePass1!");
+      await registerAndLogin("dup@tutor-walle.test", "SafePass1!");
       await request(app)
         .post(`${BASE}/auth/register`)
-        .send({ email: "dup@studentos.test", password: "x" })
+        .send({ email: "dup@tutor-walle.test", password: "x" })
         .expect(409);
     });
 
     it("normalises the email to lower case", async () => {
       const res = await request(app)
         .post(`${BASE}/auth/register`)
-        .send({ email: "Mixed.Case@StudentOS.test", password: "SafePass1!" })
+        .send({ email: "Mixed.Case@Tutor-Walle.test", password: "SafePass1!" })
         .expect(201);
 
-      expect(res.body.data.email).toBe("mixed.case@studentos.test");
+      expect(res.body.data.email).toBe("mixed.case@tutor-walle.test");
     });
 
     it("treats a differently-cased duplicate as the same account", async () => {
-      await registerAndLogin("case-dup@studentos.test", "SafePass1!");
+      await registerAndLogin("case-dup@tutor-walle.test", "SafePass1!");
       await request(app)
         .post(`${BASE}/auth/register`)
-        .send({ email: "CASE-DUP@studentos.test", password: "x" })
+        .send({ email: "CASE-DUP@tutor-walle.test", password: "x" })
         .expect(409);
     });
   });
@@ -75,7 +75,7 @@ describe("Auth Module — StudentOS MVP", () => {
   // ── Login ─────────────────────────────────────────────────────
   describe("POST /auth/login", () => {
     const creds = {
-      email: "login@studentos.test",
+      email: "login@tutor-walle.test",
       password: "SafePass1!",
     };
 
@@ -111,14 +111,14 @@ describe("Auth Module — StudentOS MVP", () => {
     it("rejects unknown email with 401", async () => {
       await request(app)
         .post(`${BASE}/auth/login`)
-        .send({ email: "nobody@studentos.test", password: "x" })
+        .send({ email: "nobody@tutor-walle.test", password: "x" })
         .expect(401);
     });
 
     it("accepts the email regardless of casing", async () => {
       await request(app)
         .post(`${BASE}/auth/login`)
-        .send({ email: "LOGIN@StudentOS.test", password: creds.password })
+        .send({ email: "LOGIN@Tutor-Walle.test", password: creds.password })
         .expect(200);
     });
   });
@@ -128,7 +128,7 @@ describe("Auth Module — StudentOS MVP", () => {
     let token: string;
 
     beforeAll(async () => {
-      const auth = await registerAndLogin("change-pass@studentos.test", "SafePass1!");
+      const auth = await registerAndLogin("change-pass@tutor-walle.test", "SafePass1!");
       token = auth.token;
     });
 
@@ -151,7 +151,7 @@ describe("Auth Module — StudentOS MVP", () => {
 
       await request(app)
         .post(`${BASE}/auth/login`)
-        .send({ email: "change-pass@studentos.test", password: "BrandNewPass1!" })
+        .send({ email: "change-pass@tutor-walle.test", password: "BrandNewPass1!" })
         .expect(200);
     });
   });
@@ -161,7 +161,7 @@ describe("Auth Module — StudentOS MVP", () => {
     let refreshToken: string;
 
     beforeAll(async () => {
-      const creds = { email: "refresh@studentos.test", password: "SafePass1!" };
+      const creds = { email: "refresh@tutor-walle.test", password: "SafePass1!" };
       await registerAndLogin(creds.email, creds.password);
       const loginRes = await request(app)
         .post(`${BASE}/auth/login`)
@@ -197,7 +197,7 @@ describe("Auth Module — StudentOS MVP", () => {
     let refreshToken: string;
 
     beforeAll(async () => {
-      const creds = { email: "logout@studentos.test", password: "SafePass1!" };
+      const creds = { email: "logout@tutor-walle.test", password: "SafePass1!" };
       await registerAndLogin(creds.email, creds.password);
       const loginRes = await request(app)
         .post(`${BASE}/auth/login`)
@@ -224,7 +224,7 @@ describe("Auth Module — StudentOS MVP", () => {
     let accessToken: string;
 
     beforeAll(async () => {
-      const creds = { email: "me@studentos.test", password: "SafePass1!" };
+      const creds = { email: "me@tutor-walle.test", password: "SafePass1!" };
       await registerAndLogin(creds.email, creds.password);
       const loginRes = await request(app)
         .post(`${BASE}/auth/login`)
@@ -239,7 +239,7 @@ describe("Auth Module — StudentOS MVP", () => {
       expect(res.body).toMatchObject({
         success: true,
         data: {
-          email: "me@studentos.test",
+          email: "me@tutor-walle.test",
         },
       });
     });

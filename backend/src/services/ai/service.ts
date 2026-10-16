@@ -181,7 +181,7 @@ export const aiService = {
         throw new AiProviderNotConfiguredError();
       }
 
-      // Assemble ground-truth context from the user's StudentOS data. It is
+      // Assemble ground-truth context from the user's Tutor Walle data. It is
       // stored on the user message (as before), inlined into the prompt for
       // providers that have no native tool support, and handed to the agent as
       // a structured snapshot so the tool path also starts oriented.

@@ -23,7 +23,7 @@ export class ApiClientError extends Error {
 }
 
 export class NetworkError extends ApiClientError {
-  constructor(message = "Unable to reach the StudentOS server. Check your connection and try again.") {
+  constructor(message = "Unable to reach the Tutor Walle server. Check your connection and try again.") {
     super(message, 0, "NETWORK_ERROR");
     this.name = "NetworkError";
   }

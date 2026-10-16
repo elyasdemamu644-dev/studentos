@@ -8,7 +8,7 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 async function main() {
-  console.log("🌱 Seeding StudentOS database...");
+  console.log("🌱 Seeding Tutor Walle database...");
 
   // 1. Clean slate in reverse foreign-key order
   await prisma.aiStudyPlanEntry.deleteMany();
@@ -38,7 +38,7 @@ async function main() {
   // 2. Demo User
   const demoUser = await prisma.user.create({
     data: {
-      email: "demo@studentos.dev",
+      email: "demo@tutor-walle.dev",
       passwordHash,
       firstName: "Alex",
       lastName: "Rivera",
@@ -61,7 +61,7 @@ async function main() {
   // Secondary User for multi-tenant isolation verification
   const bobUser = await prisma.user.create({
     data: {
-      email: "bob@studentos.dev",
+      email: "bob@tutor-walle.dev",
       passwordHash,
       firstName: "Bob",
       lastName: "Stone",
@@ -332,7 +332,7 @@ Committed state survives crashes via persistent log records.
   });
 
   console.log("✅ Seed successfully completed!");
-  console.log(`   Users:          ${await prisma.user.count()} (Demo: demo@studentos.dev / StudentPass123!)`);
+  console.log(`   Users:          ${await prisma.user.count()} (Demo: demo@tutor-walle.dev / StudentPass123!)`);
   console.log(`   Academic Years: ${await prisma.academicYear.count()}`);
   console.log(`   Semesters:      ${await prisma.semester.count()}`);
   console.log(`   Courses:        ${await prisma.course.count()}`);

@@ -365,12 +365,12 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
     <Link
       href="/dashboard"
       className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      aria-label="StudentOS home"
+      aria-label="Tutor Walle home"
     >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-card">
         S
       </span>
-      {!collapsed && <span className="font-display-strong text-base">StudentOS</span>}
+      {!collapsed && <span className="font-display-strong text-base">Tutor Walle</span>}
     </Link>
   );
 }

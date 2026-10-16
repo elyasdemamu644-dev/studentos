@@ -324,7 +324,7 @@ export default function SettingsPage() {
 
       <Separator className="mb-2" />
       <p className="text-xs text-muted-foreground">
-        StudentOS · Data is stored securely and private to your account.
+        Tutor Walle · Data is stored securely and private to your account.
       </p>
     </div>
   );

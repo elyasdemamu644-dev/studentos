@@ -6,8 +6,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "StudentOS — Study smarter, stay organized",
-    template: "%s · StudentOS",
+    default: "Tutor Walle — Study smarter, stay organized",
+    template: "%s · Tutor Walle",
   },
   description:
     "Courses, tasks, notes, study timer, goals and analytics for students — all in one sprint-ready workspace.",
@@ -34,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <style
-          id="studentos-theme-tokens"
+          id="tutor-walle-theme-tokens"
           // Static, build-time output from our own theme definitions — there is
           // no user input anywhere in this string.
           dangerouslySetInnerHTML={{ __html: themeCss }}

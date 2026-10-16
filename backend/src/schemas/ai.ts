@@ -103,7 +103,7 @@ export const structuredFieldSchema = z.lazy(() =>
 export const structuredRequestSchema = z.object({
   prompt: z.string().trim().min(1, "Prompt is required").max(4000),
   schema: structuredFieldSchema,
-  // Inline the student's own StudentOS data so the model grounds its answer.
+  // Inline the student's own Tutor Walle data so the model grounds its answer.
   // False turns the endpoint into a pure text → JSON utility.
   ground: z.boolean().optional().default(true),
 });

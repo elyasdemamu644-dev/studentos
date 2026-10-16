@@ -32,7 +32,7 @@ import {
 /** The system-style instruction glued into the task message. */
 function schemaInstruction(schemaText: string): string {
   return (
-    "You are StudentOS's structured extraction assistant. Return a single JSON value that " +
+    "You are Tutor Walle's structured extraction assistant. Return a single JSON value that " +
     "conforms EXACTLY to the JSON Schema below — no markdown fences, no prose before or " +
     "after, no extra keys, no missing fields, and no values of the wrong type. Reread the " +
     "schema and check your own JSON against it before answering.\n\n" +
@@ -74,7 +74,7 @@ export async function extractStructured(options: {
 
   const schemaText = JSON.stringify(options.schema);
   const groundingLine = options.ground
-    ? "Ground your answer in the student's own StudentOS data where relevant.\n"
+    ? "Ground your answer in the student's own Tutor Walle data where relevant.\n"
     : "Do not invent facts that are not in the task.\n";
   const taskMessage = `${schemaInstruction(schemaText)}\n\n${groundingLine}Task:\n${options.prompt}`;
 

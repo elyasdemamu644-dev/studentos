@@ -216,7 +216,7 @@ export function MaterialUploadDialog({
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Leave on auto-detect to let StudentOS choose from the file&apos;s content.
+            Leave on auto-detect to let Tutor Walle choose from the file&apos;s content.
           </p>
         </div>
 

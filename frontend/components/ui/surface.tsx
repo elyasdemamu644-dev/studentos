@@ -112,7 +112,7 @@ export { Surface };
  *
  * It is deliberately private: a panel is not allowed to grow a second toggle,
  * which is how the AI workspace ended up with four disclosure buttons for three
- * panels and two of them both claimed to control the StudentOS context.
+ * panels and two of them both claimed to control the Tutor Walle context.
  */
 function PanelCollapseControl({
   collapsed,

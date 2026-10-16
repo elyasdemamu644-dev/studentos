@@ -10,20 +10,20 @@ const GOOD_SECRET = "x".repeat(43);
 
 const production = {
   nodeEnv: "production",
-  databaseUrl: "postgresql://app:password@ep-studentos-pooler.us-east-1.aws.neon.tech/studentos?sslmode=require&connection_limit=5",
+  databaseUrl: "postgresql://app:password@ep-tutor-walle-pooler.us-east-1.aws.neon.tech/studentos?sslmode=require&connection_limit=5",
   jwtSecret: GOOD_SECRET,
   encryptionKey: GOOD_SECRET,
   aiAllowPrivateEndpoints: false,
   egressProxyUrl: "http://egress-proxy:3128",
-  egressAllowedDestinations: ["ep-studentos-pooler.us-east-1.aws.neon.tech:5432", "openrouter.ai:443", "www.googleapis.com:443"],
+  egressAllowedDestinations: ["ep-tutor-walle-pooler.us-east-1.aws.neon.tech:5432", "openrouter.ai:443", "www.googleapis.com:443"],
   aiEnabled: true,
   aiProvider: "openrouter",
-  egressDatabaseHost: "ep-studentos-pooler.us-east-1.aws.neon.tech",
+  egressDatabaseHost: "ep-tutor-walle-pooler.us-east-1.aws.neon.tech",
   trustProxyExplicit: true,
   trustProxyValid: true,
   trustProxy: 1,
   corsOriginsExplicit: true,
-  corsOrigins: ["https://studentos.example"],
+  corsOrigins: ["https://tutor-walle.example"],
 };
 
 describe("production configuration validation", () => {
@@ -85,7 +85,7 @@ describe("production configuration validation", () => {
         jwtSecret: undefined,
         encryptionKey: undefined,
         corsOriginsExplicit: true,
-        corsOrigins: ["https://studentos.example"],
+        corsOrigins: ["https://tutor-walle.example"],
       });
     expect(errors.join(" ")).not.toMatch(/JWT_SECRET|ENCRYPTION_KEY/);
     expect(errors).toContain("EGRESS_PROXY_URL is required in production");
@@ -124,7 +124,7 @@ describe("production configuration validation", () => {
     ).toMatch(/must match EGRESS_DATABASE_HOST/);
     const errors = productionConfigErrors({
       ...production,
-      databaseUrl: "postgresql://app:secret@ep-studentos-pooler.us-east-1.aws.neon.tech/db",
+      databaseUrl: "postgresql://app:secret@ep-tutor-walle-pooler.us-east-1.aws.neon.tech/db",
     });
     expect(errors.join(" ")).toContain("must require TLS");
     expect(errors.join(" ")).not.toContain("secret");
@@ -133,7 +133,7 @@ describe("production configuration validation", () => {
   it("rejects insecure CORS origins and invalid reverse-proxy settings", () => {
     const errors = productionConfigErrors({
       ...production,
-      corsOrigins: ["*", "http://studentos.example/path"],
+      corsOrigins: ["*", "http://tutor-walle.example/path"],
       trustProxyValid: false,
       trustProxy: 0,
     });

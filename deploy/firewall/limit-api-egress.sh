@@ -4,8 +4,8 @@ set -euo pipefail
 # Run only on the Linux Docker host after `docker compose up` created the
 # network. This policy is intentionally scoped to the API container address;
 # it does not edit INPUT/SSH rules or alter other workloads.
-API_IP="${STUDENTOS_API_IP:-172.30.0.3}"
-GATEWAY_IP="${STUDENTOS_GATEWAY_IP:-172.30.0.2}"
+API_IP="${TUTOR_WALLE_API_IP:-172.30.0.3}"
+GATEWAY_IP="${TUTOR_WALLE_GATEWAY_IP:-172.30.0.2}"
 CHAIN="DOCKER-USER"
 
 if ! command -v iptables >/dev/null || ! iptables -nL "$CHAIN" >/dev/null 2>&1; then

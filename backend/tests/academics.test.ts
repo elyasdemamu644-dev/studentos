@@ -3,7 +3,7 @@ import { registerAndLogin, authRequestJson } from "./helpers";
 
 const BASE = "/api/v1";
 
-describe("Academics Module — StudentOS MVP", () => {
+describe("Academics Module — Tutor Walle MVP", () => {
   let accessToken: string;
   let anotherAccessToken: string;
   let academicYearId: string;
@@ -12,13 +12,13 @@ describe("Academics Module — StudentOS MVP", () => {
 
   beforeAll(async () => {
     const user = await registerAndLogin({
-      email: "academics@studentos.test",
+      email: "academics@tutor-walle.test",
       password: "SafePass1!",
     });
     accessToken = user.accessToken;
 
     const anotherUser = await registerAndLogin({
-      email: "academics-other@studentos.test",
+      email: "academics-other@tutor-walle.test",
       password: "SafePass1!",
     });
     anotherAccessToken = anotherUser.accessToken;

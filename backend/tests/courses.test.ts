@@ -5,7 +5,7 @@ import { registerAndLogin, authRequestJson, prisma } from "./helpers";
 
 const BASE = "/api/v1";
 
-describe("Courses Module — StudentOS MVP", () => {
+describe("Courses Module — Tutor Walle MVP", () => {
   let accessToken: string;
   let userId: string;
   let anotherAccessToken: string;
@@ -16,14 +16,14 @@ describe("Courses Module — StudentOS MVP", () => {
 
   beforeAll(async () => {
     const user = await registerAndLogin({
-      email: "courses@studentos.test",
+      email: "courses@tutor-walle.test",
       password: "SafePass1!",
     });
     accessToken = user.accessToken;
     userId = user.user.id;
 
     const anotherUser = await registerAndLogin({
-      email: "courses-other@studentos.test",
+      email: "courses-other@tutor-walle.test",
       password: "SafePass1!",
     });
     anotherAccessToken = anotherUser.accessToken;
@@ -177,7 +177,7 @@ describe("Courses Module — StudentOS MVP", () => {
 
     it("returns empty list for a new user with no courses", async () => {
       const brandNew = await registerAndLogin({
-        email: "courses-empty@studentos.test",
+        email: "courses-empty@tutor-walle.test",
         password: "SafePass1!",
       });
       const res = await authRequestJson(brandNew.accessToken)

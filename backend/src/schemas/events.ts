@@ -2,13 +2,13 @@ import { z } from "zod";
 import {
   createEventSchema,
   updateEventSchema,
-} from "@studentos/shared/schemas/events";
+} from "@tutor-walle/shared/schemas/events";
 
 export { createEventSchema, updateEventSchema };
 export type {
   CreateEventInput,
   UpdateEventInput,
-} from "@studentos/shared/schemas/events";
+} from "@tutor-walle/shared/schemas/events";
 
 // ─────────────────────────────────────────────
 // List query

@@ -109,10 +109,10 @@ function renderWithQuery(node: ReactElement) {
 let AiPage: ComponentType;
 
 const history = () => screen.queryByRole("navigation", { name: "Conversation history" });
-const context = () => screen.queryByRole("complementary", { name: "StudentOS context" });
+const context = () => screen.queryByRole("complementary", { name: "Tutor Walle context" });
 const files = () => screen.queryByRole("complementary", { name: "Conversation files" });
 const chat = () => screen.queryByRole("region", { name: "AI conversation" });
-const composer = () => screen.queryByLabelText("Message StudentOS AI");
+const composer = () => screen.queryByLabelText("Message Tutor Walle AI");
 
 /**
  * The collapsible panels, by the names their own collapse control answers to
@@ -129,9 +129,9 @@ const PANELS = [
     index: 2,
   },
   {
-    name: "StudentOS Context",
-    hide: "Hide StudentOS context",
-    show: "Show StudentOS context",
+    name: "Tutor Walle Context",
+    hide: "Hide Tutor Walle context",
+    show: "Show Tutor Walle context",
     index: 3,
   },
 ] as const;
@@ -202,7 +202,7 @@ describe("AI workspace panels", () => {
       "Chat History",
       "AI Assistant",
       "Conversation Files",
-      "StudentOS Context",
+      "Tutor Walle Context",
     ]);
 
     for (const panel of panels) {
@@ -320,7 +320,7 @@ describe("AI workspace panels", () => {
 
     // And collapsing both neighbours never touches it.
     await userEvent.click(screen.getByRole("button", { name: "Hide chat history" }));
-    await userEvent.click(screen.getByRole("button", { name: "Hide StudentOS context" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hide Tutor Walle context" }));
 
     expect(chat()).toBeInTheDocument();
     expect(composer()).toBeInTheDocument();
@@ -328,14 +328,14 @@ describe("AI workspace panels", () => {
     expect(hasClass(chatBox, "flex-1")).toBe(true);
   });
 
-  it("has exactly one StudentOS context control and no stray duplicate", async () => {
+  it("has exactly one Tutor Walle context control and no stray duplicate", async () => {
     const { container } = renderWithQuery(<AiPage />);
-    await screen.findByRole("complementary", { name: "StudentOS context" });
+    await screen.findByRole("complementary", { name: "Tutor Walle context" });
 
     // The defect this pins: the context panel was disclosed by two controls, one
     // of them in the chat's toolbar, so no single button's state was the panel's
     // state and the two could disagree.
-    expect(controlsFor("Hide StudentOS context")).toHaveLength(1);
+    expect(controlsFor("Hide Tutor Walle context")).toHaveLength(1);
     expect(controlsFor("Hide context panel")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /context panel/i })).not.toBeInTheDocument();
 
@@ -413,19 +413,19 @@ describe("AI workspace panels", () => {
 
   it("hands the chat the width when context collapses, leaving history alone", async () => {
     renderWithQuery(<AiPage />);
-    await screen.findByRole("complementary", { name: "StudentOS context" });
+    await screen.findByRole("complementary", { name: "Tutor Walle context" });
 
-    await userEvent.click(screen.getByRole("button", { name: "Hide StudentOS context" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hide Tutor Walle context" }));
 
     expect(context()).not.toBeInTheDocument();
     expect(history()).toBeInTheDocument();
     expect(chat()).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show StudentOS context" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Show Tutor Walle context" })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Show StudentOS context" }));
+    await userEvent.click(screen.getByRole("button", { name: "Show Tutor Walle context" }));
 
     expect(context()).toBeInTheDocument();
     expect(history()).toBeInTheDocument();
@@ -438,7 +438,7 @@ describe("AI workspace panels", () => {
     { history: true, files: true, context: true, name: "all three expanded" },
     { history: false, files: true, context: true, name: "chat history collapsed" },
     { history: true, files: false, context: true, name: "conversation files collapsed" },
-    { history: true, files: true, context: false, name: "StudentOS context collapsed" },
+    { history: true, files: true, context: false, name: "Tutor Walle context collapsed" },
     { history: false, files: false, context: true, name: "history and files collapsed" },
     { history: false, files: true, context: false, name: "history and context collapsed" },
     { history: true, files: false, context: false, name: "files and context collapsed" },
@@ -520,7 +520,7 @@ describe("AI workspace panels", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Hide chat history" }));
     await userEvent.click(screen.getByRole("button", { name: "Hide conversation files" }));
-    await userEvent.click(screen.getByRole("button", { name: "Hide StudentOS context" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hide Tutor Walle context" }));
 
     // A rail, not zero: the panel keeps its header, so it keeps its control.
     expect(hasClass(historyBox, "w-12")).toBe(true);
@@ -547,12 +547,12 @@ describe("AI workspace panels", () => {
     const historyButton = screen.getByRole("button", { name: /^history/i });
     expect(historyButton.className).not.toContain("lg:hidden");
 
-    const contextButton = screen.getByRole("button", { name: "Open StudentOS context" });
+    const contextButton = screen.getByRole("button", { name: "Open Tutor Walle context" });
     expect(contextButton.className).toContain("min-[1360px]:hidden");
 
     await userEvent.click(contextButton);
     const drawer = await screen.findByRole("dialog");
-    expect(within(drawer).getByText("StudentOS Context")).toBeInTheDocument();
+    expect(within(drawer).getByText("Tutor Walle Context")).toBeInTheDocument();
 
     await userEvent.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -589,7 +589,7 @@ describe("AI workspace panels", () => {
       "Conversation messages",
       "Conversation history list",
       "Conversation files list",
-      "StudentOS context details",
+      "Tutor Walle context details",
     ]) {
       const region = await screen.findByRole(name === "Conversation messages" ? "log" : "region", {
         name,

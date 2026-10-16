@@ -1,4 +1,4 @@
-name: studentos
+name: tutor-walle
 services:
   egress-gateway:
     init: true

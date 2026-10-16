@@ -1,7 +1,7 @@
 // Custom error classes so the rest of the app throws typed errors and the
 // error-handling middleware can map them to the right HTTP status + error code.
 
-import { ERROR_CODES } from "@studentos/shared/schemas/api";
+import { ERROR_CODES } from "@tutor-walle/shared/schemas/api";
 
 // Base API error — all other API errors extend this so the middleware can
 // distinguish application errors from programming bugs.

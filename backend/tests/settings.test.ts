@@ -66,7 +66,7 @@ describe("Settings Module", () => {
       expect(res.status).toBe(400);
     });
 
-    it("persists StudentOS Default AI mode", async () => {
+    it("persists Tutor Walle Default AI mode", async () => {
       const res = await authRequestJson("patch", `${BASE}/settings`, token, {
         settings: { "ai.providerMode": "default" },
       });

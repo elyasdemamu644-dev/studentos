@@ -23,7 +23,7 @@ describe("API contract safety", () => {
 
   beforeAll(async () => {
     const user = await registerAndLogin({
-      email: "contract-safety@studentos.test",
+      email: "contract-safety@tutor-walle.test",
       password: "SafePass1!",
     });
     accessToken = user.accessToken;
@@ -110,10 +110,10 @@ describe("API contract safety", () => {
   it("does not tell an attacker whether an email exists at login", async () => {
     const unknown = await request(app)
       .post(`${BASE}/auth/login`)
-      .send({ email: "missing@studentos.test", password: "whatever" });
+      .send({ email: "missing@tutor-walle.test", password: "whatever" });
     const wrongPassword = await request(app)
       .post(`${BASE}/auth/login`)
-      .send({ email: "contract-safety@studentos.test", password: "wrong" });
+      .send({ email: "contract-safety@tutor-walle.test", password: "wrong" });
 
     expect(unknown.status).toBe(401);
     expect(wrongPassword.status).toBe(401);
@@ -331,7 +331,7 @@ describe("API contract safety", () => {
 
   it("keeps the ownership rule: 404, never 403", async () => {
     const other = await registerAndLogin({
-      email: "contract-other@studentos.test",
+      email: "contract-other@tutor-walle.test",
       password: "SafePass1!",
     });
 

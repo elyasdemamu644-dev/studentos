@@ -26,7 +26,7 @@ describe("UPLOAD_DIR resolution", () => {
   });
 
   it("honours an explicit UPLOAD_DIR verbatim", async () => {
-    const custom = path.join(os.tmpdir(), "studentos-custom-uploads");
+    const custom = path.join(os.tmpdir(), "tutor-walle-custom-uploads");
     process.env.UPLOAD_DIR = custom;
     vi.resetModules();
     const { config } = await import("@/config");

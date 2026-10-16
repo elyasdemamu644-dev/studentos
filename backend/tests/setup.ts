@@ -10,7 +10,7 @@ import { cleanupDb } from "./helpers";
 setOutboundTransportForTests((url, init) => globalThis.fetch(url, init));
 
 // Each test file starts from an empty database, so the fixed emails
-// used by registerAndLogin (alice@studentos.test, tasks@test.com, ...)
+// used by registerAndLogin (alice@tutor-walle.test, tasks@test.com, ...)
 // never collide — neither across files nor with stale rows from earlier
 // runs. Files run sequentially (fileParallelism: false).
 beforeAll(async () => {

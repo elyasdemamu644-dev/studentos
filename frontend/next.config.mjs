@@ -35,7 +35,7 @@ if (process.env.RENDER === "true") {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@studentos/shared"],
+  transpilePackages: ["@tutor-walle/shared"],
   reactStrictMode: true,
   output: "standalone",
   experimental: {

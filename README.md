@@ -1,4 +1,4 @@
-# StudentOS
+# Tutor Walle
 
 A personal academic operating system — one place for academic years, courses, tasks, exams, notes, resources, study sessions, goals, grades and notifications, with an AI assistant grounded in your own data.
 
@@ -11,7 +11,7 @@ Full-stack TypeScript monorepo: **Next.js 14** web app + **Express 5 / Prisma / 
 | **Web** | Next.js 14.2.30 (App Router), React 18, TypeScript `strict`, Tailwind CSS 3.4, Radix UI, TanStack Query v5, react-hook-form + Zod, Recharts |
 | **API** | Express 5, TypeScript (ESM), Prisma 6, Zod, `jose`, `@node-rs/argon2` |
 | **Database** | PostgreSQL |
-| **Shared** | `@studentos/shared` — Zod schemas and cross-app types |
+| **Shared** | `@tutor-walle/shared` — Zod schemas and cross-app types |
 | **Tooling** | pnpm workspaces + Turborepo, Vitest, ESLint (`next lint`) |
 | **Tests** | 840 passing — 571 API (integration, real DB) + 269 web (jsdom) |
 
@@ -32,17 +32,17 @@ cp backend/.env.example backend/.env
 
 cp frontend/.env.local.example frontend/.env.local
 
-pnpm --filter @studentos/api db:generate   # prisma generate
+pnpm --filter @tutor-walle/api db:generate   # prisma generate
 
 # create the schema from migrations — works on an empty database too:
 npx prisma migrate deploy        # run from backend
 
-pnpm --filter @studentos/api db:seed     # optional: demo data (destructive)
-pnpm --filter @studentos/api db:push     # schema-only escape hatch, no history
-pnpm --filter @studentos/api db:migrate  # create a migration for a schema change
+pnpm --filter @tutor-walle/api db:seed     # optional: demo data (destructive)
+pnpm --filter @tutor-walle/api db:push     # schema-only escape hatch, no history
+pnpm --filter @tutor-walle/api db:migrate  # create a migration for a schema change
 ```
 
-The seed creates `demo@studentos.dev` / `StudentPass123!`. **It deletes all existing rows first.**
+The seed creates `demo@tutor-walle.dev` / `StudentPass123!`. **It deletes all existing rows first.**
 
 Start both apps:
 
@@ -70,17 +70,17 @@ pnpm test         # full suite
 Per package:
 
 ```bash
-pnpm --filter @studentos/api dev|build|start|test|test:watch
-pnpm --filter @studentos/web dev|build|start|lint|test
+pnpm --filter @tutor-walle/api dev|build|start|test|test:watch
+pnpm --filter @tutor-walle/web dev|build|start|lint|test
 ```
 
 Database:
 
 ```bash
-pnpm --filter @studentos/api db:generate   # prisma generate
-pnpm --filter @studentos/api db:push       # prisma db push  (escape hatch, no history)
-pnpm --filter @studentos/api db:migrate    # prisma migrate dev (needs a shadow DB)
-pnpm --filter @studentos/api db:seed       # destructive demo seed
+pnpm --filter @tutor-walle/api db:generate   # prisma generate
+pnpm --filter @tutor-walle/api db:push       # prisma db push  (escape hatch, no history)
+pnpm --filter @tutor-walle/api db:migrate    # prisma migrate dev (needs a shadow DB)
+pnpm --filter @tutor-walle/api db:seed       # destructive demo seed
 ```
 
 Type-check the web app alone: `npx tsc --noEmit` in `frontend`.
@@ -106,12 +106,12 @@ Type-check the web app alone: `npx tsc --noEmit` in `frontend`.
 | `AI_DAILY_QUOTA` | `100` | per-user AI request ceiling per UTC day, per API process |
 
 AI provider credentials are optional at API boot so custom personal connections
-can continue to work without a shared StudentOS key. To enable StudentOS Default
+can continue to work without a shared Tutor Walle key. To enable Tutor Walle Default
 AI, set `OPENROUTER_API_KEY` in `backend/.env`; the secret is only read by the
 backend. OpenRouter's `openrouter/free` router currently selects free models
 that match request features such as tool calling and image input. It requires an
 OpenRouter account and API key; free model availability, quotas, and provider
-capacity can change. StudentOS does not fall back to paid models when the free
+capacity can change. Tutor Walle does not fall back to paid models when the free
 route is unavailable. Without a configured key, selecting Default AI returns a
 clear 503. To use another provider or model, set `AI_PROVIDER`, its matching key
 and endpoint variables, and optionally `AI_MODEL` in `backend/.env`. OpenRouter
@@ -144,8 +144,8 @@ The chosen deployment — two Docker web services on Render's free plan plus an 
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @studentos/api build
-pnpm --filter @studentos/api start          # runs the compiled dist/server.js
+pnpm --filter @tutor-walle/api build
+pnpm --filter @tutor-walle/api start          # runs the compiled dist/server.js
 curl -fsS http://localhost:3001/health       # {"database":"connected"} or HTTP 503
 ```
 

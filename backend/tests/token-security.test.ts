@@ -38,7 +38,7 @@ async function mintToken(opts: RawTokenOptions): Promise<string> {
   const {
     sub,
     type,
-    email = "forged@studentos.test",
+    email = "forged@tutor-walle.test",
     expiresInSeconds = 900,
     issuer = ISSUER,
     audience = ISSUER,
@@ -60,7 +60,7 @@ async function mintToken(opts: RawTokenOptions): Promise<string> {
 
 describe("JWT token security", () => {
   const password = "Pass123!";
-  const email = "token-security@studentos.test";
+  const email = "token-security@tutor-walle.test";
   let userId: string;
   let accessToken: string;
   let refreshToken: string;

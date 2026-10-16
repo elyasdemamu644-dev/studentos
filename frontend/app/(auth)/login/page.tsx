@@ -3,7 +3,7 @@ import { LoginForm } from "@/features/auth/login-form";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Sign in to StudentOS.",
+  description: "Sign in to Tutor Walle.",
 };
 
 export default function LoginPage() {

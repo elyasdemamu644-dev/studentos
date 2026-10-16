@@ -19,7 +19,7 @@ import { ok, toDate, toIsoTimestamp } from "./types";
 // WRITE tools (action tools)
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// These change StudentOS data, so two constraints apply:
+// These change Tutor Walle data, so two constraints apply:
 //
 //  1. They run through the existing module services — never Prisma — so the
 //     normal ownership checks, validation and business rules still apply. A

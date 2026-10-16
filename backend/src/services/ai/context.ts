@@ -4,7 +4,7 @@ import { prisma } from "@/utils/prisma";
 // Student Context Builder
 // ─────────────────────────────────────────────
 //
-// Assembles a compact, curated summary of a student's StudentOS data and
+// Assembles a compact, curated summary of a student's Tutor Walle data and
 // serializes it to JSON. This is fed to the AI provider as system context so
 // answers are grounded in the user's real courses/tasks/events/etc. It never
 // dumps the whole database — only bounded, relevant slices.
@@ -173,6 +173,6 @@ export const studentContextBuilder = {
   /** Serialize the context for use as a system prompt. */
   async toPrompt(userId: string): Promise<string> {
     const context = await this.build(userId);
-    return JSON.stringify({ studentos: context });
+    return JSON.stringify({ tutorWalle: context });
   },
 };

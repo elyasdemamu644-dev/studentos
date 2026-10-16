@@ -589,7 +589,7 @@ export function GeneratingIndicator({ activity }: { activity: AiToolActivity[] }
     <div className="animate-fade-in space-y-1" role="status" aria-live="polite">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Sparkles className="pulse-live h-4 w-4 shrink-0 text-primary" aria-hidden />
-        <span className="font-medium text-foreground">StudentOS AI is generating</span>
+        <span className="font-medium text-foreground">Tutor Walle AI is generating</span>
         <span
           className="pulse-live h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
           aria-hidden
@@ -642,9 +642,9 @@ export function ChatEmptyState({
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
         <Sparkles className="h-6 w-6" aria-hidden />
       </div>
-      <h2 className="text-lg font-semibold">What can StudentOS help you accomplish?</h2>
+      <h2 className="text-lg font-semibold">What can Tutor Walle help you accomplish?</h2>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">
-        Ask about your courses, deadlines or grades. The assistant reads your own StudentOS data, so
+        Ask about your courses, deadlines or grades. The assistant reads your own Tutor Walle data, so
         its answers are grounded in what you actually have.
       </p>
 
@@ -960,7 +960,7 @@ const validateAndAddLink = useCallback(async (url: string) => {
                 }
               }}
               placeholder={placeholder}
-              aria-label="Message StudentOS AI"
+              aria-label="Message Tutor Walle AI"
               aria-describedby={hintId}
               rows={1}
               maxLength={MAX_MESSAGE_LENGTH + 500}

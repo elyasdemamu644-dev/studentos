@@ -4,7 +4,7 @@ import {
   updateGoalSchema,
   createMilestoneSchema,
   updateMilestoneSchema,
-} from "@studentos/shared/schemas/goals";
+} from "@tutor-walle/shared/schemas/goals";
 
 export {
   createGoalSchema,
@@ -17,7 +17,7 @@ export type {
   UpdateGoalInput,
   CreateMilestoneInput,
   UpdateMilestoneInput,
-} from "@studentos/shared/schemas/goals";
+} from "@tutor-walle/shared/schemas/goals";
 
 // ─────────────────────────────────────────────
 // List query

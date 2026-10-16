@@ -53,7 +53,7 @@ describe("Resource uploads", () => {
   let storage: LocalDiskStorage;
 
   beforeAll(async () => {
-    storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), "studentos-uploads-"));
+    storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), "tutor-walle-uploads-"));
     storage = new LocalDiskStorage(storageRoot);
     setFileStorage(storage);
 

@@ -180,11 +180,11 @@ export const config = {
   smtpSecure: process.env.SMTP_SECURE === "true", // implicit TLS on connect
   smtpUser: process.env.SMTP_USER,
   smtpPassword: process.env.SMTP_PASSWORD,
-  smtpFrom: process.env.SMTP_FROM ?? "no-reply@studentos.local",
+  smtpFrom: process.env.SMTP_FROM ?? "no-reply@tutor-walle.local",
   emailTimeoutMs: Number(process.env.EMAIL_TIMEOUT_MS ?? 10_000),
 
   // App metadata
-  appName: "StudentOS",
+  appName: "Tutor Walle",
   appVersion: process.env.npm_package_version ?? "0.1.0",
 } as const;
 

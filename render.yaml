@@ -1,4 +1,4 @@
-# StudentOS — Render Blueprint (IaC)
+# Tutor Walle — Render Blueprint (IaC)
 #
 # Two Docker web services on Render's Free plan + an external Neon PostgreSQL
 # database (created in the Render/Neon dashboard, referenced below).
@@ -32,7 +32,7 @@ services:
   # API — Express 5 + Prisma (root Dockerfile, stage `api` is the last stage)
   # ─────────────────────────────────────────────
   - type: web
-    name: studentos-api
+    name: tutor-walle-api
     runtime: docker
     region: oregon
     plan: free
@@ -60,7 +60,7 @@ services:
       # Exact HTTPS origins allowed to call the API. Must match the web
       # service's real onrender.com host (see note at the bottom of this file).
       - key: CORS_ORIGINS
-        value: https://studentos-web.onrender.com
+        value: https://tutor-walle-web.onrender.com
       - key: AI_ENABLED
         value: "true"
       - key: AI_PROVIDER
@@ -98,7 +98,7 @@ services:
   # Web — Next.js 14 standalone (frontend/Dockerfile)
   # ─────────────────────────────────────────────
   - type: web
-    name: studentos-web
+    name: tutor-walle-web
     runtime: docker
     region: oregon
     plan: free
@@ -112,7 +112,7 @@ services:
       # the Docker build as build arguments, and the Dockerfile declares this
       # ARG). Must match the API service's real onrender.com host.
       - key: NEXT_PUBLIC_API_URL
-        value: https://studentos-api.onrender.com/api/v1
+        value: https://tutor-walle-api.onrender.com/api/v1
       # Optional; must match the API's GOOGLE_CLIENT_ID.
       - key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
         sync: false

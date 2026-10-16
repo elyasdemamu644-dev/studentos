@@ -131,7 +131,7 @@ export function AiConnectionsPanel() {
         </Button>
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
-        Choose StudentOS Default AI or an AI connection you configured yourself.
+        Choose Tutor Walle Default AI or an AI connection you configured yourself.
       </p>
 
       {providerSelection.isPending ? (
@@ -152,7 +152,7 @@ export function AiConnectionsPanel() {
               <Sparkles className="h-4 w-4" aria-hidden />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">StudentOS Default AI</span>
+              <span className="block text-sm font-medium">Tutor Walle Default AI</span>
               <span className="block truncate text-xs text-muted-foreground">
                 {providerSelection.data.defaultAvailable
                   ? `${providerSelection.data.defaultProvider} · ${providerSelection.data.defaultModel}`

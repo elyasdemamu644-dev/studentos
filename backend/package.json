@@ -1,5 +1,5 @@
 {
-  "name": "@studentos/api",
+  "name": "@tutor-walle/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "node --stack-size=8000 ./node_modules/prisma/build/index.js generate && tsc -p tsconfig.json --noEmit && esbuild src/server.ts src/utils/egress-gateway.ts --bundle --platform=node --format=esm --target=node22 --packages=external --tsconfig=tsconfig.json --alias:@studentos/shared/schemas=../packages/shared/src/schemas --outdir=dist --entry-names=[name]",
+    "build": "node --stack-size=8000 ./node_modules/prisma/build/index.js generate && tsc -p tsconfig.json --noEmit && esbuild src/server.ts src/utils/egress-gateway.ts --bundle --platform=node --format=esm --target=node22 --packages=external --tsconfig=tsconfig.json --alias:@tutor-walle/shared/schemas=../packages/shared/src/schemas --outdir=dist --entry-names=[name]",
     "start": "node dist/server.js",
     "start:egress": "node dist/egress-gateway.js",
     "test": "vitest run --config vitest.config.ts",
@@ -21,7 +21,7 @@
   "dependencies": {
     "@node-rs/argon2": "^2.1.0",
     "@prisma/client": "^6.0.0",
-    "@studentos/shared": "workspace:*",
+    "@tutor-walle/shared": "workspace:*",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
     "express": "^5.0.0",

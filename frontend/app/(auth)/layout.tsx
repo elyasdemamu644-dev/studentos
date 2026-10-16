@@ -13,7 +13,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-lg font-bold text-primary-foreground">
           S
         </span>
-        <span className="text-xl font-semibold tracking-tight">StudentOS</span>
+        <span className="text-xl font-semibold tracking-tight">Tutor Walle</span>
       </div>
       <div className="w-full max-w-md animate-fade-in">{children}</div>
       <p className="mt-6 text-center text-xs text-muted-foreground">

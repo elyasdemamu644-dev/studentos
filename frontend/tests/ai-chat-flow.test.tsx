@@ -473,7 +473,7 @@ describe("sending a message", () => {
 describe("generation state", () => {
   it("says it is generating without inventing tool activity", () => {
     render(<GeneratingIndicator activity={[]} />);
-    expect(screen.getByText(/StudentOS AI is generating/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tutor Walle AI is generating/i)).toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "Assistant activity" })).not.toBeInTheDocument();
   });
 
@@ -561,7 +561,7 @@ describe("composer", () => {
   it("sends on Enter", async () => {
     const onSend = vi.fn();
     renderWithQuery(<Harness onSend={onSend} />);
-    const input = screen.getByLabelText("Message StudentOS AI");
+    const input = screen.getByLabelText("Message Tutor Walle AI");
 
     await userEvent.type(input, "hello{Enter}");
     expect(onSend).toHaveBeenCalledOnce();
@@ -570,7 +570,7 @@ describe("composer", () => {
   it("does not send on Shift+Enter", async () => {
     const onSend = vi.fn();
     renderWithQuery(<Harness onSend={onSend} />);
-    const input = screen.getByLabelText("Message StudentOS AI");
+    const input = screen.getByLabelText("Message Tutor Walle AI");
 
     await userEvent.type(input, "line one{Shift>}{Enter}{/Shift}line two");
     expect(onSend).not.toHaveBeenCalled();
@@ -622,7 +622,7 @@ describe("composer", () => {
     setTokens("test-access-token", "test-refresh-token");
 
     renderWithQuery(<Harness onSend={() => {}} />);
-    await userEvent.type(screen.getByLabelText("Message StudentOS AI"), "Review this file");
+    await userEvent.type(screen.getByLabelText("Message Tutor Walle AI"), "Review this file");
     await userEvent.upload(
       screen.getByLabelText("Choose files to attach"),
       new File([new Uint8Array([0, 1, 255])], "archive.custom", { type: "application/x-custom" }),
@@ -649,7 +649,7 @@ describe("composer", () => {
     setTokens("test-access-token", "test-refresh-token");
 
     renderWithQuery(<Harness onSend={() => {}} />);
-    await userEvent.type(screen.getByLabelText("Message StudentOS AI"), "Review these files");
+    await userEvent.type(screen.getByLabelText("Message Tutor Walle AI"), "Review these files");
     await userEvent.upload(screen.getByLabelText("Choose files to attach"), [
       new File([new Uint8Array([0, 1])], "first.txt", { type: "text/plain" }),
       new File([new Uint8Array([2, 3])], "second.txt", { type: "text/plain" }),
@@ -675,7 +675,7 @@ describe("composer", () => {
     setTokens("test-access-token", "test-refresh-token");
 
     renderWithQuery(<Harness onSend={() => {}} />);
-    await userEvent.type(screen.getByLabelText("Message StudentOS AI"), "Review this file");
+    await userEvent.type(screen.getByLabelText("Message Tutor Walle AI"), "Review this file");
     await userEvent.upload(
       screen.getByLabelText("Choose files to attach"),
       new File([new Uint8Array([0, 1, 255])], "archive.custom", { type: "application/x-custom" }),
@@ -1039,7 +1039,7 @@ describe("first prompt with no existing conversations", () => {
 
     // A fresh account lands on the empty state, not a dead composer.
     await waitFor(() => {
-      expect(screen.getByText("What can StudentOS help you accomplish?")).toBeInTheDocument();
+      expect(screen.getByText("What can Tutor Walle help you accomplish?")).toBeInTheDocument();
     });
     const suggestion = screen.getByRole("button", { name: /Prepare for an exam/i });
     await userEvent.click(suggestion);
@@ -1048,7 +1048,7 @@ describe("first prompt with no existing conversations", () => {
     // reporting generation in flight — all while the POST is still open.
     await waitFor(() => {
       expect(screen.getByText(/Prepare me for my next exam\./)).toBeInTheDocument();
-      expect(screen.getByText("StudentOS AI is generating")).toBeInTheDocument();
+      expect(screen.getByText("Tutor Walle AI is generating")).toBeInTheDocument();
     });
 
     sendReply.resolve(
@@ -1094,7 +1094,7 @@ describe("first prompt with no existing conversations", () => {
 
     await waitFor(() => {
       expect(screen.getByText(REPLY)).toBeInTheDocument();
-      expect(screen.queryByText("StudentOS AI is generating")).not.toBeInTheDocument();
+      expect(screen.queryByText("Tutor Walle AI is generating")).not.toBeInTheDocument();
     });
 
     // Exactly one send happened: the queue drained once, not per re-render.
@@ -1190,7 +1190,7 @@ describe("banner retry after the reconcile refetch", () => {
     const { client } = renderWithQuery(<AiPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("What can StudentOS help you accomplish?")).toBeInTheDocument();
+      expect(screen.getByText("What can Tutor Walle help you accomplish?")).toBeInTheDocument();
     });
     await userEvent.click(screen.getByRole("button", { name: /Prepare for an exam/i }));
 

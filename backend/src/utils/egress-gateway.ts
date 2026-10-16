@@ -111,7 +111,7 @@ export function createEgressGatewayServer(options: EgressGatewayOptions): http.S
           upstream.destroy();
           return;
         }
-        clientSocket.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: StudentOS-Egress\r\n\r\n");
+        clientSocket.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: TutorWalle-Egress\r\n\r\n");
         if (head.length) upstream.write(head);
         clientSocket.pipe(upstream);
         upstream.pipe(clientSocket);

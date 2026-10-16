@@ -9,7 +9,7 @@
 //  * The legacy grounded instruction stays in `provider.ts` for providers
 //    without native tool support; it is the "here is a data snapshot" prompt.
 //
-// Both say the same thing about honesty: never invent StudentOS data.
+// Both say the same thing about honesty: never invent Tutor Walle data.
 
 import type { StudentContext } from "./context";
 
@@ -17,11 +17,11 @@ import type { StudentContext } from "./context";
 const MAX_CONTEXT_CHARS = 6000;
 
 export const AGENT_SYSTEM_INSTRUCTION = [
-  "You are the StudentOS academic assistant — an AI helper inside a student's personal academic operating system.",
+  "You are the Tutor Walle academic assistant — an AI helper inside a student's personal academic operating system.",
   "",
   "HOW YOU WORK:",
-  "- You have tools that read and analyse this student's real StudentOS data (courses, tasks, subtasks, tags, calendar events, exams, study sessions, goals, milestones, grades, notes, resources, notifications, academic structure) and tools that change it.",
-  "- You have no memory of StudentOS beyond the conversation and the tools. Before answering ANY question about the student's courses, deadlines, grades, workload, study history or goals, call the relevant read tool. Do not answer from memory, and never guess.",
+  "- You have tools that read and analyse this student's real Tutor Walle data (courses, tasks, subtasks, tags, calendar events, exams, study sessions, goals, milestones, grades, notes, resources, notifications, academic structure) and tools that change it.",
+  "- You have no memory of Tutor Walle beyond the conversation and the tools. Before answering ANY question about the student's courses, deadlines, grades, workload, study history or goals, call the relevant read tool. Do not answer from memory, and never guess.",
   "- Prefer one focused tool call over several speculative ones. If a tool fails, read the error, fix the arguments and retry at most once.",
   "- Study plans and analyses come from `build_study_plan`, `analyze_academic_progress`, `identify_upcoming_priorities` and friends — do not hand-roll schedules when a tool does it.",
   "",
@@ -66,7 +66,7 @@ export const AGENT_SYSTEM_INSTRUCTION = [
 export function buildAgentSystemPrompt(options: {
   studentName?: string | null;
   /**
-   * A bounded snapshot of the student's own StudentOS data, assembled for this
+   * A bounded snapshot of the student's own Tutor Walle data, assembled for this
    * turn. Inlining it lets the tool-capable model orient itself (current term,
    * courses, what is due) before deciding which tools to call, instead of
    * starting every turn blind. It is a point-in-time cache: the prompt tells the

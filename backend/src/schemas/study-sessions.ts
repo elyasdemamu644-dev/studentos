@@ -3,7 +3,7 @@ import {
   createStudySessionSchema,
   completeStudySessionSchema,
   updateStudySessionSchema,
-} from "@studentos/shared/schemas/study";
+} from "@tutor-walle/shared/schemas/study";
 
 export {
   createStudySessionSchema,
@@ -14,7 +14,7 @@ export type {
   CreateStudySessionInput,
   CompleteStudySessionInput,
   UpdateStudySessionInput,
-} from "@studentos/shared/schemas/study";
+} from "@tutor-walle/shared/schemas/study";
 
 // ─────────────────────────────────────────────
 // List query

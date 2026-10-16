@@ -12,7 +12,7 @@ export function renderNotificationEmail(notification: {
   message: string;
 }): NotificationEmailContent {
   return {
-    subject: `[StudentOS] ${notification.title}`,
-    text: [notification.title, "", notification.message, "", "— StudentOS"].join("\n"),
+    subject: `[Tutor Walle] ${notification.title}`,
+    text: [notification.title, "", notification.message, "", "— Tutor Walle"].join("\n"),
   };
 }

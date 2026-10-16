@@ -2,15 +2,15 @@ import { z } from "zod";
 import {
   createNoteSchema,
   updateNoteSchema,
-} from "@studentos/shared/schemas/notes";
+} from "@tutor-walle/shared/schemas/notes";
 
 // Re-export shared create/update contracts so the module owns a single
-// validation entry-point while the canonical shape lives in @studentos/shared.
+// validation entry-point while the canonical shape lives in @tutor-walle/shared.
 export { createNoteSchema, updateNoteSchema };
 export type {
   CreateNoteInput,
   UpdateNoteInput,
-} from "@studentos/shared/schemas/notes";
+} from "@tutor-walle/shared/schemas/notes";
 
 // ─────────────────────────────────────────────
 // List query

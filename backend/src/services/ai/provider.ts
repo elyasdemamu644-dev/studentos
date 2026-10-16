@@ -910,18 +910,18 @@ export function resolveAiProvider(provider: AiProviderName): AiProviderAdapter {
 // 9b. AiProvider wrapper class
 // ────────────────────────────────────────────────────────────────
 
-// The system instruction that grounds the model in the user's own StudentOS
+// The system instruction that grounds the model in the user's own Tutor Walle
 // data. `AiProvider.chat` prepends this (with the serialized context) as the
 // first `system` message whenever a context snapshot is available.
-const STUDENTOS_SYSTEM_INSTRUCTION =
-  "You are the StudentOS academic assistant, an AI helper inside a student's " +
-  "personal academic operating system. Below is the student's current StudentOS " +
+const TUTOR_WALLE_SYSTEM_INSTRUCTION =
+  "You are the Tutor Walle academic assistant, an AI helper inside a student's " +
+  "personal academic operating system. Below is the student's current Tutor Walle " +
   "data as JSON (courses, uncompleted tasks, upcoming events/exams, recent study " +
   "sessions, active goals, recent notes, and recent grades). Use that data as the " +
   "single source of truth for anything about the student's academics, progress, " +
   "workload, grades, goals, studying, or schedule. Ground every answer in this " +
   "data and cite specific courses, tasks, counts and numbers where relevant. You " +
-  "CANNOT access external websites, a live database, or StudentOS on your own — " +
+  "CANNOT access external websites, a live database, or Tutor Walle on your own — " +
   "only the data in this prompt exists for you. If the student asks about something " +
   "not present in the data, say it is not in the available data instead of inventing " +
   "or guessing it. Never fabricate courses, tasks, grades, or progress numbers.";
@@ -971,7 +971,7 @@ export class AiProvider {
     try {
       const client = this.adapter.createClient(this.credentials, this.endpoint);
 
-      // Ground the model in the user's real StudentOS data: when a context
+      // Ground the model in the user's real Tutor Walle data: when a context
       // snapshot was assembled by the service, send it as the first `system`
       // message together with a grounding instruction. Without this the model
       // only ever sees the raw conversation text and cannot know the student's
@@ -981,7 +981,7 @@ export class AiProvider {
       if (request.context) {
         messages.push({
           role: "system",
-          content: `${STUDENTOS_SYSTEM_INSTRUCTION}\n\nStudentOS data (JSON):\n${request.context}`,
+          content: `${TUTOR_WALLE_SYSTEM_INSTRUCTION}\n\nTutor Walle data (JSON):\n${request.context}`,
         });
       }
       messages.push(...(request.messages as Array<{
@@ -1189,7 +1189,7 @@ export class AiConnectionUnreadableError extends ApiError {
 // Resolution order at runtime: 1) the user's active, enabled personal AI
 // connection, 2) the environment-default provider described by the AI_* env
 // vars (AI_PROVIDER / AI_MODEL / AI_BASE_URL / provider-specific keys). This
-// lets StudentOS ship with a working out-of-the-box provider (dev default:
+// lets Tutor Walle ship with a working out-of-the-box provider (dev default:
 // OpenRouter) while giving every user the option to override it per-account.
 
 /** The slice of `config` the default-provider builder reads. Kept standalone so
@@ -1303,7 +1303,7 @@ export async function getAIProvider(
       const defaultProvider = buildDefaultAiProvider();
       if (defaultProvider) return defaultProvider;
       throw new AiProviderNotConfiguredError(
-        "StudentOS Default AI is not configured. Please contact the administrator.",
+        "Tutor Walle Default AI is not configured. Please contact the administrator.",
       );
     }
 
@@ -1315,7 +1315,7 @@ export async function getAIProvider(
     }
     if (requestedMode === "personal") {
       throw new AiProviderNotConfiguredError(
-        "No active personal AI connection. Activate a connection in Settings or select StudentOS Default AI.",
+        "No active personal AI connection. Activate a connection in Settings or select Tutor Walle Default AI.",
       );
     }
     // No active personal connection — use the environment-default provider.

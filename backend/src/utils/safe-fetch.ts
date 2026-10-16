@@ -82,7 +82,7 @@ export type OutboundTransport = (
 // binding: tests that call `vi.resetModules()` (to re-read env-derived config)
 // import a *fresh* copy of this module, and a module-local override would be
 // lost — silently letting the real network transport run in a unit test.
-const TRANSPORT_OVERRIDE_KEY = Symbol.for("studentos.outboundTransportOverride");
+const TRANSPORT_OVERRIDE_KEY = Symbol.for("tutor-walle.outboundTransportOverride");
 
 type GlobalWithTransport = typeof globalThis & {
   [TRANSPORT_OVERRIDE_KEY]?: OutboundTransport;

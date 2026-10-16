@@ -72,7 +72,7 @@ export function StructuredExtractionDialog() {
           <DialogHeader>
             <DialogTitle>Structured study extraction</DialogTitle>
             <DialogDescription>
-              Ask the assistant to organize study information into a validated outline or flashcards. It can ground the result in your StudentOS academic records; it will not create or change records.
+              Ask the assistant to organize study information into a validated outline or flashcards. It can ground the result in your Tutor Walle academic records; it will not create or change records.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

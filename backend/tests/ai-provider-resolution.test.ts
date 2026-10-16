@@ -143,7 +143,7 @@ describe("buildDefaultAiProvider (env default/fallback)", () => {
 
   it("chats against the OpenRouter URL with the env model and a grounding system message", async () => {
     const fetchMock = stubFetch();
-    const context = JSON.stringify({ studentos: { courses: [{ name: "Database Systems" }], tasks: [] } });
+    const context = JSON.stringify({ tutorWalle: { courses: [{ name: "Database Systems" }], tasks: [] } });
 
     const provider = buildDefaultAiProvider(OPENROUTER_CONFIG)!;
     const result = await provider.chat({
@@ -253,7 +253,7 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     });
   });
 
-  it("uses the environment default when the user explicitly selects StudentOS Default AI", async () => {
+  it("uses the environment default when the user explicitly selects Tutor Walle Default AI", async () => {
     const { getActiveUserConnection } = await import("@/services/ai-connections");
     vi.mocked(getActiveUserConnection).mockResolvedValue({
       provider: "ollama",
@@ -267,7 +267,7 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     await expect(getAIProvider("user-default-mode")).rejects.toMatchObject({
       statusCode: 503,
       code: "AI_PROVIDER_NOT_CONFIGURED",
-      message: "StudentOS Default AI is not configured. Please contact the administrator.",
+      message: "Tutor Walle Default AI is not configured. Please contact the administrator.",
     });
     expect(getActiveUserConnection).not.toHaveBeenCalled();
   });
@@ -281,7 +281,7 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     await expect(getAIProvider("user-personal-mode")).rejects.toMatchObject({
       statusCode: 503,
       code: "AI_PROVIDER_NOT_CONFIGURED",
-      message: "No active personal AI connection. Activate a connection in Settings or select StudentOS Default AI.",
+      message: "No active personal AI connection. Activate a connection in Settings or select Tutor Walle Default AI.",
     });
   });
 
@@ -322,7 +322,7 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     const provider = await providerMod.getAIProvider("user-no-connection");
     expect(provider.isConfigured()).toBe(true);
 
-    const context = JSON.stringify({ studentos: { courses: [{ name: "Database Systems" }], tasks: [] } });
+    const context = JSON.stringify({ tutorWalle: { courses: [{ name: "Database Systems" }], tasks: [] } });
     const result = await provider.chat({
       messages: [{ role: "user", content: "How is my progress going?" }],
       context,

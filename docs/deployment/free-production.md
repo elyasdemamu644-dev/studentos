@@ -1,4 +1,4 @@
-# StudentOS $0 production deployment preparation
+# Tutor Walle $0 production deployment preparation
 
 This is a deployment design and runbook, not a deployment. No cloud account, paid service, DNS zone, database, production migration, or public service is created by these instructions. Free-tier availability and quotas can change; review the linked provider pages before registration.
 
@@ -45,14 +45,14 @@ docker compose -f deploy/compose/compose.yaml build
 1. Create a Neon project manually in the desired region and save its connection string privately. Do not use a production owner credential for routine application traffic; create a least-privilege application role and a separate migration role.
 2. Keep `sslmode=require` (or stronger supported verification) and do not remove the Neon hostname from the URL. Restrict access to application tables as appropriate.
 3. Before any production migration, inspect `backend/prisma/migrations` and the target schema, take a logical backup, and confirm restore access. This preparation did not run migrations against any database.
-4. Apply reviewed migrations from a controlled one-off environment using the migration credential: `pnpm --filter @studentos/api exec prisma migrate deploy`. Never use `db push` on production. This project does not provide automatic down migrations; repair with a reviewed forward migration and restore from backup when necessary.
+4. Apply reviewed migrations from a controlled one-off environment using the migration credential: `pnpm --filter @tutor-walle/api exec prisma migrate deploy`. Never use `db push` on production. This project does not provide automatic down migrations; repair with a reviewed forward migration and restore from backup when necessary.
 5. Schedule regular `pg_dump` exports to storage outside Neon, encrypt them, test restores into a separate disposable database, and document retention. Free-plan restore history is not a backup strategy.
 
 ## Host, DNS, and TLS operations
 
 - Register no domain automatically. Point `WEB_DOMAIN` and `API_DOMAIN` A/AAAA records to the VM only after you choose a domain and have verified the VM address.
 - In OCI security lists/network security groups, allow inbound TCP 80/443 from the Internet. Allow SSH only from your administrator CIDR. Do not expose 3000, 3001, 3128, or 5432.
-- Configure the Linux host firewall before opening the service publicly. First run `docker compose -f deploy/compose/compose.yaml create` to create the private network without starting Caddy, then install Docker's `DOCKER-USER` forwarding policy with `sudo bash deploy/firewall/limit-api-egress.sh`; inspect `iptables -S DOCKER-USER`. Start services only after reviewing the rules. Confirm API internet access fails while proxy and DB-tunnel access work. Install the supplied oneshot after Docker starts so the rule is restored after reboot: copy `deploy/firewall/limit-api-egress.sh` to `/usr/local/sbin/studentos-limit-api-egress`, copy `deploy/firewall/studentos-api-egress.service` to `/etc/systemd/system/`, then run `sudo systemctl daemon-reload && sudo systemctl enable --now studentos-api-egress.service`. The script deliberately does not edit SSH/input rules. Keep OCI rules and host firewall rules consistent.
+- Configure the Linux host firewall before opening the service publicly. First run `docker compose -f deploy/compose/compose.yaml create` to create the private network without starting Caddy, then install Docker's `DOCKER-USER` forwarding policy with `sudo bash deploy/firewall/limit-api-egress.sh`; inspect `iptables -S DOCKER-USER`. Start services only after reviewing the rules. Confirm API internet access fails while proxy and DB-tunnel access work. Install the supplied oneshot after Docker starts so the rule is restored after reboot: copy `deploy/firewall/limit-api-egress.sh` to `/usr/local/sbin/tutor-walle-limit-api-egress`, copy `deploy/firewall/tutor-walle-api-egress.service` to `/etc/systemd/system/`, then run `sudo systemctl daemon-reload && sudo systemctl enable --now tutor-walle-api-egress.service`. The script deliberately does not edit SSH/input rules. Keep OCI rules and host firewall rules consistent.
 - Caddy obtains and renews public certificates using ACME. Make sure DNS resolves to the host and inbound 80/443 remain reachable. Persist `/data` and `/config` volumes.
 - Pin image updates through reviewed version changes and rebuild; do not use `latest` for application images. Apply OS security updates, monitor disk capacity, and keep Docker/Node security patches current.
 

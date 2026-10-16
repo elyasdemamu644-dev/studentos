@@ -46,7 +46,7 @@ testEnv.ANTHROPIC_API_KEY = '';
 testEnv.CUSTOM_AI_API_KEY = '';
 
 testEnv.DATABASE_URL = testEnv.TEST_DATABASE_URL ?? 'postgresql://postgres@localhost:5432/studentos_test';
-testEnv.ENCRYPTION_KEY = testEnv.ENCRYPTION_KEY ?? 'test-encryption-key-for-studentos-tests-only--32bytes!!';
+testEnv.ENCRYPTION_KEY = testEnv.ENCRYPTION_KEY ?? 'test-encryption-key-for-tutor-walle-tests-only--32bytes!!';
 
 // Force the upload limit tiny so the "oversized file" path can be exercised
 // with a couple of KB instead of tens of MB, regardless of any local `.env`.

@@ -21,7 +21,7 @@ import type {
 // Tool registry
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// The single entry point between the model and StudentOS. Everything the model
+// The single entry point between the model and Tutor Walle. Everything the model
 // can do goes through `executeTool`, which:
 //
 //   1. refuses an unknown tool name,
@@ -197,7 +197,7 @@ export async function executeTool(
         ok: false,
         error: {
           code: "confirmation_required",
-          message: `${tool.name} changes StudentOS data and cannot run yet. Present the change to the student and ask them to confirm; do not claim it succeeded.`,
+          message: `${tool.name} changes Tutor Walle data and cannot run yet. Present the change to the student and ask them to confirm; do not claim it succeeded.`,
         },
         // Returning the validated, resolved call lets the agent turn it into a
         // proposal the student can approve with one click.

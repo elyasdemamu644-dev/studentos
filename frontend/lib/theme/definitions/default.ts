@@ -6,7 +6,7 @@ export const defaultTheme: ThemeDefinition = {
   id: "default",
   name: "Default",
   description:
-    "Modern productivity theme with balanced typography, comfortable density, soft elevation and refined geometric clarity for everyday StudentOS work.",
+    "Modern productivity theme with balanced typography, comfortable density, soft elevation and refined geometric clarity for everyday Tutor Walle work.",
   character: ["Balanced", "Productive", "Polished"],
   characterTokens: character({
     "font-display": "var(--font-sans)",

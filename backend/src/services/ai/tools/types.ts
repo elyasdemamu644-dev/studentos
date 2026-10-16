@@ -4,7 +4,7 @@ import type { z } from "zod";
 // AI tool contract
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// A tool is the ONLY way the model can reach StudentOS data or change it.
+// A tool is the ONLY way the model can reach Tutor Walle data or change it.
 //
 // Three rules hold for every definition in this layer:
 //

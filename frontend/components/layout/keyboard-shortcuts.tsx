@@ -177,7 +177,7 @@ export function ShortcutsHelpDialog({
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>
-            Move around StudentOS without leaving the keyboard.
+            Move around Tutor Walle without leaving the keyboard.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-5">

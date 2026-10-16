@@ -837,7 +837,7 @@ export const getAcademicStructureTool: AiToolDefinition = {
 export const getNotificationsTool: AiToolDefinition = {
   name: "get_notifications",
   description:
-    "List the student's in-app reminders (assignment due, overdue, exam coming up, goal deadline) with the unread count. Use for 'what's nagging me' or to explain why StudentOS raised something.",
+    "List the student's in-app reminders (assignment due, overdue, exam coming up, goal deadline) with the unread count. Use for 'what's nagging me' or to explain why Tutor Walle raised something.",
   kind: "READ",
   activityLabel: "Checking your notifications",
   parameters: z.object({
