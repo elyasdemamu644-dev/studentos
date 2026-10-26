@@ -2172,6 +2172,52 @@ components:
         refreshToken:
           type: string
           minLength: 1
+    UpdateProfileRequest:
+      type: object
+      description: >-
+        Partial update: every field is optional, and only the fields present in the body are written.
+        Passing `null` clears `university`, `department`, `academicYear` or `profilePicture`.
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        university:
+          type:
+            - string
+            - 'null'
+          maxLength: 200
+        department:
+          type:
+            - string
+            - 'null'
+          maxLength: 200
+        academicYear:
+          type:
+            - string
+            - 'null'
+        timezone:
+          type: string
+        profilePicture:
+          type:
+            - string
+            - 'null'
+    ChangePasswordRequest:
+      type: object
+      required:
+        - currentPassword
+        - newPassword
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+        newPassword:
+          type: string
+          minLength: 8
     CreateAcademicYearRequest:
       type: object
       required:
@@ -2854,7 +2900,7 @@ components:
               - 'null'
             maxLength: 1000
           default: {}
-      description: Send `null` as a value to delete that key. Keys are 1-100 chars; values are strings only.
+      description: Send `null` as a value to delete that key. Keys are 1-100 chars; values are strings only. `ai.memoryEnabled` accepts only `"true"` or `"false"` and defaults to on when unset.
     CreateConversationRequest:
       type: object
       properties:
@@ -3041,6 +3087,869 @@ components:
           minLength: 1
           maxLength: 2000
       description: Ad-hoc test of unsaved credentials; same cross-field rules as create.
+    MissionToolKind:
+      type: string
+      enum:
+        - READ
+        - ANALYZE
+        - WRITE
+    MissionToolConfirmation:
+      type: string
+      enum:
+        - none
+        - required
+        - autonomous
+    MissionToolCatalogEntry:
+      type: object
+      required:
+        - name
+        - kind
+        - activityLabel
+        - description
+        - confirmation
+        - requiresApproval
+        - parameters
+      properties:
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/MissionToolKind'
+        activityLabel:
+          type: string
+        description:
+          type: string
+        confirmation:
+          $ref: '#/components/schemas/MissionToolConfirmation'
+        requiresApproval:
+          type: boolean
+          description: Computed for the requesting student from the same rule the runtime confirmation gate uses.
+        parameters:
+          type: object
+          additionalProperties: true
+          description: JSON Schema of the tool's arguments.
+    MissionToolCatalog:
+      type: object
+      required:
+        - tools
+        - executionAutonomyMode
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/MissionToolCatalogEntry'
+        executionAutonomyMode:
+          type: string
+          enum:
+            - manual
+            - autonomous
+      description: The tools a mission step may use. Tools whose confirmation is "self" are omitted because a mission step has nowhere to perform that gesture.
+    MissionStatus:
+      type: string
+      enum:
+        - QUEUED
+        - RUNNING
+        - WAITING
+        - PARTIAL
+        - FAILED_RECOVERABLE
+        - FAILED_TERMINAL
+        - CANCEL_REQUESTED
+        - CANCELLED
+        - COMPLETED
+    MissionStepStatus:
+      type: string
+      enum:
+        - PENDING
+        - QUEUED
+        - RUNNING
+        - WAITING
+        - COMPLETED
+        - FAILED_RECOVERABLE
+        - FAILED_TERMINAL
+        - SKIPPED
+        - CANCELLED
+    MissionStepInput:
+      type: object
+      required:
+        - toolName
+        - description
+        - arguments
+      properties:
+        toolName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: A tool name. An unknown name is accepted here and fails the step when it runs. Known tools with confirmation "self" are rejected as mission steps.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+        arguments:
+          type: object
+          additionalProperties: true
+        dependsOn:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          default: []
+          description: Positions in this mission's own `steps` array, not step ids. Stored as ids, so a dependent step only becomes ready after the steps it names complete.
+        maxAttempts:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+    CreateMissionRequest:
+      type: object
+      required:
+        - objective
+        - steps
+      properties:
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        conversationId:
+          type: string
+          minLength: 1
+          description: Optional owning conversation; 404 when it belongs to someone else.
+        steps:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/MissionStepInput'
+        contextSnapshot:
+          type: object
+          additionalProperties: true
+      description: A dependency cycle, a dependency position that does not exist, or an otherwise unreadable plan is rejected with 400. Known tools with confirmation "self" are rejected as mission steps.
+    MissionPendingAction:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - actions
+        - createdAt
+        - expiresAt
+        - result
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        actions:
+          type: array
+          items:
+            type: object
+            required:
+              - tool
+              - description
+            properties:
+              tool:
+                type: string
+              description:
+                type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        result:
+          type:
+            - object
+            - 'null'
+          required:
+            - executed
+            - verified
+            - failed
+            - summary
+          properties:
+            executed:
+              type: integer
+            verified:
+              type: integer
+            failed:
+              type: integer
+            summary:
+              type: string
+    AiMissionStep:
+      type: object
+      required:
+        - id
+        - missionId
+        - stepOrder
+        - toolName
+        - description
+        - arguments
+        - dependsOn
+        - status
+        - attempts
+        - maxAttempts
+        - idempotencyKey
+        - pendingActionId
+        - createdAt
+        - updatedAt
+        - startedAt
+        - completedAt
+        - result
+        - error
+        - verification
+      properties:
+        id:
+          type: string
+        missionId:
+          type: string
+        stepOrder:
+          type: integer
+          minimum: 0
+        toolName:
+          type: string
+        description:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+        dependsOn:
+          type: array
+          items:
+            type: string
+          description: Ids of the step rows this step waits on.
+        status:
+          $ref: '#/components/schemas/MissionStepStatus'
+        attempts:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+          maximum: 10
+        idempotencyKey:
+          type:
+            - string
+            - 'null'
+        pendingActionId:
+          type:
+            - string
+            - 'null'
+          description: The proposal this step waits on, when a change needs the student's approval.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        completedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        result:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+        error:
+          type:
+            - string
+            - 'null'
+        verification:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+    AiMission:
+      type: object
+      required:
+        - id
+        - userId
+        - objective
+        - status
+        - createdAt
+        - updatedAt
+        - steps
+        - pendingAction
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        conversationId:
+          type:
+            - string
+            - 'null'
+        objective:
+          type: string
+        contextSnapshot:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+        status:
+          $ref: '#/components/schemas/MissionStatus'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        completedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        cancelledAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        terminalError:
+          type:
+            - string
+            - 'null'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiMissionStep'
+        pendingAction:
+          description: The proposal a WAITING step is blocked on, when there is one.
+          oneOf:
+            - $ref: '#/components/schemas/MissionPendingAction'
+            - type: 'null'
+    MemoryCategory:
+      type: string
+      enum:
+        - PREFERENCE
+        - ACADEMIC
+        - GOALS
+        - SCHEDULE
+        - OTHER
+    MemoryProvenance:
+      type: string
+      enum:
+        - USER
+        - AI
+      description: '`USER` — saved by the student in Settings. `AI` — saved by the assistant after the student confirmed a `save_memory` proposal.'
+    AiMemory:
+      type: object
+      required:
+        - id
+        - category
+        - content
+        - provenance
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        category:
+          $ref: '#/components/schemas/MemoryCategory'
+        content:
+          type: string
+          maxLength: 1000
+        provenance:
+          $ref: '#/components/schemas/MemoryProvenance'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateMemoryRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Stored trimmed with internal whitespace collapsed.
+        category:
+          $ref: '#/components/schemas/MemoryCategory'
+          default: OTHER
+    UpdateMemoryRequest:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        category:
+          $ref: '#/components/schemas/MemoryCategory'
+      description: Every field is optional, but at least one must be present — an empty body is 400.
+    BriefingItemKind:
+      type: string
+      enum:
+        - TASK_OVERDUE
+        - TASK_DUE_SOON
+        - EXAM_UPCOMING
+        - GOAL_AT_RISK
+        - STUDY_SUMMARY
+    BriefingSeverity:
+      type: string
+      enum:
+        - info
+        - warning
+        - urgent
+    BriefingItem:
+      type: object
+      required:
+        - id
+        - kind
+        - title
+        - detail
+        - dueAt
+        - link
+        - severity
+      properties:
+        id:
+          type: string
+          description: Record id, or a stable synthetic id for computed items (the study-week line).
+        kind:
+          $ref: '#/components/schemas/BriefingItemKind'
+        title:
+          type: string
+        detail:
+          type: string
+          description: 'One human line: "Overdue · due 2 days ago", "Exam · in 3 days".'
+        dueAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        link:
+          type: string
+          description: Workspace path the client deep-links to, e.g. `/tasks`.
+        severity:
+          $ref: '#/components/schemas/BriefingSeverity'
+    BriefingSummary:
+      type: object
+      required:
+        - overdueTasks
+        - dueSoonTasks
+        - upcomingExams
+        - atRiskGoals
+        - studySessionsThisWeek
+        - studyMinutesThisWeek
+      properties:
+        overdueTasks:
+          type: integer
+          minimum: 0
+        dueSoonTasks:
+          type: integer
+          minimum: 0
+        upcomingExams:
+          type: integer
+          minimum: 0
+        atRiskGoals:
+          type: integer
+          minimum: 0
+        studySessionsThisWeek:
+          type: integer
+          minimum: 0
+        studyMinutesThisWeek:
+          type: integer
+          minimum: 0
+    ProactiveBriefing:
+      type: object
+      required:
+        - generatedAt
+        - items
+        - summary
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BriefingItem'
+        summary:
+          $ref: '#/components/schemas/BriefingSummary'
+    AiRoutingStrategy:
+      type: string
+      enum:
+        - FIXED
+        - AUTO
+      description: >-
+        FIXED uses only the pinned connection/model. AUTO ranks the user's allowed candidates and may fall back when
+        `allowAutoFallback` is on.
+    AiRoutingPreset:
+      type: string
+      enum:
+        - quality
+        - speed
+        - cost
+        - local-first
+        - balanced
+      description: A starting point the engine applies; individual allow/deny/priority rows always win over it.
+    AiCapabilityKind:
+      type: string
+      enum:
+        - text
+        - streaming
+        - tools
+        - vision
+        - json
+        - reasoning
+        - embeddings
+        - long-context
+        - code
+    AiCapabilityEvidence:
+      type: string
+      enum:
+        - VERIFIED
+        - PROVIDER_REPORTED
+        - USER_CONFIGURED
+        - UNKNOWN
+      description: >-
+        How a capability claim was established. Only VERIFIED and PROVIDER_REPORTED are trusted; UNKNOWN is never
+        treated as supported.
+    AiRoutingPolicy:
+      type: object
+      required:
+        - id
+        - strategy
+        - freeOnly
+        - spendWindowDays
+        - allowAutoFallback
+        - externalProcessingDisabled
+        - fallbackOrder
+      properties:
+        id:
+          type: string
+          description: Empty string when the user has never saved a policy (the transient default state).
+        strategy:
+          $ref: '#/components/schemas/AiRoutingStrategy'
+        fixedConnectionId:
+          type:
+            - string
+            - 'null'
+        fixedModel:
+          type:
+            - string
+            - 'null'
+        freeOnly:
+          type: boolean
+        spendCeilingCents:
+          type:
+            - integer
+            - 'null'
+          minimum: 0
+          description: Remove paid candidates once the rolling-window spend reaches this ceiling.
+        spendWindowDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+        allowAutoFallback:
+          type: boolean
+        externalProcessingDisabled:
+          type: boolean
+          description: >-
+            When true, routing refuses any candidate whose execution destination is not local (loopback/private
+            network). Verified against the actual execution destination, never the configured endpoint string alone.
+        preset:
+          oneOf:
+            - $ref: '#/components/schemas/AiRoutingPreset'
+            - type: 'null'
+        fallbackOrder:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+    AiRoutingPolicyUpdate:
+      type: object
+      minProperties: 1
+      description: Provide only the fields to change; omitted fields keep their stored value.
+      properties:
+        strategy:
+          $ref: '#/components/schemas/AiRoutingStrategy'
+        fixedConnectionId:
+          type:
+            - string
+            - 'null'
+        fixedModel:
+          type:
+            - string
+            - 'null'
+        freeOnly:
+          type: boolean
+        spendCeilingCents:
+          type:
+            - integer
+            - 'null'
+          minimum: 0
+        spendWindowDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+        allowAutoFallback:
+          type: boolean
+        externalProcessingDisabled:
+          type: boolean
+        preset:
+          oneOf:
+            - $ref: '#/components/schemas/AiRoutingPreset'
+            - type: 'null'
+        fallbackOrder:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+    AiCatalogCapability:
+      type: object
+      required:
+        - kind
+        - evidence
+        - trusted
+      properties:
+        kind:
+          $ref: '#/components/schemas/AiCapabilityKind'
+        evidence:
+          $ref: '#/components/schemas/AiCapabilityEvidence'
+        trusted:
+          type: boolean
+          description: True only for VERIFIED / PROVIDER_REPORTED — safe to gate a request on.
+        note:
+          type: string
+    AiCatalogModel:
+      type: object
+      required:
+        - provider
+        - id
+        - label
+        - capabilities
+        - free
+      properties:
+        provider:
+          $ref: '#/components/schemas/AiProvider'
+        id:
+          type: string
+        label:
+          type: string
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiCatalogCapability'
+        contextTokens:
+          type:
+            - integer
+            - 'null'
+        inputCostPerMTokCents:
+          type:
+            - integer
+            - 'null'
+          description: Null means unknown pricing, never treated as free.
+        outputCostPerMTokCents:
+          type:
+            - integer
+            - 'null'
+        free:
+          type: boolean
+    AiCatalogProvider:
+      type: object
+      required:
+        - provider
+        - models
+      properties:
+        provider:
+          $ref: '#/components/schemas/AiProvider'
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiCatalogModel'
+    AiModelPreference:
+      type: object
+      required:
+        - id
+        - scope
+        - provider
+        - model
+        - allowed
+      properties:
+        id:
+          type: string
+        scope:
+          type: string
+          enum:
+            - GLOBAL
+            - CONVERSATION
+        conversationId:
+          type:
+            - string
+            - 'null'
+        provider:
+          $ref: '#/components/schemas/AiProvider'
+        model:
+          type: string
+        connectionId:
+          type:
+            - string
+            - 'null'
+        priority:
+          type:
+            - integer
+            - 'null'
+          minimum: 0
+          maximum: 1000
+        allowed:
+          type: boolean
+    AiModelPreferenceInput:
+      type: object
+      required:
+        - provider
+        - model
+      properties:
+        scope:
+          type: string
+          enum:
+            - GLOBAL
+            - CONVERSATION
+          default: GLOBAL
+        conversationId:
+          type:
+            - string
+            - 'null'
+        provider:
+          $ref: '#/components/schemas/AiProvider'
+        model:
+          type: string
+          minLength: 1
+          maxLength: 256
+        connectionId:
+          type:
+            - string
+            - 'null'
+        priority:
+          type:
+            - integer
+            - 'null'
+          minimum: 0
+          maximum: 1000
+        allowed:
+          type: boolean
+    AiCapabilityOverride:
+      type: object
+      required:
+        - provider
+        - model
+        - kind
+        - evidence
+      properties:
+        provider:
+          $ref: '#/components/schemas/AiProvider'
+        model:
+          type: string
+          minLength: 1
+          maxLength: 256
+        kind:
+          $ref: '#/components/schemas/AiCapabilityKind'
+        evidence:
+          $ref: '#/components/schemas/AiCapabilityEvidence'
+        note:
+          type:
+            - string
+            - 'null'
+        connectionId:
+          type:
+            - string
+            - 'null'
+    AiUsageSummary:
+      type: object
+      required:
+        - windowDays
+        - totalRequests
+        - totalTokens
+        - totalCostCents
+        - hasUnknownPricing
+        - byProvider
+      properties:
+        windowDays:
+          type: integer
+        totalRequests:
+          type: integer
+          minimum: 0
+        totalTokens:
+          type: integer
+          minimum: 0
+        totalCostCents:
+          type: integer
+          minimum: 0
+        hasUnknownPricing:
+          type: boolean
+          description: True when any contributing turn had unknown pricing, so cost may look low.
+        byProvider:
+          type: array
+          items:
+            type: object
+            required:
+              - provider
+              - model
+              - requests
+              - totalTokens
+              - costCents
+            properties:
+              provider:
+                type: string
+              model:
+                type: string
+              requests:
+                type: integer
+                minimum: 0
+              totalTokens:
+                type: integer
+                minimum: 0
+              costCents:
+                type: integer
+                minimum: 0
+    AiProviderHealth:
+      type: object
+      required:
+        - connectionId
+        - provider
+        - status
+        - checkedAt
+      properties:
+        connectionId:
+          type: string
+        provider:
+          type: string
+        status:
+          type: string
+          enum:
+            - HEALTHY
+            - DEGRADED
+            - DOWN
+            - UNKNOWN
+        latencyMs:
+          type:
+            - integer
+            - 'null'
+        message:
+          type:
+            - string
+            - 'null'
+          description: A sanitized, credential-free message.
+        code:
+          type:
+            - string
+            - 'null'
+        checkedAt:
+          type: string
+          format: date-time
 paths:
   /health:
     get:
@@ -3278,9 +4187,41 @@ paths:
       operationId: getMe
       responses:
         '200':
-          description: >-
-            The authenticated user's profile. Profile update and change-password exist in the service layer but are
-            **not routed** — there is no HTTP way to change them today.
+          description: The authenticated user's profile.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PublicUser'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      description: The authenticated user's profile. It never contains the password hash.
+    patch:
+      tags:
+        - Auth
+      summary: Update profile
+      operationId: updateMe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: The updated profile.
           content:
             application/json:
               schema:
@@ -3301,8 +4242,51 @@ paths:
         '429':
           $ref: '#/components/responses/429'
       description: >-
-        The authenticated user's profile. Profile update and change-password exist in the service layer but are **not
-        routed** — there is no HTTP way to change them today.
+        Partial update of the caller's own profile. Only the fields present in the body are written, so an
+        omitted field is left untouched and null clears a nullable one.
+  /auth/me/change-password:
+    post:
+      tags:
+        - Auth
+      summary: Change password
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: The password was changed.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - changed
+                        properties:
+                          changed:
+                            type: boolean
+                            const: true
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      description: >-
+        The current password must match, otherwise the request answers 401 ("Current password is incorrect"),
+        not 404. The new password must be at least 8 characters. Existing tokens are not revoked by this call.
   /academics/academic-years:
     get:
       tags:
@@ -7897,6 +8881,407 @@ paths:
           schema:
             type: string
             minLength: 1
+  /ai/routing:
+    get:
+      tags:
+        - AI Routing
+      summary: Get the effective routing policy
+      operationId: getAiRoutingPolicy
+      responses:
+        '200':
+          description: >-
+            The user's routing policy. A user who has never saved one gets the transient defaults (AUTO strategy, no
+            ceiling, id is an empty string), so the settings UI always renders a coherent state.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiRoutingPolicy'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: >-
+        Every routing endpoint is owner-scoped: the user id comes from the authenticated session, never from the
+        request body or params.
+    patch:
+      tags:
+        - AI Routing
+      summary: Update the routing policy
+      operationId: updateAiRoutingPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiRoutingPolicyUpdate'
+      responses:
+        '200':
+          description: Only the provided fields are written; the rest keep their stored value.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiRoutingPolicy'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: >-
+        There is no silent provider substitution: when no candidate satisfies the policy the chat turn fails with a 503
+        that carries an honest explanation and the rejected candidates, rather than quietly using a different model.
+  /ai/routing/catalog:
+    get:
+      tags:
+        - AI Routing
+      summary: Effective capability catalog
+      operationId: getAiRoutingCatalog
+      responses:
+        '200':
+          description: >-
+            Providers and models with evidence-aware capabilities, merged with the student's own capability
+            assertions. Each capability is flagged `trusted` only when its evidence is VERIFIED or PROVIDER_REPORTED.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AiCatalogProvider'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+  /ai/routing/preferences:
+    get:
+      tags:
+        - AI Routing
+      summary: List global model preferences
+      operationId: listAiModelPreferences
+      responses:
+        '200':
+          description: The user's global allow/deny/priority rows, ordered by priority then creation.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AiModelPreference'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+    put:
+      tags:
+        - AI Routing
+      summary: Replace global model preferences
+      operationId: replaceAiModelPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - preferences
+              properties:
+                preferences:
+                  type: array
+                  maxItems: 200
+                  items:
+                    $ref: '#/components/schemas/AiModelPreferenceInput'
+      responses:
+        '200':
+          description: >-
+            Preferences are a set, not a log: a global save replaces the global rows only and never touches a
+            per-conversation override.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AiModelPreference'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+  /ai/routing/capabilities:
+    get:
+      tags:
+        - AI Routing
+      summary: List capability overrides
+      operationId: listAiCapabilityOverrides
+      responses:
+        '200':
+          description: The capability assertions the user has saved, for merging into the catalog.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AiCapabilityOverride'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+    put:
+      tags:
+        - AI Routing
+      summary: Replace capability overrides
+      operationId: replaceAiCapabilityOverrides
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - overrides
+              properties:
+                overrides:
+                  type: array
+                  maxItems: 200
+                  items:
+                    $ref: '#/components/schemas/AiCapabilityOverride'
+      responses:
+        '200':
+          description: >-
+            A VERIFIED row records when the student actually exercised the capability; other evidence levels clear that
+            timestamp.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AiCapabilityOverride'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+  /ai/routing/conversations/{id}/preference:
+    get:
+      tags:
+        - AI Routing
+      summary: Get a conversation's model override
+      operationId: getAiConversationPreference
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: The conversation's override, or null when it has none (falls back to the global default / Auto).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        oneOf:
+                          - $ref: '#/components/schemas/AiModelPreference'
+                          - type: 'null'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+    put:
+      tags:
+        - AI Routing
+      summary: Pin or clear a conversation's model
+      operationId: setAiConversationPreference
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - provider
+                - model
+              properties:
+                provider:
+                  oneOf:
+                    - $ref: '#/components/schemas/AiProvider'
+                    - type: 'null'
+                model:
+                  type:
+                    - string
+                    - 'null'
+                  maxLength: 256
+                connectionId:
+                  type:
+                    - string
+                    - 'null'
+      responses:
+        '200':
+          description: >-
+            The conversation's new override, or null when it was cleared by sending a null provider/model.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        oneOf:
+                          - $ref: '#/components/schemas/AiModelPreference'
+                          - type: 'null'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+  /ai/routing/usage:
+    get:
+      tags:
+        - AI Routing
+      summary: Rolling-window usage and cost
+      operationId: getAiRoutingUsage
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: >-
+            Usage/cost summary for the window. Turns with unknown pricing contribute tokens but no cost;
+            `hasUnknownPricing` flags that so the UI can explain why a total may look low.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiUsageSummary'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+  /ai/routing/health:
+    get:
+      tags:
+        - AI Routing
+      summary: Latest provider health per connection
+      operationId: getAiRoutingHealth
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: The most recent health snapshot per connection, newest first. Messages are sanitized and credential-free.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AiProviderHealth'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
   /academics/years:
     get:
       tags:
@@ -8098,3 +9483,576 @@ paths:
           schema:
             type: string
             minLength: 1
+  /ai/tools:
+    get:
+      tags:
+        - AI
+      summary: List mission tools
+      operationId: listMissionTools
+      responses:
+        '200':
+          description: The tool catalog the mission builder uses, including each tool's argument schema and whether this student must approve it.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MissionToolCatalog'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: Tools whose confirmation is "self" are omitted; the runtime also rejects them as mission steps.
+  /ai/missions:
+    get:
+      tags:
+        - AI
+      summary: List missions
+      operationId: listMissions
+      responses:
+        '200':
+          description: List missions, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - items
+                          - hasMore
+                          - nextCursor
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/AiMission'
+                          hasMore:
+                            type: boolean
+                          nextCursor:
+                            type:
+                              - string
+                              - 'null'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/MissionStatus'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Page size (1-100, default 50).
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Id of the last item of the previous page.
+    post:
+      tags:
+        - AI
+      summary: Create a mission
+      operationId: createMission
+      responses:
+        '201':
+          description: '400 when the plan contains a dependency cycle or names a step position that does not exist; 404 when `conversationId` belongs to someone else.'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMission'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      description: A new mission starts `QUEUED` with every step `PENDING`. `dependsOn` positions are translated to the created step ids before the mission is returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMissionRequest'
+  /ai/missions/{id}:
+    get:
+      tags:
+        - AI
+      summary: Get a mission
+      operationId: getMission
+      responses:
+        '200':
+          description: The mission and its steps.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMission'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/missions/{id}/cancel:
+    post:
+      tags:
+        - AI
+      summary: Cancel a mission
+      operationId: cancelMission
+      responses:
+        '200':
+          description: The mission moves to `CANCEL_REQUESTED` and its unfinished steps to `CANCELLED`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMission'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '409':
+          $ref: '#/components/responses/409'
+        '429':
+          $ref: '#/components/responses/429'
+      description: 409 for a mission that already completed, was cancelled, or failed terminally.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/missions/{id}/retry:
+    post:
+      tags:
+        - AI
+      summary: Retry a mission
+      operationId: retryMission
+      responses:
+        '200':
+          description: The mission returns to `QUEUED` with its retryable steps `PENDING` and their attempt counters reset.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMission'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '409':
+          $ref: '#/components/responses/409'
+        '429':
+          $ref: '#/components/responses/429'
+      description: 409 unless the mission is `FAILED_RECOVERABLE`, `FAILED_TERMINAL` or `PARTIAL`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/missions/{id}/execute:
+    post:
+      tags:
+        - AI
+      summary: Execute a mission
+      operationId: executeMission
+      responses:
+        '200':
+          description: Runs the ready steps within this request and returns the mission in its resulting state. A mission already awaiting or past cancellation is returned unchanged.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMission'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/missions/{id}/approve:
+    post:
+      tags:
+        - AI
+      summary: Approve a mission's pending change
+      operationId: approveMission
+      responses:
+        '200':
+          description: The proposal's actions are applied, their outcomes verified, and the mission continues with any newly unblocked steps.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMission'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '409':
+          $ref: '#/components/responses/409'
+        '429':
+          $ref: '#/components/responses/429'
+      description: Claims the pending proposal atomically, so a double-click or concurrent request applies the change exactly once and the loser receives 409. Also 409 when the mission is not waiting for approval.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/memories:
+    get:
+      tags:
+        - AI
+      summary: List saved memories
+      operationId: listMemories
+      responses:
+        '200':
+          description: The student's saved memories, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - items
+                          - hasMore
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/AiMemory'
+                          hasMore:
+                            type: boolean
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: Served whether or not `ai.memoryEnabled` is on, so nothing the student saved becomes unreachable.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/MemoryCategory'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+          description: Page size (1-200, default 100).
+    post:
+      tags:
+        - AI
+      summary: Save a memory
+      operationId: createMemory
+      responses:
+        '201':
+          description: A new memory was created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMemory'
+        '200':
+          description: An equivalent memory already existed (dedup on normalised, case-folded content); the existing row is returned.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMemory'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: Provenance is `USER` � a row saved here is the student's own. Nothing is ever extracted automatically from ordinary chat.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMemoryRequest'
+    delete:
+      tags:
+        - AI
+      summary: Clear all saved memories
+      operationId: clearMemories
+      responses:
+        '200':
+          description: Every memory for the current user was deleted.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - deleted
+                        properties:
+                          deleted:
+                            type: integer
+                            minimum: 0
+                            description: How many memories were removed.
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: Scoped to the current user.
+  /ai/memories/{id}:
+    get:
+      tags:
+        - AI
+      summary: Get a memory
+      operationId: getMemory
+      responses:
+        '200':
+          description: Get a memory
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMemory'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      description: 'The record is owner-scoped: someone else''s id answers 404, never 403.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+    patch:
+      tags:
+        - AI
+      summary: Update a memory
+      operationId: updateMemory
+      responses:
+        '200':
+          description: Update a memory
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiMemory'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '409':
+          $ref: '#/components/responses/409'
+        '429':
+          $ref: '#/components/responses/429'
+      description: 409 when the new content is identical to another saved memory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemoryRequest'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+    delete:
+      tags:
+        - AI
+      summary: Delete a memory
+      operationId: deleteMemory
+      responses:
+        '200':
+          description: 'The record is owner-scoped: someone else''s id answers 404, never 403.'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/deleted'
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+        '429':
+          $ref: '#/components/responses/429'
+      description: 'The record is owner-scoped: someone else''s id answers 404, never 403.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /ai/proactive/briefing:
+    get:
+      tags:
+        - AI
+      summary: Read the proactive briefing
+      operationId: getProactiveBriefing
+      responses:
+        '200':
+          description: Read-only digest of what needs the student now.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProactiveBriefing'
+        '401':
+          $ref: '#/components/responses/401'
+        '429':
+          $ref: '#/components/responses/429'
+      description: Deterministic and stored nowhere � computed per request from the student's own tasks, events, goals and study sessions, so there is no scheduler behind it. The client fetches it when the AI workspace opens.
