@@ -174,7 +174,7 @@ export default function ResourceViewerPage() {
   if (resourceQuery.isPending) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Opening resourceΓÇª
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Opening resource…
       </div>
     );
   }
@@ -230,7 +230,7 @@ export default function ResourceViewerPage() {
             )}
           </div>
           <p className="truncate text-[11px] text-muted-foreground">
-            {meta.length > 0 ? meta.join(" ┬╖ ") : classification.label}
+            {meta.length > 0 ? meta.join(" · ") : classification.label}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -273,11 +273,11 @@ export default function ResourceViewerPage() {
         <main className="min-w-0 flex-1 overflow-hidden" aria-label="Resource viewer">
           {progressWaiting ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Restoring your placeΓÇª
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Restoring your place…
             </div>
           ) : contentWaiting ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Loading fileΓÇª
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Loading file…
             </div>
           ) : contentFailed ? (
             <div className="h-full overflow-y-auto p-6">
