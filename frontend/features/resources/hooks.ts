@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { ResourceRecord } from "@/types/api-types";
+import type { ResourceProgress, ResourceRecord } from "@/types/api-types";
 import * as api from "./resources-api";
 
 export function useResources(params: api.ResourceListParams = {}) {
@@ -91,6 +91,87 @@ export function useDownloadResource() {
       api.downloadResource(resource.id),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not download the file"),
+  });
+}
+
+export function useResourceContent(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["resource-content", id],
+    queryFn: () => api.fetchResourceContent(id!),
+    enabled: Boolean(id) && enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useResourceTextStatus(id: string | undefined) {
+  return useQuery({
+    queryKey: ["resource-text", id],
+    queryFn: () => api.fetchResourceTextStatus(id!),
+    enabled: Boolean(id),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useResourceLinkPreview(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["resource-link-preview", id],
+    queryFn: () => api.fetchResourceLinkPreview(id!),
+    enabled: Boolean(id) && enabled,
+    staleTime: 2 * 60_000,
+    retry: false,
+  });
+}
+
+export function useResourceProgress(id: string | undefined) {
+  return useQuery({
+    queryKey: ["resource-progress", id],
+    queryFn: () => api.fetchResourceProgress(id!),
+    enabled: Boolean(id),
+  });
+}
+
+export function useSaveResourceProgress(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Partial<Omit<ResourceProgress, "updatedAt">>) =>
+      api.saveResourceProgress(id, input),
+    onSuccess: (data) => {
+      qc.setQueryData(["resource-progress", id], data);
+    },
+    // Progress saves are background/non-blocking. A transient failure should
+    // not interrupt reading with a toast; the next position change retries.
+    onError: () => undefined,
+  });
+}
+
+export function useResourceBookmarks(id: string | undefined) {
+  return useQuery({
+    queryKey: ["resource-bookmarks", id],
+    queryFn: () => api.listResourceBookmarks(id!),
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateResourceBookmark(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: api.CreateBookmarkInput) => api.createResourceBookmark(id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resource-bookmarks", id] });
+      toast.success("Bookmark saved");
+    },
+    onError: () => toast.error("Could not save the bookmark"),
+  });
+}
+
+export function useDeleteResourceBookmark(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (bookmarkId: string) => api.deleteResourceBookmark(id, bookmarkId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resource-bookmarks", id] });
+    },
+    onError: () => toast.error("Could not remove the bookmark"),
   });
 }
 

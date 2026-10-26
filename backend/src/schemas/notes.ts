@@ -18,6 +18,7 @@ export type {
 
 export const queryNoteSchema = z.object({
   courseId: z.string().min(1).optional(),
+  resourceId: z.string().min(1).optional(),
   search: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   cursor: z.string().min(1).optional(),

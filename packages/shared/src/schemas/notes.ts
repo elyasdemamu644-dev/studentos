@@ -5,16 +5,19 @@ export const noteSchema = z.object({
   id: idSchema,
   userId: idSchema,
   courseId: idSchema.nullable(),
+  resourceId: idSchema.nullable(),
   title: z.string().trim(),
   content: z.string(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
-  // optional course relation
+  // optional relations
   course: z.any().nullable(),
+  resource: z.any().nullable().optional(),
 });
 
 export const createNoteSchema = z.object({
   courseId: idSchema.nullable().optional(),
+  resourceId: idSchema.nullable().optional(),
   title: z.string().trim().min(1, "Title is required"),
   content: z.string().min(1, "Content is required"),
 });

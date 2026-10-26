@@ -11,11 +11,15 @@ import {
 import { getFileStorage, storageKeyFor, type FileStorage } from "@/services/storage";
 import type { ParsedFile } from "@/utils/multipart";
 import { extractDocumentText, isExtractionSupported, type ExtractedDocument } from "./document-extraction";
+import { fetchLinkContent } from "./ai/link-content";
+import { classifyResourceViewer } from "@tutor-walle/shared/schemas/resource-viewer";
 import type {
   ResourceListQuery,
   ResourceCreate,
   ResourceUpdate,
   ResourceUploadFields,
+  ResourceProgressInput,
+  ResourceBookmarkInput,
 } from "../schemas/resources";
 
 // ─────────────────────────────────────────────
@@ -282,6 +286,226 @@ export const resourcesService = {
     return extractDocumentText(buffer, record.mimeType);
   },
 
+  /** Fetch bytes plus the shared presentation classification for the reader. */
+  async getViewerFile(userId: string, id: string) {
+    const record = await prisma.resource.findFirst({ where: { id, userId } });
+    if (!record) throw new NotFoundError("Resource not found");
+    if (record.storageType !== "UPLOAD" || !record.fileKey) {
+      throw new ValidationApiError(
+        "This resource is a link, not an uploaded file",
+        UPLOAD_ERROR_CODES.RESOURCE_NOT_A_FILE,
+      );
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await getFileStorage().get(record.fileKey);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new StorageError("Failed to read the stored file");
+    }
+
+    return {
+      buffer,
+      fileName: record.fileName ?? `resource-${record.id}`,
+      storedMimeType: record.mimeType,
+      classification: classifyResourceViewer({
+        storageType: record.storageType,
+        mimeType: record.mimeType,
+        fileName: record.fileName,
+        resourceType: record.resourceType,
+        url: record.url,
+      }),
+    };
+  },
+
+  /**
+   * Report whether the study assistant can read this resource, and a preview.
+   *
+   * The full extracted text can be large; the viewer only needs to know that
+   * extraction works (and show an honest reason when it does not), so this
+   * returns a bounded preview while the AI pipeline reads the full document
+   * through `getContent`.
+   */
+  async getTextStatus(userId: string, id: string) {
+    const record = await prisma.resource.findFirst({ where: { id, userId } });
+    if (!record) throw new NotFoundError("Resource not found");
+    if (record.storageType !== "UPLOAD" || !record.fileKey) {
+      return {
+        supported: false,
+        status: "unavailable" as const,
+        reason: "Web links are read directly by the study assistant.",
+        format: null,
+        pageCount: null,
+        charCount: null,
+        preview: null,
+      };
+    }
+    if (!record.mimeType || !isExtractionSupported(record.mimeType)) {
+      return {
+        supported: false,
+        status: "unsupported" as const,
+        reason: `The study assistant cannot read ${record.mimeType ?? "this file type"} yet.`,
+        format: null,
+        pageCount: null,
+        charCount: null,
+        preview: null,
+      };
+    }
+
+    try {
+      const text = await this.getContent(userId, id);
+      return {
+        supported: true,
+        status: "ready" as const,
+        reason: null,
+        format: text.format,
+        pageCount: text.pageCount,
+        charCount: text.charCount,
+        preview: text.fullText.slice(0, 600),
+      };
+    } catch {
+      // Extraction failure is a normal state for the study panel, not an API
+      // error: report it so the UI can explain why AI reading is unavailable.
+      return {
+        supported: true,
+        status: "failed" as const,
+        reason: "The file's text could not be extracted.",
+        format: null,
+        pageCount: null,
+        charCount: null,
+        preview: null,
+      };
+    }
+  },
+
+  /** Fetch a safe text preview of an external link (never proxied as HTML). */
+  async getLinkPreview(userId: string, id: string) {
+    const record = await prisma.resource.findFirst({ where: { id, userId } });
+    if (!record) throw new NotFoundError("Resource not found");
+    if (record.storageType !== "URL" || !record.url) {
+      throw new ValidationApiError("This resource is not a web link");
+    }
+
+    const result = await fetchLinkContent(record.url);
+    if (!result.ok) {
+      return {
+        available: false,
+        url: record.url,
+        reason: linkFailureMessage(result.reason),
+        title: record.title,
+        siteName: safeHostname(record.url),
+        description: null,
+        excerpt: null,
+        truncated: false,
+      };
+    }
+
+    const text = result.content.text.replace(/\s+/g, " ").trim();
+    return {
+      available: true,
+      url: result.content.url,
+      reason: null,
+      title: result.content.title ?? record.title,
+      siteName: safeHostname(result.content.url),
+      description: text.slice(0, 280) || null,
+      excerpt: text.slice(0, 1200) || null,
+      truncated: result.content.truncated,
+    };
+  },
+
+  /** Current reading position for a resource (empty defaults when none). */
+  async getProgress(userId: string, id: string) {
+    await assertResourceOwned(userId, id);
+    const record = await prisma.resourceProgress.findUnique({
+      where: { userId_resourceId: { userId, resourceId: id } },
+    });
+    return mapProgress(record);
+  },
+
+  /**
+   * Persist a reading position.
+   *
+   * Completion is gated on real engagement so merely opening a file cannot mark
+   * it finished. It is sticky: once a student has completed a resource, a later
+   * position update cannot silently un-complete it.
+   */
+  async updateProgress(userId: string, id: string, input: ResourceProgressInput) {
+    await assertResourceOwned(userId, id);
+    const existing = await prisma.resourceProgress.findUnique({
+      where: { userId_resourceId: { userId, resourceId: id } },
+    });
+
+    const completed = existing?.completed === true || input.completed === true;
+    if (input.completed === true && existing?.completed !== true) {
+      const percent = input.percent ?? existing?.percent ?? 0;
+      const page = input.page ?? existing?.page ?? 0;
+      const slide = input.slide ?? existing?.slide ?? 0;
+      const positionSeconds = input.positionSeconds ?? existing?.positionSeconds ?? 0;
+      const meaningful =
+        percent >= 90 || page >= 2 || slide >= 2 || positionSeconds >= 15;
+      if (!meaningful) {
+        throw new ValidationApiError(
+          "A resource can only be marked complete after meaningful progress",
+          "COMPLETION_NOT_MEANINGFUL",
+        );
+      }
+    }
+
+    const data = {
+      ...(input.page !== undefined && { page: input.page }),
+      ...(input.slide !== undefined && { slide: input.slide }),
+      ...(input.positionSeconds !== undefined && { positionSeconds: input.positionSeconds }),
+      ...(input.percent !== undefined && { percent: input.percent }),
+      completed,
+    };
+
+    const record = await prisma.resourceProgress.upsert({
+      where: { userId_resourceId: { userId, resourceId: id } },
+      create: { userId, resourceId: id, ...data },
+      update: data,
+    });
+
+    return mapProgress(record);
+  },
+
+  /** Bookmarks for a resource, newest first. */
+  async listBookmarks(userId: string, id: string) {
+    await assertResourceOwned(userId, id);
+    const records = await prisma.resourceBookmark.findMany({
+      where: { userId, resourceId: id },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 200,
+    });
+    return records.map(mapBookmark);
+  },
+
+  /** Create a bookmark at a page, slide or timestamp. */
+  async createBookmark(userId: string, id: string, input: ResourceBookmarkInput) {
+    await assertResourceOwned(userId, id);
+    const record = await prisma.resourceBookmark.create({
+      data: {
+        userId,
+        resourceId: id,
+        label: input.label,
+        page: input.page ?? null,
+        slide: input.slide ?? null,
+        positionSeconds: input.positionSeconds ?? null,
+        note: input.note ?? null,
+      },
+    });
+    return mapBookmark(record);
+  },
+
+  /** Delete one of the current user's bookmarks on this resource. */
+  async deleteBookmark(userId: string, id: string, bookmarkId: string) {
+    const result = await prisma.resourceBookmark.deleteMany({
+      where: { id: bookmarkId, userId, resourceId: id },
+    });
+    if (result.count === 0) throw new NotFoundError("Bookmark not found");
+    return { deleted: true };
+  },
+
   /** Delete a resource. Only the owner can delete.
    *
    * The stored object is removed before the row so the endpoint never leaves
@@ -348,6 +572,89 @@ function assertStorageSupported(storageType: string | undefined): void {
       "File uploads must be sent as multipart/form-data to POST /resources/upload",
       "UPLOAD_STORAGE_UNAVAILABLE",
     );
+  }
+}
+
+async function assertResourceOwned(userId: string, resourceId: string): Promise<void> {
+  const resource = await prisma.resource.findFirst({
+    where: { id: resourceId, userId },
+    select: { id: true },
+  });
+  if (!resource) throw new NotFoundError("Resource not found");
+}
+
+function mapProgress(
+  record: {
+    page: number | null;
+    slide: number | null;
+    positionSeconds: number | null;
+    percent: number | null;
+    completed: boolean;
+    updatedAt: Date;
+  } | null,
+) {
+  if (!record) {
+    return {
+      page: null,
+      slide: null,
+      positionSeconds: null,
+      percent: null,
+      completed: false,
+      updatedAt: null,
+    };
+  }
+  return {
+    page: record.page,
+    slide: record.slide,
+    positionSeconds: record.positionSeconds,
+    percent: record.percent,
+    completed: record.completed,
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function mapBookmark(record: {
+  id: string;
+  label: string;
+  page: number | null;
+  slide: number | null;
+  positionSeconds: number | null;
+  note: string | null;
+  createdAt: Date;
+}) {
+  return {
+    id: record.id,
+    label: record.label,
+    page: record.page,
+    slide: record.slide,
+    positionSeconds: record.positionSeconds,
+    note: record.note,
+    createdAt: record.createdAt.toISOString(),
+  };
+}
+
+function safeHostname(rawUrl: string): string | null {
+  try {
+    return new URL(rawUrl).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function linkFailureMessage(reason: string): string {
+  switch (reason) {
+    case "blocked":
+      return "This link points to a private or unsafe address and cannot be previewed.";
+    case "too_large":
+      return "This page is too large to preview.";
+    case "unsupported_type":
+      return "This link is not a web page, so it cannot be previewed here.";
+    case "empty":
+      return "This page did not return any readable content.";
+    case "http_error":
+      return "The website refused or failed the preview request.";
+    default:
+      return "The website could not be reached for a preview.";
   }
 }
 

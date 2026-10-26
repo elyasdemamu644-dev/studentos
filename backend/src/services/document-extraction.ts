@@ -7,29 +7,19 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { extractRawText } from "mammoth";
+import JSZip from "jszip";
+import * as XLSX from "xlsx";
 
 import { ApiError } from "@/config/errors";
 
-// pdf-parse is ESM with poor types; use `any` to bypass TS checks
-const pdfParse: any = (() => {
-  try {
-    const mod = require("pdf-parse");
-    return mod.default ?? mod;
-  } catch {
-    return null;
-  }
-})();
+// pdf-parse v2 is ESM-only. Loading it through `require` throws
+// "require is not defined" under the ESM dev runner, so import it lazily.
+type PdfParseModule = typeof import("pdf-parse");
+let pdfParseModule: Promise<PdfParseModule> | null = null;
 
-// Dynamic import fallback for pdf-parse (ESM module)
-let pdfParseFn: any = pdfParse;
-
-async function getPdfParse(): Promise<any> {
-  if (!pdfParseFn) {
-    // Use require directly to avoid TS analyzing the ESM import
-    const mod: any = require("pdf-parse");
-    pdfParseFn = mod.default ?? mod;
-  }
-  return pdfParseFn!;
+function getPdfParseModule(): Promise<PdfParseModule> {
+  pdfParseModule ??= import("pdf-parse");
+  return pdfParseModule;
 }
 
 export interface ExtractedPage {
@@ -53,6 +43,11 @@ const MAX_PAGES_TO_EXTRACT = 50;
 export class DocumentExtractionError extends ApiError {
   constructor(message: string, public readonly code: string = "EXTRACTION_FAILED") {
     super(400, code, message);
+    this.name = "DocumentExtractionError";
+    // The ApiError constructor resets the prototype to ApiError.prototype; restore
+    // this subclass so `instanceof DocumentExtractionError` holds (as the other
+    // ApiError subclasses do), letting callers degrade unreadable files safely.
+    Object.setPrototypeOf(this, DocumentExtractionError.prototype);
   }
 }
 
@@ -61,42 +56,40 @@ export class DocumentExtractionError extends ApiError {
  * Returns pages with page numbers and combined full text.
  */
 export async function extractPdfText(buffer: Buffer): Promise<ExtractedDocument> {
+  let parser: InstanceType<PdfParseModule["PDFParse"]> | null = null;
   try {
-    const pdfParseFn = await getPdfParse();
-    // @ts-ignore - pdf-parse types have issues with the options parameter
-    const data = await pdfParseFn(buffer, {
-      max: MAX_PAGES_TO_EXTRACT,
+    const { PDFParse } = await getPdfParseModule();
+    parser = new PDFParse({ data: buffer });
+    const result = await parser.getText({
+      first: MAX_PAGES_TO_EXTRACT,
+      pageJoiner: "",
     });
 
-    const pages: ExtractedPage[] = [];
-    // pdf-parse doesn't provide per-page text directly in newer versions
-    // We'll simulate pages by splitting on form feeds if present, or treat as single page
-    const rawText = data.text;
-
-    // Try to split by page breaks (form feed character)
-    const pageTexts = rawText.split(/\f+/).filter((t) => t.trim().length > 0);
-
-    if (pageTexts.length > 1) {
-      pageTexts.forEach((text, index) => {
-        pages.push({ pageNumber: index + 1, text: text.trim() });
-      });
-    } else {
-      pages.push({ pageNumber: 1, text: rawText.trim() });
+    const pages: ExtractedPage[] = result.pages
+      .map((page) => ({
+        pageNumber: page.num,
+        text: page.text.trim(),
+      }))
+      .filter((page) => page.text.length > 0);
+    if (pages.length === 0) {
+      pages.push({ pageNumber: 1, text: "" });
     }
 
-    const fullText = pages.map((p) => p.text).join("\n\n");
+    const fullText = pages.map((page) => page.text).join("\n\n");
     const truncated = truncateText(fullText);
 
     return {
       pages: pages.slice(0, MAX_PAGES_TO_EXTRACT),
       fullText: truncated,
-      pageCount: Math.min(data.numpages, MAX_PAGES_TO_EXTRACT),
+      pageCount: Math.min(result.total, MAX_PAGES_TO_EXTRACT),
       charCount: truncated.length,
       format: "pdf",
     };
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new DocumentExtractionError("Failed to extract text from PDF: " + (error as Error).message);
+  } finally {
+    await parser?.destroy().catch(() => undefined);
   }
 }
 
@@ -163,41 +156,47 @@ export function extractTextText(buffer: Buffer, format: "txt" | "md"): Extracted
  */
 export async function extractPptxText(buffer: Buffer): Promise<ExtractedDocument> {
   try {
-    // pptx is ESM with poor types; use dynamic require
-    let pptxParse: any = null;
-    try {
-      pptxParse = require("pptxjs");
-    } catch {
-      throw new DocumentExtractionError("PPTX extraction library not available");
-    }
-    if (!pptxParse) {
-      throw new DocumentExtractionError("PPTX extraction library not available");
+    // A .pptx is an OOXML ZIP container: `ppt/slides/slideN.xml`. Reading the
+    // text runs directly keeps the parser dependency-free (JSZip is already used
+    // for archive inspection) and turns slide text on for the AI pipeline.
+    const zip = await JSZip.loadAsync(buffer);
+    const slideNames = Object.keys(zip.files)
+      .map((name) => ({ name, match: /^ppt\/slides\/slide(\d+)\.xml$/i.exec(name) }))
+      .filter((entry): entry is { name: string; match: RegExpExecArray } => Boolean(entry.match))
+      .sort((a, b) => Number(a.match[1]) - Number(b.match[1]));
+
+    if (slideNames.length === 0) {
+      throw new DocumentExtractionError(
+        "The presentation contains no readable slides",
+        "EXTRACTION_FAILED",
+      );
     }
 
-    const workbook = pptxParse.parse(buffer);
-    const fullTexts: string[] = [];
-
-    workbook.Slide.forEach((slide, slideIndex) => {
-      const slideText: string[] = [];
-      slide.Shapes.forEach((shape: any) => {
-        if (shape.TextFrame && shape.TextFrame.Text) {
-          slideText.push(shape.TextFrame.Text);
-        }
+    const pages: ExtractedPage[] = [];
+    for (const [index, slide] of slideNames.slice(0, MAX_PAGES_TO_EXTRACT).entries()) {
+      const file = zip.file(slide.name);
+      if (!file) continue;
+      const xml = await file.async("string");
+      const texts: string[] = [];
+      const pattern = /<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/gi;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(xml)) !== null) {
+        const text = decodeXmlEntities(match[1]).trim();
+        if (text) texts.push(text);
+      }
+      pages.push({
+        pageNumber: index + 1,
+        text: texts.length > 0 ? `Slide ${index + 1}: ${texts.join(" ")}` : `Slide ${index + 1}:`,
       });
-      fullTexts.push(`Slide ${slideIndex + 1}: ${slideText.join(" ")}`);
-    });
+    }
 
-    const rawText = fullTexts.join("\n\n");
-    const truncated = truncateText(rawText);
-
-    const pages: ExtractedPage[] = fullTexts.length > 0
-      ? fullTexts.map((text, index) => ({ pageNumber: index + 1, text }))
-      : [{ pageNumber: 1, text: "" }];
+    const fullText = pages.map((page) => page.text).join("\n\n");
+    const truncated = truncateText(fullText);
 
     return {
-      pages: pages.slice(0, MAX_PAGES_TO_EXTRACT),
+      pages,
       fullText: truncated,
-      pageCount: Math.min(workbook.Slide.length, MAX_PAGES_TO_EXTRACT),
+      pageCount: Math.min(slideNames.length, MAX_PAGES_TO_EXTRACT),
       charCount: truncated.length,
       format: "pptx",
     };
@@ -207,29 +206,61 @@ export async function extractPptxText(buffer: Buffer): Promise<ExtractedDocument
   }
 }
 
+/** Decode the XML entities that can occur inside a slide's text runs. */
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => safeCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_match, dec: string) => safeCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function safeCodePoint(value: number): string {
+  if (!Number.isFinite(value) || value < 0 || value > 0x10ffff) return "";
+  try {
+    return String.fromCodePoint(value);
+  } catch {
+    return "";
+  }
+}
+
 /**
- * Extract text from an XLSX or CSV buffer.
+ * Extract text from a plain CSV buffer. CSV is plain text on disk, so it needs
+ * no third-party parser and is always available — unlike XLSX/PPTX, whose
+ * parsers are optional.
+ */
+export function extractCsvText(buffer: Buffer): ExtractedDocument {
+  try {
+    const raw = buffer.toString("utf-8").replace(/^\uFEFF/, "").trim();
+    const truncated = truncateText(raw);
+    return {
+      pages: [{ pageNumber: 1, text: raw }],
+      fullText: truncated,
+      pageCount: 1,
+      charCount: truncated.length,
+      format: "csv",
+    };
+  } catch (error) {
+    throw new DocumentExtractionError("Failed to extract text from CSV: " + (error as Error).message);
+  }
+}
+
+/**
+ * Extract text from an XLSX buffer.
  */
 export async function extractXlsxText(buffer: Buffer, mimeType: string): Promise<ExtractedDocument> {
   try {
-    let xlsxParse: any = null;
-    try {
-      xlsxParse = require("xlsx");
-    } catch {
-      throw new DocumentExtractionError("XLSX extraction library not available");
-    }
-    if (!xlsxParse) {
-      throw new DocumentExtractionError("XLSX extraction library not available");
-    }
-
-    const workbook = xlsxParse.read(buffer, { type: "buffer" });
+    const workbook = XLSX.read(buffer, { type: "buffer" });
 
     // Render a sheet as text, one source row per line. `sheet_to_json` reads the
     // sheet's `!ref` range and returns cells in order; iterating the sheet
     // object directly also yielded the `!ref`/`!cols` metadata and visited
     // cells out of order.
-    const sheetToText = (sheet: any): string => {
-      const rows: unknown[][] = xlsxParse.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+    const sheetToText = (sheet: XLSX.WorkSheet): string => {
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, blankrows: false });
       return rows
         .map((row) =>
           Array.isArray(row) ? row.map((cell) => (cell == null ? "" : String(cell))).join(", ") : String(row),
@@ -315,8 +346,11 @@ export async function extractDocumentText(
     case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
       return extractPptxText(buffer);
     case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-    case "text/csv":
+    case "application/vnd.ms-excel":
       return extractXlsxText(buffer, mimeType);
+    case "text/csv":
+    case "application/csv":
+      return extractCsvText(buffer);
     case "text/plain":
       return extractTextText(buffer, "txt");
     case "text/markdown":
@@ -338,18 +372,29 @@ function truncateText(text: string): string {
 }
 
 /**
+ * Formats whose parser is bundled and therefore always available.
+ */
+const ALWAYS_SUPPORTED_TYPES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+  "text/csv",
+  "application/csv",
+  "text/plain",
+  "text/markdown",
+]);
+
+/**
  * Check if a MIME type is supported for text extraction.
+ *
+ * Every format reported here has a bundled parser. XLSX/PPTX used to be gated
+ * on optional modules that were never installed, so the UI advertised them as
+ * readable and then silently failed; both parsers are now dependencies.
  */
 export function isExtractionSupported(mimeType: string): boolean {
-  return [
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/csv",
-    "text/plain",
-    "text/markdown",
-  ].includes(mimeType);
+  return ALWAYS_SUPPORTED_TYPES.has(mimeType);
 }
 
 /**
@@ -364,6 +409,7 @@ export function getFormatName(mimeType: string): string {
     case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
       return "PPTX";
     case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+    case "application/vnd.ms-excel":
     case "text/csv":
       return "XLSX";
     case "text/plain":

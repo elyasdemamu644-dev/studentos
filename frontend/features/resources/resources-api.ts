@@ -1,5 +1,13 @@
 import { api } from "@/lib/api/client";
-import type { Page, ResourceRecord, ResourceType } from "@/types/api-types";
+import type {
+  Page,
+  ResourceBookmark,
+  ResourceLinkPreview,
+  ResourceProgress,
+  ResourceRecord,
+  ResourceTextStatus,
+  ResourceType,
+} from "@/types/api-types";
 
 export interface ResourceListParams {
   courseId?: string;
@@ -88,4 +96,60 @@ export function updateResource(
 
 export function deleteResource(id: string): Promise<{ deleted: boolean }> {
   return api.delete<{ deleted: boolean }>(`/resources/${id}`);
+}
+
+/**
+ * Fetch the preview bytes through the authenticated transport. The API forces
+ * a safe content type and attachment disposition for active file formats, but
+ * the viewer only ever reads these bytes into a Blob URL / parser.
+ */
+export function fetchResourceContent(
+  id: string,
+): Promise<{ blob: Blob; fileName: string | null }> {
+  return api.download(`/resources/${id}/content`);
+}
+
+export function fetchResourceTextStatus(id: string): Promise<ResourceTextStatus> {
+  return api.get<ResourceTextStatus>(`/resources/${id}/text`);
+}
+
+export function fetchResourceLinkPreview(id: string): Promise<ResourceLinkPreview> {
+  return api.get<ResourceLinkPreview>(`/resources/${id}/link-preview`);
+}
+
+export function fetchResourceProgress(id: string): Promise<ResourceProgress> {
+  return api.get<ResourceProgress>(`/resources/${id}/progress`);
+}
+
+export function saveResourceProgress(
+  id: string,
+  input: Partial<Omit<ResourceProgress, "updatedAt">>,
+): Promise<ResourceProgress> {
+  return api.put<ResourceProgress>(`/resources/${id}/progress`, input);
+}
+
+export function listResourceBookmarks(id: string): Promise<ResourceBookmark[]> {
+  return api.get<ResourceBookmark[]>(`/resources/${id}/bookmarks`);
+}
+
+export interface CreateBookmarkInput {
+  label: string;
+  page?: number | null;
+  slide?: number | null;
+  positionSeconds?: number | null;
+  note?: string | null;
+}
+
+export function createResourceBookmark(
+  id: string,
+  input: CreateBookmarkInput,
+): Promise<ResourceBookmark> {
+  return api.post<ResourceBookmark>(`/resources/${id}/bookmarks`, input);
+}
+
+export function deleteResourceBookmark(
+  id: string,
+  bookmarkId: string,
+): Promise<{ deleted: boolean }> {
+  return api.delete<{ deleted: boolean }>(`/resources/${id}/bookmarks/${bookmarkId}`);
 }

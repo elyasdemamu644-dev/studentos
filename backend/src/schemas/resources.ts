@@ -45,3 +45,38 @@ export const queryResourceSchema = z.object({
 export type ResourceListQuery = z.infer<typeof queryResourceSchema>;
 export type ResourceCreate = z.infer<typeof createResourceSchema>;
 export type ResourceUpdate = z.infer<typeof updateResourceSchema>;
+
+// ─────────────────────────────────────────────
+// Reader state
+// ─────────────────────────────────────────────
+
+const locationFields = {
+  page: z.number().int().min(1).max(100_000).nullable().optional(),
+  slide: z.number().int().min(1).max(100_000).nullable().optional(),
+  positionSeconds: z.number().min(0).max(86_400).nullable().optional(),
+};
+
+export const updateResourceProgressSchema = z
+  .object({
+    ...locationFields,
+    percent: z.number().min(0).max(100).nullable().optional(),
+    completed: z.boolean().optional(),
+  })
+  .refine(
+    (value) =>
+      value.page != null ||
+      value.slide != null ||
+      value.positionSeconds != null ||
+      value.percent != null ||
+      value.completed === true,
+    { message: "Provide a reading position or completion" },
+  );
+
+export const createResourceBookmarkSchema = z.object({
+  label: z.string().trim().min(1, "Label is required").max(120),
+  ...locationFields,
+  note: z.string().trim().max(1000).nullable().optional(),
+});
+
+export type ResourceProgressInput = z.infer<typeof updateResourceProgressSchema>;
+export type ResourceBookmarkInput = z.infer<typeof createResourceBookmarkSchema>;

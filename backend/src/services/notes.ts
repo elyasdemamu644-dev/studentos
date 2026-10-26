@@ -10,10 +10,11 @@ import type { NoteListQuery, NoteCreate, NoteUpdate } from "../schemas/notes";
 export const notesService = {
   /** List notes for the current user with optional course/search filters. */
   async list(userId: string, query: NoteListQuery) {
-    const { courseId, search, limit = 50, cursor } = query;
+    const { courseId, resourceId, search, limit = 50, cursor } = query;
 
     const where: Prisma.NoteWhereInput = { userId };
     if (courseId) where.courseId = courseId;
+    if (resourceId) where.resourceId = resourceId;
     if (search) {
       where.OR = [
         { title: { contains: search, mode: "insensitive" } },
@@ -50,7 +51,7 @@ export const notesService = {
     return mapNote(note);
   },
 
-  /** Create a note. Validates the optional course belongs to the user. */
+  /** Create a note. Validates optional course/resource ownership. */
   async create(userId: string, input: NoteCreate) {
     if (input.courseId) {
       const course = await prisma.course.findFirst({
@@ -58,11 +59,15 @@ export const notesService = {
       });
       if (!course) throw new NotFoundError("Course not found");
     }
+    if (input.resourceId) {
+      await assertResourceOwned(userId, input.resourceId);
+    }
 
     const note = await prisma.note.create({
       data: {
         userId,
         courseId: input.courseId ?? null,
+        resourceId: input.resourceId ?? null,
         title: input.title,
         content: input.content,
       },
@@ -72,7 +77,7 @@ export const notesService = {
     return mapNote(note);
   },
 
-  /** Update a note (partial). Validates ownership + course ownership. */
+  /** Update a note (partial). Validates ownership + course/resource ownership. */
   async update(userId: string, id: string, input: NoteUpdate) {
     const existing = await prisma.note.findFirst({ where: { id, userId } });
     if (!existing) throw new NotFoundError("Note not found");
@@ -85,6 +90,11 @@ export const notesService = {
         if (!course) throw new NotFoundError("Course not found");
       }
     }
+    if (input.resourceId !== undefined && input.resourceId !== existing.resourceId) {
+      if (input.resourceId) {
+        await assertResourceOwned(userId, input.resourceId);
+      }
+    }
 
     const note = await prisma.note.update({
       where: { id },
@@ -92,6 +102,7 @@ export const notesService = {
         ...(input.title !== undefined && { title: input.title }),
         ...(input.content !== undefined && { content: input.content }),
         ...(input.courseId !== undefined && { courseId: input.courseId ?? null }),
+        ...(input.resourceId !== undefined && { resourceId: input.resourceId ?? null }),
       },
       include: { course: { select: { id: true, code: true, name: true } } },
     });
@@ -116,6 +127,7 @@ export const notesService = {
 function mapNote(record: {
   id: string;
   courseId: string | null;
+  resourceId: string | null;
   title: string;
   content: string;
   createdAt: Date;
@@ -125,10 +137,19 @@ function mapNote(record: {
   return {
     id: record.id,
     courseId: record.courseId,
+    resourceId: record.resourceId,
     title: record.title,
     content: record.content,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     course: record.course ?? null,
   };
+}
+
+async function assertResourceOwned(userId: string, resourceId: string) {
+  const resource = await prisma.resource.findFirst({
+    where: { id: resourceId, userId },
+    select: { id: true },
+  });
+  if (!resource) throw new NotFoundError("Resource not found");
 }

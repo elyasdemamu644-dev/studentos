@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Bot,
+  BookOpen,
   Download,
   ExternalLink,
   FileText,
@@ -26,13 +27,18 @@ import { ResourceFormDialog } from "./resource-form";
 import type { ResourceRecord, ResourceType } from "@/types/api-types";
 import { RESOURCE_TYPE_LABELS } from "@/lib/labels";
 import { formatBytes, relativeTime } from "@/lib/format";
-
-const EXTRACTABLE_TYPES: ResourceType[] = ["PDF", "DOCUMENT", "OTHER"]; // OTHER could be TXT/MD
+import { classifyResourceViewer } from "@tutor-walle/shared/schemas/resource-viewer";
 
 const PAGE_SIZE = 20;
 
-function isExtractable(resource: ResourceRecord): boolean {
-  return resource.storageType === "UPLOAD" && EXTRACTABLE_TYPES.includes(resource.resourceType);
+function canAskAi(resource: ResourceRecord): boolean {
+  return classifyResourceViewer({
+    storageType: resource.storageType,
+    mimeType: resource.mimeType,
+    fileName: resource.fileName,
+    resourceType: resource.resourceType,
+    url: resource.url,
+  }).aiReadable;
 }
 const TYPE_TONE: Record<ResourceType, string> = {
   LINK: "bg-primary/10 text-primary",
@@ -159,7 +165,13 @@ export function CourseMaterialsPanel({ courseId }: { courseId: string }) {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="min-w-0 truncate text-sm font-medium">{resource.title}</p>
+                        <Link
+                          href={`/resources/${resource.id}`}
+                          className="block min-w-0 truncate text-sm font-medium hover:text-primary hover:underline"
+                          title={resource.title}
+                        >
+                          {resource.title}
+                        </Link>
                         <Badge variant="secondary" className="shrink-0">
                           {RESOURCE_TYPE_LABELS[resource.resourceType] ?? resource.resourceType}
                         </Badge>
@@ -175,29 +187,37 @@ export function CourseMaterialsPanel({ courseId }: { courseId: string }) {
                     </div>
 
                     <div className="flex shrink-0 items-center gap-1">
-                      {isUpload ? (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Download ${resource.title}`}
-                            onClick={() => onDownload(resource)}
-                          >
-                            <Download className="h-4 w-4" aria-hidden />
+                      <Button asChild variant="ghost" size="icon-sm">
+                        <Link
+                          href={`/resources/${resource.id}`}
+                          aria-label={`Open ${resource.title}`}
+                          title="Open in reader"
+                        >
+                          <BookOpen className="h-4 w-4" aria-hidden />
+                        </Link>
+                      </Button>
+                      {isUpload && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Download ${resource.title}`}
+                          onClick={() => onDownload(resource)}
+                        >
+                          <Download className="h-4 w-4" aria-hidden />
+                        </Button>
+                      )}
+                      {canAskAi(resource) && (
+                        <Link
+                          href={`/ai?prompt=${encodeURIComponent(`Analyze this material: ${resource.title}`)}&resourceId=${resource.id}`}
+                          className="text-primary hover:text-primary/80"
+                          title="Ask AI about this material"
+                        >
+                          <Button variant="ghost" size="icon-sm" aria-label={`Ask AI about ${resource.title}`}>
+                            <Bot className="h-4 w-4" aria-hidden />
                           </Button>
-                          {isExtractable(resource) && (
-                            <Link
-                              href={`/ai?prompt=Analyze this material: ${encodeURIComponent(resource.title)}&resourceId=${resource.id}`}
-                              className="text-primary hover:text-primary/80"
-                              title="Ask AI about this material"
-                            >
-                              <Button variant="ghost" size="icon-sm" aria-label={`Ask AI about ${resource.title}`}>
-                                <Bot className="h-4 w-4" aria-hidden />
-                              </Button>
-                            </Link>
-                          )}
-                        </>
-                      ) : resource.url ? (
+                        </Link>
+                      )}
+                      {!isUpload && resource.url && (
                         <Button asChild variant="ghost" size="icon-sm">
                           <a
                             href={resource.url}
@@ -208,7 +228,7 @@ export function CourseMaterialsPanel({ courseId }: { courseId: string }) {
                             <ExternalLink className="h-4 w-4" aria-hidden />
                           </a>
                         </Button>
-                      ) : null}
+                      )}
                       <Button
                         variant="ghost"
                         size="icon-sm"

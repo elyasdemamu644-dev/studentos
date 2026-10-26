@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowRight,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -250,7 +252,13 @@ export default function ResourcesPage() {
                     )}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{resource.title}</p>
+                    <Link
+                      href={`/resources/${resource.id}`}
+                      className="block truncate text-sm font-medium hover:text-primary hover:underline"
+                      title={resource.title}
+                    >
+                      {resource.title}
+                    </Link>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {resource.courseId ? courseName(resource.courseId) : "No course"}
                     </p>
@@ -272,7 +280,15 @@ export default function ResourcesPage() {
                   {relativeTime(resource.createdAt)}
                 </span>
                 <div className="flex items-center gap-1">
-                  {resource.url && (
+                  {resource.storageType === "UPLOAD" ? (
+                    <Button asChild variant="ghost" size="sm">
+                      <Link href={`/resources/${resource.id}`}>
+                        Open
+                        <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+                        <span className="sr-only"> {resource.title}</span>
+                      </Link>
+                    </Button>
+                  ) : resource.url ? (
                     <Button asChild variant="ghost" size="sm">
                       <a href={resource.url} target="_blank" rel="noopener noreferrer">
                         Open
@@ -280,7 +296,7 @@ export default function ResourcesPage() {
                         <span className="sr-only"> {resource.title} in a new tab</span>
                       </a>
                     </Button>
-                  )}
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon-sm"

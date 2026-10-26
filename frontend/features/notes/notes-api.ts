@@ -3,6 +3,7 @@ import type { Note, Page } from "@/types/api-types";
 
 export interface NoteListParams {
   courseId?: string;
+  resourceId?: string;
   search?: string;
   limit?: number;
   cursor?: string;
@@ -26,6 +27,7 @@ export interface CreateNoteInput {
   title: string;
   content: string;
   courseId?: string | null;
+  resourceId?: string | null;
 }
 
 export function createNote(input: CreateNoteInput): Promise<Note> {
@@ -36,6 +38,7 @@ export interface UpdateNoteInput {
   title?: string;
   content?: string;
   courseId?: string | null;
+  resourceId?: string | null;
 }
 
 export function updateNote(id: string, input: UpdateNoteInput): Promise<Note> {
