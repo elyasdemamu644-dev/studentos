@@ -334,6 +334,16 @@ describe("composer", () => {
     expect(state.overLimit).toBe(true);
     expect(state.remaining).toBe(-1);
   });
+
+  it("accepts a draft exactly at the API's message size", () => {
+    // Mirrors `createMessageSchema`'s bound; a full-length valid message must
+    // be sendable rather than refused or clipped.
+    expect(MAX_MESSAGE_LENGTH).toBe(20000);
+    const state = composerState("x".repeat(MAX_MESSAGE_LENGTH), { busy: false });
+    expect(state.overLimit).toBe(false);
+    expect(state.canSend).toBe(true);
+    expect(state.remaining).toBe(0);
+  });
 });
 
 describe("empty-state suggestions", () => {

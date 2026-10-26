@@ -1,11 +1,15 @@
 import { z } from "zod";
 
 import { confirmationStore, summarizeOutcomes, type ConfirmationActionOutcome } from "@/services/ai/confirmations";
-import { updatePersistedStatus } from "@/services/ai/pending-action-repository";
+import {
+  claimPendingAction,
+  loadPendingActionById,
+  updatePersistedStatus,
+} from "@/services/ai/pending-action-repository";
 
 // Type-only import: erased at compile time, so it does not close the runtime
 // cycle with registry.ts (which imports this module to build its table).
-import type { executeTool } from "./registry";
+import type { executeTool, ExecutionAutonomyMode } from "./registry";
 
 import type { AiToolDefinition, ProposedAction } from "./types";
 import { fail, ok } from "./types";
@@ -44,16 +48,25 @@ export const confirmPendingActionsTool: AiToolDefinition = {
     // between `ai` and `ai-connections`.
     const { executeTool } = await import("./registry");
 
-    const proposal = confirmationStore.consume(ctx.userId, ctx.conversationId, confirmationId);
+    // Two entry paths anyway: a proposal parked straight in the in-memory store
+    // (unit tests) has no durable row, so fall back to the cache claim; when a
+    // row exists, the atomic conditional UPDATE in Postgres is the gate, so a
+    // concurrent confirm in another instance cannot also execute this proposal.
+    const persisted = await loadPendingActionById(ctx.userId, confirmationId);
+    const proposal = persisted
+      ? await claimPendingAction(ctx.userId, ctx.conversationId, confirmationId)
+      : confirmationStore.consume(ctx.userId, ctx.conversationId, confirmationId);
+
     if (!proposal) {
       return fail(
         "no_pending_action",
         "That proposal is no longer pending — it was already applied, cancelled, or it expired. Re-check with a read tool and offer the actions again.",
       );
     }
-    // Claim it durably before the writes, so a restart mid-apply cannot make the
-    // same proposal confirmable again.
-    await updatePersistedStatus(proposal.id, "EXECUTED");
+
+    // Keep the cache consistent with the claim, so nothing in this process can
+    // offer the spent proposal again.
+    confirmationStore.consume(ctx.userId, ctx.conversationId, confirmationId);
 
     const executed = await executeProposalActions(proposal.actions, ctx, executeTool);
     const summary = summarizeOutcomes(executed);
@@ -65,7 +78,7 @@ export const confirmPendingActionsTool: AiToolDefinition = {
       summary,
     };
     confirmationStore.complete(proposal.id, result);
-    await updatePersistedStatus(proposal.id, "EXECUTED", result);
+    if (persisted) await updatePersistedStatus(proposal.id, "EXECUTED", result);
 
     return {
       ...ok({ executed, confirmationId: proposal.id }, summary),
@@ -90,7 +103,12 @@ export const confirmPendingActionsTool: AiToolDefinition = {
  */
 export async function executeProposalActions(
   actions: ProposedAction[],
-  ctx: { userId: string; conversationId: string; createdArtifactIds?: string[] },
+  ctx: {
+    userId: string;
+    conversationId: string;
+    createdArtifactIds?: string[];
+    executionAutonomyMode?: ExecutionAutonomyMode;
+  },
   runner: typeof executeTool,
 ): Promise<ConfirmationActionOutcome[]> {
   const outcomes: ConfirmationActionOutcome[] = [];
@@ -102,6 +120,7 @@ export async function executeProposalActions(
         userId: ctx.userId,
         conversationId: ctx.conversationId,
         approvedActions: [action],
+        executionAutonomyMode: ctx.executionAutonomyMode ?? "manual",
         ...(ctx.createdArtifactIds ? { createdArtifactIds: ctx.createdArtifactIds } : {}),
       },
     );

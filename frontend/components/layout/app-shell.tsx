@@ -150,6 +150,9 @@ function matchNavHref(pathname: string): string | undefined {
 export const WORKSPACE_ROUTES = ["/ai"] as const;
 
 export function isWorkspaceRoute(pathname: string): boolean {
+  // The resource reader is a single-resource workspace, but the library list
+  // itself is an ordinary scrolling page.
+  if (/^\/resources\/[^/]+\/?$/.test(pathname)) return true;
   return WORKSPACE_ROUTES.some((href) => isNavActive(pathname, href));
 }
 

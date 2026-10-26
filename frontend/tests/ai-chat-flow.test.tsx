@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type ComponentProps, type ReactElement } from "react";
+import { useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 
 import { AgentRunReport } from "@/components/domain/agent-run-report";
 import { AiConversationSidebar, AiConversationDrawer } from "@/components/domain/ai-conversation-sidebar";
@@ -12,8 +12,15 @@ import {
   GeneratingIndicator,
   MessageError,
   MessageList,
+  type MessageListProps,
 } from "@/components/domain/ai-chat";
-import { messagesKey, useLastAgentRun, useSendMessage } from "@/features/ai/hooks";
+import {
+  messagesKey,
+  useEditMessage,
+  useLastAgentRun,
+  useRegenerateMessage,
+  useSendMessage,
+} from "@/features/ai/hooks";
 import { setTokens } from "@/lib/api/auth-session";
 import type { AiAgentRun, AiMessage, Conversation } from "@/types/api-types";
 
@@ -32,6 +39,21 @@ const CONVERSATION: Conversation = {
   updatedAt: "2026-09-30T08:00:00.000Z",
   preview: null,
 };
+
+/**
+ * The chat's own error banner.
+ *
+ * The page can hold more than one alert — the Missions panel shows its own
+ * error state when the missions request fails — so the banner is picked by
+ * what it says rather than by being the only alert on the page.
+ */
+function chatAlert(match: RegExp): HTMLElement {
+  const alert = screen
+    .getAllByRole("alert")
+    .find((node) => match.test(node.textContent ?? ""));
+  if (!alert) throw new Error(`No alert matching ${match} was found`);
+  return alert;
+}
 
 function message(overrides: Partial<AiMessage> = {}): AiMessage {
   return {
@@ -83,6 +105,7 @@ describe("agent run report", () => {
     toolSupport: true,
     finish: "answered",
     rounds: 2,
+    context: null,
   };
 
   it("says which provider and model answered, once expanded", async () => {
@@ -131,6 +154,16 @@ describe("agent run report", () => {
     render(<AgentRunReport run={{ ...base, finish: "confirmation_pending" }} />);
 
     expect(screen.getByRole("button", { expanded: false })).toHaveTextContent("Waiting for you");
+  });
+
+  it("states plainly that a requested change was not prepared", async () => {
+    render(<AgentRunReport run={{ ...base, finish: "write_intent_unfulfilled" }} />);
+
+    expect(screen.getByRole("button", { expanded: false })).toHaveTextContent(
+      "Change not prepared",
+    );
+    await userEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(screen.getByText(/nothing was saved/i)).toBeInTheDocument();
   });
 });
 
@@ -260,6 +293,7 @@ describe("sending a message", () => {
     toolSupport: true,
     finish: "answered",
     rounds: 2,
+    context: null,
   };
 
   it("records the agent run the API reported", async () => {
@@ -733,6 +767,49 @@ describe("transcript", () => {
     expect(screen.getByText("Answered")).toBeInTheDocument();
   });
 
+  it("keeps a message and its attachment visible when the file could not be read", () => {
+    render(
+      <MessageList
+        messages={[
+          message({
+            id: "u1",
+            role: "USER",
+            content: "Summarise these notes",
+            attachments: [
+              {
+                id: "att-1",
+                resourceId: "res-1",
+                fileName: "corrupt-notes.pdf",
+                mimeType: "application/pdf",
+                fileSize: 2048,
+                resourceType: "PDF",
+              },
+            ],
+          }),
+          message({
+            id: "a1",
+            content: "I couldn't read the attached file, so I answered without it.",
+          }),
+        ]}
+        isLoading={false}
+        isError={false}
+        error={null}
+        onRetryLoad={() => {}}
+        generating={false}
+        liveActivity={[]}
+        activityRun={null}
+        onRetryMessage={() => {}}
+        empty={<p>empty</p>}
+      />,
+    );
+
+    // The student's message and its attachment identity survive the failure.
+    expect(screen.getByText("Summarise these notes")).toBeInTheDocument();
+    expect(screen.getByText("corrupt-notes.pdf")).toBeInTheDocument();
+    // And the assistant states the truth rather than claiming it read the file.
+    expect(screen.getByText(/couldn't read the attached file/i)).toBeInTheDocument();
+  });
+
   it("renders an assistant reply as markdown rather than raw text", () => {
     render(
       <MessageList
@@ -825,6 +902,58 @@ describe("transcript", () => {
     expect(screen.getByRole("list", { name: "Assistant activity" })).toHaveTextContent(
       "Checked your tasks",
     );
+  });
+
+  it("shows what grounded the reply: real sources, record count and honest gaps", () => {
+    render(
+      <MessageList
+        messages={[message({ id: "reply-1" })]}
+        isLoading={false}
+        isError={false}
+        error={null}
+        onRetryLoad={() => {}}
+        generating={false}
+        liveActivity={[]}
+        activityRun={{
+          replyId: "reply-1",
+          activity: [],
+          context: {
+            sources: ["courses", "tasks"],
+            gaps: ["No grades have been recorded."],
+            records: 3,
+          },
+        }}
+        onRetryMessage={() => {}}
+        empty={<p>empty</p>}
+      />,
+    );
+
+    const indicator = screen.getByLabelText("Sources used");
+    expect(indicator).toHaveTextContent("3 records from courses, tasks");
+    expect(indicator).toHaveTextContent("No grades have been recorded.");
+  });
+
+  it("does not show a context indicator when nothing grounded the reply", () => {
+    render(
+      <MessageList
+        messages={[message({ id: "reply-1" })]}
+        isLoading={false}
+        isError={false}
+        error={null}
+        onRetryLoad={() => {}}
+        generating={false}
+        liveActivity={[]}
+        activityRun={{
+          replyId: "reply-1",
+          activity: [],
+          context: { sources: [], gaps: [], records: 0 },
+        }}
+        onRetryMessage={() => {}}
+        empty={<p>empty</p>}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Sources used")).not.toBeInTheDocument();
   });
 
   it("offers a retry on a failed message without removing it", async () => {
@@ -1215,7 +1344,7 @@ describe("banner retry after the reconcile refetch", () => {
     // The failed send is reported, and the reconcile refetch has replaced the
     // optimistic bubble with the stored copy (which carries no `failed` flag).
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/Something went wrong/i);
+      expect(chatAlert(/Something went wrong/i)).toHaveTextContent(/Something went wrong/i);
     });
     await waitFor(() => {
       const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
@@ -1224,7 +1353,9 @@ describe("banner retry after the reconcile refetch", () => {
     });
     expect(postCount).toBe(1);
 
-    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    // Click the Retry button inside the error alert, not the one in the Missions panel
+    const alert = chatAlert(/Something went wrong/i);
+    await userEvent.click(within(alert).getByRole("button", { name: /retry/i }));
 
     await waitFor(() => {
       expect(screen.getByText(REPLY_TEXT)).toBeInTheDocument();
@@ -1242,6 +1373,120 @@ describe("banner retry after the reconcile refetch", () => {
       QUESTION_PROMPT,
     ]);
     expect(screen.getAllByText(QUESTION_PROMPT)).toHaveLength(1);
+  });
+});
+
+// ── A missing provider must not swallow the question ─────────────
+// The server now stores the question before it resolves the provider, so a
+// "not configured" reply is an ordinary failure the transcript can reconcile
+// to. The workspace must show the message and a recovery path, never replace
+// itself and drop the student's words.
+
+describe("no provider configured", () => {
+  const fetchMock = vi.fn();
+  const QUESTION_PROMPT = "Prepare me for my next exam.";
+
+  const storedUser = {
+    id: "stored-user",
+    conversationId: CONVERSATION.id,
+    role: "USER",
+    content: QUESTION_PROMPT,
+    createdAt: "2026-09-30T08:00:01.000Z",
+  };
+
+  let serverMessages: unknown[] = [];
+  let postCount = 0;
+
+  function env(data: unknown, success = true, status = 200) {
+    const json = success
+      ? { success: true, data }
+      : {
+          success: false,
+          error: { code: "AI_PROVIDER_NOT_CONFIGURED", message: "No AI provider configured" },
+        };
+    return { ok: success, status, json: async () => json } as unknown as Response;
+  }
+
+  beforeEach(() => {
+    serverMessages = [];
+    postCount = 0;
+    setTokens("test-access-token", "test-refresh-token");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = "http://localhost:3001/api/v1";
+      if (url === `${base}/ai/conversations?limit=100`) {
+        return env({ items: [CONVERSATION], hasMore: false, nextCursor: null });
+      }
+      if (url === `${base}/ai/conversations/${CONVERSATION.id}` && method === "PATCH") {
+        return env(CONVERSATION);
+      }
+      if (url.includes("/artifacts")) return env({ artifacts: [] });
+      if (url.includes(`/ai/conversations/${CONVERSATION.id}/messages`)) {
+        if (method === "POST") {
+          postCount += 1;
+          // The server stores the question, then cannot generate a reply.
+          if (!serverMessages.some((m) => (m as { id: string }).id === storedUser.id)) {
+            serverMessages.push(storedUser);
+          }
+          return env("No AI provider configured", false, 503);
+        }
+        return env(serverMessages);
+      }
+      if (url.includes(`/ai/conversations/${CONVERSATION.id}/pending-action`)) {
+        return env({ pendingAction: null });
+      }
+      throw new Error("no mock for " + method + " " + url);
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("keeps the question on screen and offers recovery instead of replacing the workspace", async () => {
+    const { default: AiPage } = await import("@/app/(dashboard)/ai/page");
+    const { client } = renderWithQuery(<AiPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("What can Tutor Walle help you accomplish?")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /Prepare for an exam/i }));
+
+    await waitFor(() => {
+      expect(postCount).toBe(1);
+    });
+
+    // Reconciled to the stored copy of the question, not lost by the refetch.
+    await waitFor(() => {
+      const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+      expect(cached?.[0]?.id).toBe("stored-user");
+      expect(cached?.[0]?.failed).toBeUndefined();
+    });
+    // Visible exactly once, with a recoverable error beside it.
+    expect(screen.getAllByText(QUESTION_PROMPT)).toHaveLength(1);
+    expect(chatAlert(/No AI provider is configured yet/i)).toHaveTextContent(
+      /No AI provider is configured yet/i,
+    );
+    expect(screen.getByRole("link", { name: /settings/i })).toHaveAttribute("href", "/settings");
+    // The workspace is not swapped out for the setup screen.
+    expect(screen.queryByText(/AI is not configured yet/i)).not.toBeInTheDocument();
+
+    // Retrying without a provider must not duplicate the question nor pretend
+    // an answer arrived.
+    const alert = chatAlert(/No AI provider is configured yet/i);
+    await userEvent.click(within(alert).getByRole("button", { name: /retry/i }));
+    await waitFor(() => {
+      expect(postCount).toBe(2);
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText(QUESTION_PROMPT)).toHaveLength(1);
+    });
+    expect(screen.queryByText(/Three revision sessions/i)).not.toBeInTheDocument();
   });
 });
 
@@ -1545,5 +1790,228 @@ describe("generated files", () => {
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(blob));
     expect(anchorClick).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-artifact");
+  });
+});
+
+// ── Editing a question and regenerating an answer ─────────────
+// Editing rewrites the thread from the question onward, and regenerating
+// replaces an answer. Both change what is stored, so the transcript must show
+// the rewrite immediately and never leave an answer detached from the question
+// it was actually written for.
+
+const ORIGINAL_QUESTION = "Original question";
+const EDITED_QUESTION = "Revised question";
+
+function seedTranscript(client: QueryClient, entries: AiMessage[]) {
+  client.setQueryData<AiMessage[]>(messagesKey(CONVERSATION.id), entries);
+}
+
+function EditProbe({ onSettled }: { onSettled: (error: unknown) => void }) {
+  const edit = useEditMessage();
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          void edit
+            .mutateAsync({
+              conversationId: CONVERSATION.id,
+              messageId: "user-1",
+              content: EDITED_QUESTION,
+            })
+            .then(() => onSettled(null))
+            .catch((error: unknown) => onSettled(error));
+        }}
+      >
+        edit
+      </button>
+      <span data-testid="status">{edit.isPending ? "pending" : "idle"}</span>
+    </div>
+  );
+}
+
+function RegenerateProbe({ onSettled }: { onSettled: (error: unknown) => void }) {
+  const regenerate = useRegenerateMessage();
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          void regenerate
+            .mutateAsync({ conversationId: CONVERSATION.id, messageId: "reply-1" })
+            .then(() => onSettled(null))
+            .catch((error: unknown) => onSettled(error));
+        }}
+      >
+        regenerate
+      </button>
+      <span data-testid="status">{regenerate.isPending ? "pending" : "idle"}</span>
+    </div>
+  );
+}
+
+describe("editing and regenerating", () => {
+  const fetchMock = vi.fn();
+
+  const editedUser = {
+    id: "user-1",
+    conversationId: CONVERSATION.id,
+    role: "USER",
+    content: EDITED_QUESTION,
+    createdAt: "2026-09-30T08:00:00.000Z",
+  };
+  const newReply = {
+    id: "reply-2",
+    conversationId: CONVERSATION.id,
+    role: "ASSISTANT",
+    content: "An answer to the revised question.",
+    createdAt: "2026-09-30T08:00:03.000Z",
+  };
+  const turn = (message: unknown, reply: unknown) =>
+    stubResponse({ success: true, data: { message, reply, toolActivity: [], pendingAction: null } });
+
+  beforeEach(() => {
+    setTokens("test-access-token", "test-refresh-token");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("rewrites the question and removes its stale answer while the edit is in flight", async () => {
+    const inFlight = deferred<Response>();
+    fetchMock.mockReturnValue(inFlight.promise);
+    const client = makeClient();
+    seedTranscript(client, [
+      message({ id: "user-1", role: "USER", content: ORIGINAL_QUESTION }),
+      message({ id: "reply-1", role: "ASSISTANT", content: "Old answer" }),
+    ]);
+
+    renderWithQuery(<EditProbe onSettled={() => {}} />, client);
+    await userEvent.click(screen.getByRole("button", { name: "edit" }));
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("pending"));
+
+    // The old answer was written for the old wording, so it goes at once.
+    const inFlightCache = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+    expect(inFlightCache?.map((entry) => entry.id)).toEqual(["user-1"]);
+    expect(inFlightCache?.[0]).toMatchObject({ content: EDITED_QUESTION });
+
+    inFlight.resolve(turn(editedUser, newReply));
+    await waitFor(() => {
+      const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+      expect(cached?.map((entry) => entry.id)).toEqual(["user-1", "reply-2"]);
+    });
+  });
+
+  it("removes the answer being regenerated at once and shows the new one", async () => {
+    const inFlight = deferred<Response>();
+    fetchMock.mockReturnValue(inFlight.promise);
+    const client = makeClient();
+    seedTranscript(client, [
+      message({ id: "user-1", role: "USER", content: "Question" }),
+      message({ id: "reply-1", role: "ASSISTANT", content: "Old answer" }),
+    ]);
+
+    renderWithQuery(<RegenerateProbe onSettled={() => {}} />, client);
+    await userEvent.click(screen.getByRole("button", { name: "regenerate" }));
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("pending"));
+
+    const inFlightCache = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+    expect(inFlightCache?.map((entry) => entry.id)).toEqual(["user-1"]);
+
+    inFlight.resolve(turn({ ...editedUser, content: "Question" }, newReply));
+    await waitFor(() => {
+      const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+      expect(cached?.map((entry) => entry.id)).toEqual(["user-1", "reply-2"]);
+      expect(cached?.[1]).toMatchObject({ content: newReply.content });
+    });
+  });
+
+  it("restores the original thread when an edit fails", async () => {
+    fetchMock.mockResolvedValue(
+      stubResponse(
+        { success: false, error: { code: "AI_PROVIDER_ERROR", message: "The provider is unavailable" } },
+        502,
+      ),
+    );
+    const client = makeClient();
+    seedTranscript(client, [
+      message({ id: "user-1", role: "USER", content: ORIGINAL_QUESTION }),
+      message({ id: "reply-1", role: "ASSISTANT", content: "Old answer" }),
+    ]);
+
+    const settled: unknown[] = [];
+    renderWithQuery(<EditProbe onSettled={(error) => settled.push(error)} />, client);
+    await userEvent.click(screen.getByRole("button", { name: "edit" }));
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("idle"));
+
+    // Nothing half-rewritten is left behind.
+    const cached = client.getQueryData<AiMessage[]>(messagesKey(CONVERSATION.id));
+    expect(cached?.map((entry) => [entry.id, entry.content])).toEqual([
+      ["user-1", ORIGINAL_QUESTION],
+      ["reply-1", "Old answer"],
+    ]);
+    expect(settled).toHaveLength(1);
+  });
+
+  function renderTranscript(messages: AiMessage[], extra: Partial<MessageListProps> = {}) {
+    const props: MessageListProps & { empty: ReactNode } = {
+      messages,
+      isLoading: false,
+      isError: false,
+      error: null,
+      onRetryLoad: () => {},
+      generating: false,
+      liveActivity: [],
+      activityRun: null,
+      onRetryMessage: () => {},
+      empty: <p>empty</p>,
+      ...extra,
+    };
+    return renderWithQuery(<MessageList {...props} />);
+  }
+
+  it("edits a question from the bubble and hands the new wording to the handler", async () => {
+    const onEditMessage = vi.fn();
+    renderTranscript([message({ id: "u1", role: "USER", content: ORIGINAL_QUESTION })], {
+      onEditMessage,
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit message" }));
+    const editor = screen.getByLabelText("Edit your message");
+    await userEvent.clear(editor);
+    await userEvent.type(editor, EDITED_QUESTION);
+    await userEvent.click(screen.getByRole("button", { name: /save & regenerate/i }));
+
+    expect(onEditMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u1" }),
+      EDITED_QUESTION,
+    );
+  });
+
+  it("regenerates an answer from the bubble", async () => {
+    const onRegenerateMessage = vi.fn();
+    renderTranscript([message({ id: "a1", content: "An answer" })], { onRegenerateMessage });
+
+    await userEvent.click(screen.getByRole("button", { name: "Regenerate response" }));
+
+    expect(onRegenerateMessage).toHaveBeenCalledWith(expect.objectContaining({ id: "a1" }));
+  });
+
+  it("offers neither control while a generation is already running", () => {
+    renderTranscript(
+      [
+        message({ id: "u1", role: "USER", content: ORIGINAL_QUESTION }),
+        message({ id: "a1", content: "An answer" }),
+      ],
+      { generating: true, onEditMessage: () => {}, onRegenerateMessage: () => {} },
+    );
+
+    expect(screen.getByRole("button", { name: "Edit message" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Regenerate response" })).toBeDisabled();
   });
 });

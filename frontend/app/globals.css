@@ -224,3 +224,251 @@
     background-color: hsl(var(--muted-foreground) / 0.6);
   }
 }
+@layer components {
+  /* PDF.js text layer: the canvas paints the page, transparent spans on top
+     provide selection, copy and find. These rules mirror pdf.js' own layer
+     styles but are scoped to the reader so they cannot leak into the shell. */
+  .pdf-text-layer {
+    position: absolute;
+    inset: 0;
+    overflow: clip;
+    line-height: 1;
+    text-align: initial;
+    text-size-adjust: none;
+    forced-color-adjust: none;
+    transform-origin: 0 0;
+    caret-color: CanvasText;
+    z-index: 1;
+  }
+
+  .pdf-text-layer :is(span, br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+  }
+
+  .pdf-text-layer > :not(.markedContent),
+  .pdf-text-layer .markedContent span:not(.markedContent) {
+    z-index: 1;
+  }
+
+  .pdf-text-layer span.markedContent {
+    top: 0;
+    height: 0;
+  }
+
+  .pdf-text-layer ::selection {
+    background: hsl(var(--primary) / 0.3);
+  }
+
+  .pdf-text-layer br::selection {
+    background: transparent;
+  }
+
+  /* docx-preview renders its own page wrapper. Strip the library's grey
+     canvas, keep physical-looking pages, and leave zoom to the viewer. */
+  .docx-reader {
+    color: #111827;
+  }
+
+  .docx-reader .docx-wrapper {
+    background: transparent;
+    padding: 0;
+  }
+
+  .docx-reader .docx-wrapper > section.docx {
+    margin: 0 auto 1rem;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
+  }
+
+  .docx-reader .docx-wrapper > section.docx:last-child {
+    margin-bottom: 0;
+  }
+
+  .docx-reader table {
+    max-width: 100%;
+  }
+
+  .docx-reader img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* pptx-preview ships its own arrow buttons and page counter in slide mode.
+     The reader has real controls, so those duplicates are hidden. */
+  .pptx-stage .pptx-preview-wrapper-next,
+  .pptx-stage .pptx-preview-wrapper-pagination {
+    display: none !important;
+  }
+
+  .pptx-stage .pptx-preview-wrapper {
+    background: transparent !important;
+    max-width: 100%;
+  }
+
+  /* Markdown/text reading surface. Matches the theme instead of pulling in a
+     typography plugin for one screen. */
+  .resource-markdown {
+    color: hsl(var(--foreground));
+    font-size: 0.9375rem;
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+  }
+
+  .resource-markdown > :first-child {
+    margin-top: 0;
+  }
+
+  .resource-markdown > :last-child {
+    margin-bottom: 0;
+  }
+
+  .resource-markdown h1,
+  .resource-markdown h2,
+  .resource-markdown h3,
+  .resource-markdown h4 {
+    margin: 1.5em 0 0.6em;
+    font-weight: 650;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+
+  .resource-markdown h1 {
+    font-size: 1.6em;
+  }
+
+  .resource-markdown h2 {
+    font-size: 1.35em;
+  }
+
+  .resource-markdown h3 {
+    font-size: 1.15em;
+  }
+
+  .resource-markdown h4 {
+    font-size: 1em;
+  }
+
+  .resource-markdown p,
+  .resource-markdown ul,
+  .resource-markdown ol,
+  .resource-markdown blockquote,
+  .resource-markdown pre,
+  .resource-markdown table {
+    margin: 0.9em 0;
+  }
+
+  .resource-markdown ul,
+  .resource-markdown ol {
+    padding-left: 1.5em;
+  }
+
+  .resource-markdown ul {
+    list-style: disc;
+  }
+
+  .resource-markdown ol {
+    list-style: decimal;
+  }
+
+  .resource-markdown li {
+    margin: 0.25em 0;
+  }
+
+  .resource-markdown a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .resource-markdown a:hover {
+    color: hsl(var(--primary) / 0.8);
+  }
+
+  .resource-markdown strong {
+    font-weight: 650;
+  }
+
+  .resource-markdown blockquote {
+    border-left: 3px solid hsl(var(--border-strong));
+    padding-left: 1em;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .resource-markdown code {
+    border-radius: 0.25rem;
+    background: hsl(var(--muted));
+    padding: 0.15em 0.35em;
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  .resource-markdown pre {
+    overflow-x: auto;
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    background: hsl(var(--muted) / 0.55);
+    padding: 0.9rem 1rem;
+  }
+
+  .resource-markdown pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+
+  .resource-markdown hr {
+    margin: 1.5em 0;
+    border-color: hsl(var(--border));
+  }
+
+  .resource-markdown table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875em;
+  }
+
+  .resource-markdown th,
+  .resource-markdown td {
+    border: 1px solid hsl(var(--border));
+    padding: 0.45rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .resource-markdown th {
+    background: hsl(var(--muted) / 0.6);
+    font-weight: 600;
+  }
+
+  .resource-markdown img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+  }
+
+  .resource-markdown input[type="checkbox"] {
+    margin-right: 0.4em;
+    accent-color: hsl(var(--primary));
+  }
+}
+
+@layer utilities {
+  .viewer-checkerboard {
+    background-color: hsl(var(--muted));
+    background-image:
+      linear-gradient(45deg, hsl(var(--background) / 0.6) 25%, transparent 25%),
+      linear-gradient(-45deg, hsl(var(--background) / 0.6) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, hsl(var(--background) / 0.6) 75%),
+      linear-gradient(-45deg, transparent 75%, hsl(var(--background) / 0.6) 75%);
+    background-position:
+      0 0,
+      0 10px,
+      10px -10px,
+      -10px 0;
+    background-size: 20px 20px;
+  }
+}

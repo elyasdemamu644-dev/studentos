@@ -12,19 +12,23 @@ import {
   type SetStateAction,
 } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   ArrowDown,
+  ArrowRight,
   Check,
   CheckCircle2,
   CircleSlash,
   Clock,
   Copy,
+  Database,
   Download,
   FileUp,
   FileText,
   Link2,
   Loader2,
   Paperclip,
+  Pencil,
   RefreshCw,
   Send,
   Sparkles,
@@ -45,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -61,8 +66,18 @@ import {
   type MarkdownBlock,
 } from "@/features/ai/chat-utils";
 import { formatTime, formatBytes } from "@/lib/format";
-import type { AiActionOutcome, AiArtifact, AiMessage, AiToolActivity, PendingAction } from "@/types/api-types";
-import { useDownloadArtifact, useUploadAttachment } from "@/features/ai/hooks";
+import { AI_MODE_DESCRIPTIONS, AI_MODE_LABELS, AI_MODES } from "@/lib/labels";
+import type {
+  AiActionOutcome,
+  AiArtifact,
+  AiContextSummary,
+  AiMessage,
+  AiMode,
+  AiToolActivity,
+  PendingAction,
+} from "@/types/api-types";
+import { useDownloadArtifact, useUploadAttachment, isAiNotConfigured } from "@/features/ai/hooks";
+import { ConversationModelSelector } from "@/features/ai-routing/conversation-model-selector";
 import { api } from "@/lib/api/client";
 
 // ── Markdown ─────────────────────────────────
@@ -311,6 +326,58 @@ function ToolActivityFeed({ activity }: { activity: AiToolActivity[] }) {
   );
 }
 
+/** Human labels for the record types the backend reports as context sources. */
+const CONTEXT_SOURCE_LABELS: Record<string, string> = {
+  term: "academic term",
+  courses: "courses",
+  grades: "grades",
+  tasks: "tasks",
+  events: "events",
+  notes: "notes",
+  goals: "goals",
+  study_sessions: "study sessions",
+};
+
+/**
+ * What grounded this reply, in the student's own terms.
+ *
+ * Only real telemetry from the backend renders here: the record types actually
+ * read, how many records stood behind the answer, and any gap the assistant
+ * could not cover. It never invents a source or a count — when nothing matched
+ * it says so rather than showing an empty list as success.
+ */
+function ContextIndicator({ context }: { context: AiContextSummary }) {
+  if (context.sources.length === 0 && context.gaps.length === 0) return null;
+
+  const labels = context.sources.map((source) => CONTEXT_SOURCE_LABELS[source] ?? source);
+  const summary =
+    labels.length > 0
+      ? `${context.records} ${context.records === 1 ? "record" : "records"} from ${labels.join(", ")}`
+      : "No records matched this question";
+
+  return (
+    <div
+      className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground"
+      aria-label="Sources used"
+    >
+      <Database className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+      <div className="min-w-0">
+        <span>{summary}</span>
+        {context.gaps.length > 0 && (
+          <ul className="mt-0.5 space-y-0.5">
+            {context.gaps.map((gap, index) => (
+              <li key={index} className="flex items-start gap-1.5 text-warning">
+                <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                <span>{gap}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Trigger a browser download for a fetched blob, then release the object URL. */
 function saveBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
@@ -368,11 +435,91 @@ function ArtifactChips({ artifacts }: { artifacts: AiArtifact[] }) {
 function MessageBubble({
   message,
   onRetry,
+  onEdit,
+  onRegenerate,
+  busy,
 }: {
   message: AiMessage;
   onRetry?: (message: AiMessage) => void;
+  /** Rewrite this question and regenerate its answer. User messages only. */
+  onEdit?: (message: AiMessage, content: string) => void;
+  /** Regenerate this answer. Assistant messages only. */
+  onRegenerate?: (message: AiMessage) => void;
+  /** A generation is in flight: actions that would start another are disabled. */
+  busy?: boolean;
 }) {
   const isUser = message.role === "USER";
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState(message.content);
+
+  // Keep the draft in step with the stored text whenever the bubble is not the
+  // one being edited (e.g. a refetch reconciles it).
+  useEffect(() => {
+    if (!editing) setEditDraft(message.content);
+  }, [message.content, editing]);
+
+  const saveEdit = () => {
+    const next = editDraft.trim();
+    if (!next || next === message.content.trim()) {
+      setEditing(false);
+      return;
+    }
+    onEdit?.(message, next);
+    setEditing(false);
+  };
+
+  if (isUser && editing) {
+    return (
+      <div className="flex flex-row-reverse items-start gap-2">
+        <span
+          className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+          aria-hidden
+        >
+          <UserRound className="h-3.5 w-3.5" />
+        </span>
+        <div className="min-w-0 w-full max-w-[85%] sm:max-w-[75%]">
+          <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
+            <Textarea
+              value={editDraft}
+              onChange={(event) => setEditDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setEditing(false);
+                  setEditDraft(message.content);
+                }
+              }}
+              autoFocus
+              maxLength={MAX_MESSAGE_LENGTH + 500}
+              aria-label="Edit your message"
+              className="min-h-[3rem] resize-none rounded-xl text-sm"
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  setEditing(false);
+                  setEditDraft(message.content);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy || !editDraft.trim() || editDraft.trim() === message.content.trim()}
+                onClick={saveEdit}
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Save & regenerate
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("group flex items-start gap-2", isUser && "flex-row-reverse")}>
@@ -436,6 +583,33 @@ function MessageBubble({
           </span>
           {!message.optimistic && !isUser && (
             <CopyButton text={message.content} label="Copy response" />
+          )}
+          {!message.optimistic && !isUser && onRegenerate && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-6 w-6 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+              aria-label="Regenerate response"
+              disabled={busy}
+              onClick={() => onRegenerate(message)}
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden />
+            </Button>
+          )}
+          {!message.optimistic && !message.failed && isUser && onEdit && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-6 w-6 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+              aria-label="Edit message"
+              disabled={busy}
+              onClick={() => {
+                setEditDraft(message.content);
+                setEditing(true);
+              }}
+            >
+              <Pencil className="h-3 w-3" aria-hidden />
+            </Button>
           )}
           {message.failed && (
             <span className="ml-2 font-medium text-danger">Not delivered</span>
@@ -606,6 +780,7 @@ export function GeneratingIndicator({ activity }: { activity: AiToolActivity[] }
 
 /** Non-blocking problem report. The conversation around it stays intact. */
 export function MessageError({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const notConfigured = isAiNotConfigured(error);
   return (
     <div
       role="alert"
@@ -613,17 +788,30 @@ export function MessageError({ error, onRetry }: { error: unknown; onRetry?: () 
     >
       <p className="flex items-start gap-2 font-medium text-danger">
         <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-        Something went wrong while generating the response.
+        {notConfigured
+          ? "No AI provider is configured yet."
+          : "Something went wrong while generating the response."}
       </p>
-      <p className="mt-1 pl-6 text-xs text-muted-foreground">{formatApiError(error)}</p>
-      {onRetry && (
-        <div className="mt-2 pl-6">
+      <p className="mt-1 pl-6 text-xs text-muted-foreground">
+        {notConfigured
+          ? "Your message is saved. Add a provider in Settings, then retry."
+          : formatApiError(error)}
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+        {onRetry && (
           <Button variant="outline" size="sm" onClick={onRetry}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
             Retry
           </Button>
-        </div>
-      )}
+        )}
+        {notConfigured && (
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/settings">
+              Open settings <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -699,6 +887,9 @@ export function ChatComposer({
   conversationId,
   attachments,
   onAttachmentsChange,
+  mode,
+  onModeChange,
+  enableModelSelector = false,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -711,6 +902,18 @@ export function ChatComposer({
   conversationId: string;
   attachments: Array<ComposerAttachment>;
   onAttachmentsChange: Dispatch<SetStateAction<Array<ComposerAttachment>>>;
+  /**
+   * The student's saved AI mode and how to change it. Both are optional: the
+   * control is only rendered when `onModeChange` is provided, so a caller that
+   * does not manage the setting (or a direct test render) is unchanged.
+   */
+  mode?: AiMode;
+  onModeChange?: (mode: AiMode) => void;
+  /**
+   * Show the per-conversation model pin. Off by default so a plain composer
+   * render (and direct tests) does not issue routing requests it never uses.
+   */
+  enableModelSelector?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1023,11 +1226,40 @@ const validateAndAddLink = useCallback(async (url: string) => {
                       <Link2 className="text-primary" aria-hidden />
                       <span>
                         <span className="block font-medium">Add a link</span>
-                        <span className="block text-xs text-muted-foreground">Attach a URL; the AI sees the link, not page contents</span>
+                        <span className="block text-xs text-muted-foreground">Attach a URL; the AI reads the page when it can</span>
                       </span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+
+                {onModeChange && (
+                  <Select
+                    value={mode ?? "AUTO"}
+                    onValueChange={(value) => onModeChange(value as AiMode)}
+                    disabled={disabled}
+                  >
+                    <SelectTrigger
+                      className="h-9 w-auto shrink-0 gap-1.5 rounded-xl border-border bg-transparent px-2.5 text-muted-foreground hover:text-foreground sm:px-3"
+                      aria-label="AI mode — applies to all your conversations"
+                      title="AI mode — applies to all your conversations"
+                    >
+                      <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
+                      <SelectValue>{AI_MODE_LABELS[mode ?? "AUTO"]}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="start" side="top" className="w-64">
+                      {AI_MODES.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          <span className="block font-medium">{AI_MODE_LABELS[value]}</span>
+                          <span className="block text-xs text-muted-foreground">{AI_MODE_DESCRIPTIONS[value]}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {enableModelSelector && (
+                  <ConversationModelSelector conversationId={conversationId} disabled={disabled} />
+                )}
 
                 <p id={hintId} className="truncate px-1 text-[11px] text-muted-foreground">
                   <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
@@ -1146,12 +1378,21 @@ export interface MessageListProps {
    */
   activityRun: ActivityRun | null;
   onRetryMessage: (message: AiMessage) => void;
+  /** Rewrite a question and regenerate its answer. */
+  onEditMessage?: (message: AiMessage, content: string) => void;
+  /** Regenerate an answer in place. */
+  onRegenerateMessage?: (message: AiMessage) => void;
   children?: ReactNode;
 }
 
 export interface ActivityRun {
   replyId: string;
   activity: AiToolActivity[];
+  /**
+   * What grounded the reply: real record types, honest gaps and a record count.
+   * `null`/absent when the backend reported nothing to show.
+   */
+  context?: AiContextSummary | null;
 }
 
 /**
@@ -1178,6 +1419,8 @@ function Transcript({
   liveActivity,
   activityRun,
   onRetryMessage,
+  onEditMessage,
+  onRegenerateMessage,
   children,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1292,10 +1535,17 @@ function Transcript({
           ) : (
             messages.map((message) => (
               <div key={message.id} className="space-y-1">
-                <MessageBubble message={message} onRetry={onRetryMessage} />
+                <MessageBubble
+                  message={message}
+                  onRetry={onRetryMessage}
+                  onEdit={onEditMessage}
+                  onRegenerate={onRegenerateMessage}
+                  busy={generating}
+                />
                 {activityRun?.replyId === message.id && (
                   <div className="pl-9">
                     <ToolActivityFeed activity={activityRun.activity} />
+                    {activityRun.context && <ContextIndicator context={activityRun.context} />}
                   </div>
                 )}
               </div>

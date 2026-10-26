@@ -5,11 +5,13 @@ import type {
   AiArtifact,
   AiMessage,
   AiMessageAttachment,
+  AiMission,
   AiToolActivity,
   Conversation,
   ConversationType,
   Page,
   PendingAction,
+  ProactiveBriefing,
   StudyPlan,
   StudyPlanEntry,
   StudyPlanEntryStatus,
@@ -80,6 +82,36 @@ export function sendMessage(input: SendMessageInput): Promise<AddMessageResult> 
   return api.post<AddMessageResult>(
     `/ai/conversations/${conversationId}/messages`,
     { ...body, attachmentIds },
+    { signal },
+  );
+}
+
+/**
+ * Edit one of the student's own questions. The server rewrites the thread from
+ * that point on and returns the regenerated reply in the same shape as a send.
+ */
+export function editMessage(
+  conversationId: string,
+  messageId: string,
+  content: string,
+  signal?: AbortSignal,
+): Promise<AddMessageResult> {
+  return api.patch<AddMessageResult>(
+    `/ai/conversations/${conversationId}/messages/${messageId}`,
+    { content },
+    { signal },
+  );
+}
+
+/** Regenerate an answer, replacing it and everything after it. */
+export function regenerateMessage(
+  conversationId: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<AddMessageResult> {
+  return api.post<AddMessageResult>(
+    `/ai/conversations/${conversationId}/messages/${messageId}/regenerate`,
+    {},
     { signal },
   );
 }
@@ -258,4 +290,111 @@ export interface StructuredResult {
 
 export function extractStructured(input: StructuredRequestInput): Promise<StructuredResult> {
   return api.post<StructuredResult>("/ai/structured", input);
+}
+
+// ── Missions ────────────────────────────────────────
+
+export type MissionStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "WAITING"
+  | "PARTIAL"
+  | "FAILED_RECOVERABLE"
+  | "FAILED_TERMINAL"
+  | "CANCEL_REQUESTED"
+  | "CANCELLED"
+  | "COMPLETED";
+
+export type MissionStepStatus =
+  | "PENDING"
+  | "QUEUED"
+  | "RUNNING"
+  | "WAITING"
+  | "COMPLETED"
+  | "FAILED_RECOVERABLE"
+  | "FAILED_TERMINAL"
+  | "SKIPPED"
+  | "CANCELLED";
+
+export interface MissionStepInput {
+  toolName: string;
+  description: string;
+  arguments: Record<string, unknown>;
+  dependsOn?: string[];
+  maxAttempts?: number;
+}
+
+export interface CreateMissionInput {
+  objective: string;
+  conversationId?: string;
+  steps: MissionStepInput[];
+  contextSnapshot?: Record<string, unknown>;
+}
+
+export interface MissionListParams {
+  status?: MissionStatus;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface MissionPage {
+  items: AiMission[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export function listMissions(params: MissionListParams = {}): Promise<MissionPage> {
+  const query = new URLSearchParams();
+  const entries = params as Record<string, string | number | undefined>;
+  for (const [key, value] of Object.entries(entries)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return api.get<MissionPage>(qs ? `/ai/missions?${qs}` : "/ai/missions");
+}
+
+export function createMission(input: CreateMissionInput): Promise<AiMission> {
+  return api.post<AiMission>("/ai/missions", input);
+}
+
+export function getMission(id: string): Promise<AiMission> {
+  return api.get<AiMission>(`/ai/missions/${id}`);
+}
+
+export function cancelMission(id: string): Promise<AiMission> {
+  return api.post<AiMission>(`/ai/missions/${id}/cancel`, {});
+}
+
+export function retryMission(id: string): Promise<AiMission> {
+  return api.post<AiMission>(`/ai/missions/${id}/retry`, {});
+}
+
+export function executeMission(id: string): Promise<AiMission> {
+  return api.post<AiMission>(`/ai/missions/${id}/execute`, {});
+}
+
+/**
+ * Approve the change a mission is waiting on.
+ *
+ * The proposal is claimed atomically server-side, so a double click cannot
+ * apply it twice; the second call comes back as a conflict.
+ */
+export function approveMission(id: string): Promise<AiMission> {
+  return api.post<AiMission>(`/ai/missions/${id}/approve`, {});
+}
+
+/** Catalog of tools the mission builder may use to compose a plan. */
+export function listMissionTools(): Promise<import("@/types/api-types").MissionToolCatalog> {
+  return api.get<import("@/types/api-types").MissionToolCatalog>("/ai/tools");
+}
+
+// ── Proactive briefing ───────────────────────────
+
+/**
+ * The read-only "what needs you now" digest: overdue and imminently due work,
+ * upcoming exams, at-risk goals and a study-week summary. Deterministic and
+ * stored nowhere — the workspace fetches it when it opens.
+ */
+export function getProactiveBriefing(): Promise<ProactiveBriefing> {
+  return api.get<ProactiveBriefing>("/ai/proactive/briefing");
 }

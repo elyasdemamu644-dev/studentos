@@ -70,6 +70,13 @@ export interface OutboundFetchOptions {
    * this.
    */
   timeoutMs?: number;
+  /**
+   * When true, a 3xx response is handed back to the caller instead of being
+   * rejected. Only callers that re-validate every redirect target against the
+   * same SSRF policy (and bound the hop count) may set this — the default stays
+   * "redirects are refused", which is what provider calls want.
+   */
+  allowRedirectResponse?: boolean;
 }
 
 export type OutboundTransport = (
@@ -222,7 +229,7 @@ export async function safeFetch(
   // still applies the exact host/port policy and pinned DNS before connecting.
   if (config.isProduction) {
     if (config.egressMode === "proxy") {
-      return fetchThroughMandatoryProxy(target, init, maxBytes);
+      return fetchThroughMandatoryProxy(target, init, maxBytes, options.allowRedirectResponse ?? false);
     }
     assertDirectEgressDestination(target, config.egressAllowedDestinations);
   }
@@ -257,13 +264,14 @@ export async function safeFetch(
     requestOptions.servername = hostname;
   }
 
-  return await performRequest(requestFn, requestOptions, body, init, maxBytes, options.timeoutMs);
+  return await performRequest(requestFn, requestOptions, body, init, maxBytes, options.timeoutMs, options.allowRedirectResponse ?? false);
 }
 
 async function fetchThroughMandatoryProxy(
   target: URL,
   init: RequestInit,
   maxBytes: number,
+  allowRedirectResponse: boolean,
 ): Promise<Response> {
   if (!config.egressProxyUrl) {
     throw new OutboundNetworkError("The required outbound proxy is unavailable");
@@ -282,8 +290,11 @@ async function fetchThroughMandatoryProxy(
   }
 
   if (response.status >= 300 && response.status < 400) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new SsrfBlockedError("The outbound proxy response redirected the request");
+    if (!allowRedirectResponse) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new SsrfBlockedError("The outbound proxy response redirected the request");
+    }
+    return response;
   }
   const declaredLength = Number(response.headers.get("content-length") ?? "");
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
@@ -325,6 +336,7 @@ function performRequest(
   init: RequestInit,
   maxBytes: number,
   timeoutMs: number | undefined,
+  allowRedirectResponse: boolean,
 ): Promise<Response> {
   return new Promise<Response>((resolve, reject) => {
     let settled = false;
@@ -380,6 +392,28 @@ function performRequest(
       res.on("end", () => {
         if (settled) return;
         if (status >= 300 && status < 400) {
+          if (allowRedirectResponse) {
+            try {
+              const headers = new Headers();
+              for (const [key, value] of Object.entries(res.headers)) {
+                if (value === undefined) continue;
+                if (Array.isArray(value)) {
+                  for (const item of value) headers.append(key, item);
+                } else {
+                  headers.append(key, value);
+                }
+              }
+              const response = new Response(null, {
+                status,
+                statusText: res.statusMessage ?? "",
+                headers,
+              });
+              succeed(response);
+            } catch (error) {
+              fail(new OutboundNetworkError("The AI provider returned an unreadable response", error));
+            }
+            return;
+          }
           fail(
             new SsrfBlockedError(
               "The AI provider endpoint returned a redirect, which is not allowed",

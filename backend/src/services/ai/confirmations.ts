@@ -9,13 +9,16 @@ import type { ProposedAction } from "./tools/types";
 // exact `(tool, arguments)` pairs the student was shown and parks them here as
 // a *proposal*. Nothing is created or changed until the student confirms, either
 // by pressing Confirm in the UI (REST) or by saying "create it" in the chat —
-// both funnel into `consumeProposal`, which is the only thing that hands a
-// proposal's arguments to the tool layer.
+// both funnel into an atomic claim in Postgres, which is the only thing that
+// hands a proposal's arguments to the tool layer.
 //
-// Deliberately in-process and in-memory: the confirmation is a short-lived
-// handshake inside one conversation, and persisting it would mean a schema
-// migration on a database whose migration history is baselined (see gap #15).
-// See "Known limitations" in AI_CONTEXT.md.
+// ⚠️ This module is a CACHE, not the source of truth. The durable record lives in
+// `ai_pending_actions` (see `pending-action-repository.ts`): it survives a
+// restart, and it is what a second API instance reads. The in-process map exists
+// only to render the live card cheaply; every decision (confirm / cancel) is
+// validated and committed against the database first. A stale entry here can
+// therefore never authorize a write — the confirmation execution path reads
+// Postgres, not this map. Entries past their TTL are dropped on access.
 
 export type ConfirmationStatus = "PENDING" | "EXECUTED" | "CANCELLED" | "SUPERSEDED";
 
@@ -131,13 +134,19 @@ export const confirmationStore = {
   /**
    * Insert a proposal loaded from durable storage.
    *
-   * The in-memory map is a fast path for the live process; the database is the
-   * source of truth across a restart. A proposal already in memory is left as
-   * it is, so a rehydrate can never clobber a decision made in this process.
+   * The in-memory map is only a cache for this process; the database is the
+   * source of truth. Because a cached copy can be *stale* — another instance may
+   * have executed or cancelled the row — this replaces any existing copy whose
+   * persisted status differs. It never downgrades a decision made *in this
+   * process* on a row the database has not yet caught up with, so the caller
+   * only reconciles after it has written the status through to Postgres.
    */
   hydrate(action: PendingAction): void {
     const entry = bucket(action.userId, action.conversationId);
-    if (!entry.has(action.id)) entry.set(action.id, action);
+    const existing = entry.get(action.id);
+    if (!existing || existing.status !== action.status) {
+      entry.set(action.id, action);
+    }
   },
 
   /**

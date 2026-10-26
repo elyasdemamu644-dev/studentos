@@ -132,10 +132,11 @@ const createStudyPlanArgs = z.object({
 export const createStudyPlanTool: AiToolDefinition = {
   name: "create_study_plan",
   description:
-    "Create a new study plan (a schedule of day-numbered entries leading up to an exam). Requires the student's confirmation first.",
+    "Create a new study plan (a schedule of day-numbered entries leading up to an exam). Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Creating a study plan",
   parameters: createStudyPlanArgs,
+  confirmation: "autonomous",
   async execute(args, ctx) {
     const input = createStudyPlanArgs.parse(args);
     const result = await aiService.createStudyPlan(ctx.userId, {
@@ -179,10 +180,11 @@ const addStudyPlanEntryArgs = z.object({
 export const addStudyPlanEntryTool: AiToolDefinition = {
   name: "add_study_plan_entry",
   description:
-    "Add one entry to an existing study plan. Requires the student's confirmation first.",
+    "Add one entry to an existing study plan. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Adding a study plan entry",
   parameters: addStudyPlanEntryArgs,
+  confirmation: "autonomous",
   async execute(args, ctx) {
     const input = addStudyPlanEntryArgs.parse(args);
     const entry = await aiService.addEntry(ctx.userId, input.planId, {

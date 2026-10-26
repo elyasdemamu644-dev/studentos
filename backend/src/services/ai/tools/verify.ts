@@ -9,6 +9,7 @@ import { eventsService } from "@/services/events";
 import { gradesService } from "@/services/grades";
 import { coursesService } from "@/services/courses";
 import { artifactsService } from "@/services/ai/artifacts";
+import { memoryService } from "@/services/ai/memory";
 import { aiService } from "@/services/ai/service";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +204,16 @@ const VERIFIERS: Record<string, Verifier> = {
     read: async (userId, id) => await resourcesService.getById(userId, id) as unknown as Record<string, unknown>,
     fields: { title: "title", description: "description", url: "url", resourceType: "resourceType", courseId: "courseId" },
     report: ["title", "url", "resourceType"],
+  },
+
+  // Saved memories: the saved row is re-read through the memory service and
+  // compared with the content and category the student approved. A memory that
+  // silently stored different words than the ones approved is a mismatch, never
+  // a success — what the assistant claims to remember is exactly what it stored.
+  save_memory: {
+    read: async (userId, id) => await memoryService.getById(userId, id) as unknown as Record<string, unknown>,
+    fields: { content: "content", category: "category" },
+    report: ["category", "content"],
   },
 
   // ── AI artifacts (generated files) ──────────────────────────────────────

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isNavActive, MOBILE_NAV_HREFS, NAV_ITEMS } from "@/components/layout/app-shell";
+import {
+  isNavActive,
+  isWorkspaceRoute,
+  MOBILE_NAV_HREFS,
+  NAV_ITEMS,
+} from "@/components/layout/app-shell";
 
 const hrefs = NAV_ITEMS.map((item) => item.href);
 
@@ -47,5 +52,14 @@ describe("app shell navigation", () => {
 
   it("keeps the mobile bar to a thumb-friendly number of items", () => {
     expect(MOBILE_NAV_HREFS.length).toBeLessThanOrEqual(5);
+  });
+
+  it("gives the resource reader a bounded viewport but lets the library scroll", () => {
+    expect(isWorkspaceRoute("/resources/abc-123")).toBe(true);
+    expect(isWorkspaceRoute("/resources/abc-123/")).toBe(true);
+    expect(isWorkspaceRoute("/resources")).toBe(false);
+    expect(isWorkspaceRoute("/resources/abc-123/preview")).toBe(false);
+    expect(isWorkspaceRoute("/ai")).toBe(true);
+    expect(isWorkspaceRoute("/courses")).toBe(false);
   });
 });

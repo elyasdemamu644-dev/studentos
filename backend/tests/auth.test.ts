@@ -250,4 +250,47 @@ describe("Auth Module — Tutor Walle MVP", () => {
         .expect(401);
     });
   });
+
+  // ── Update profile ────────────────────────────────────────────
+  describe("PATCH /auth/me", () => {
+    let accessToken: string;
+
+    beforeAll(async () => {
+      const auth = await registerAndLogin("update-profile@tutor-walle.test", "SafePass1!");
+      accessToken = auth.token;
+    });
+
+    it("updates only the supplied fields and returns the profile", async () => {
+      const res = await authRequestJson("patch", `${BASE}/auth/me`, accessToken, {
+        firstName: "Ada",
+        university: "Tutor Walle University",
+        department: null,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        success: true,
+        data: {
+          email: "update-profile@tutor-walle.test",
+          firstName: "Ada",
+          university: "Tutor Walle University",
+          department: null,
+          lastName: "Test",
+        },
+      });
+
+      const after = await authRequestJson("get", `${BASE}/auth/me`, accessToken);
+      expect(after.body.data.firstName).toBe("Ada");
+      expect(after.body.data.department).toBeNull();
+    });
+
+    it("rejects a blank first name with 400", async () => {
+      const res = await authRequestJson("patch", `${BASE}/auth/me`, accessToken, {
+        firstName: "",
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_ERROR");
+    });
+  });
 });

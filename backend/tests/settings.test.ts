@@ -73,5 +73,50 @@ describe("Settings Module", () => {
       expect(res.status).toBe(200);
       expect(res.body.data["ai.providerMode"]).toBe("default");
     });
+
+    it("accepts a known AI mode and rejects an unknown one", async () => {
+      const ok = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.mode": "STUDY" },
+      });
+      expect(ok.status).toBe(200);
+      expect(ok.body.data["ai.mode"]).toBe("STUDY");
+
+      const bad = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.mode": "TURBO" },
+      });
+      expect(bad.status).toBe(400);
+    });
+
+    it("accepts a model id and rejects a blank one", async () => {
+      const ok = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.model": "gpt-4o-mini" },
+      });
+      expect(ok.status).toBe(200);
+      expect(ok.body.data["ai.model"]).toBe("gpt-4o-mini");
+
+      const blank = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.model": "   " },
+      });
+      expect(blank.status).toBe(400);
+    });
+
+    it("accepts the saved-memory switch as 'true' or 'false' and rejects anything else", async () => {
+      const off = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.memoryEnabled": "false" },
+      });
+      expect(off.status).toBe(200);
+      expect(off.body.data["ai.memoryEnabled"]).toBe("false");
+
+      const on = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.memoryEnabled": "true" },
+      });
+      expect(on.status).toBe(200);
+      expect(on.body.data["ai.memoryEnabled"]).toBe("true");
+
+      const invalid = await authRequestJson("patch", `${BASE}/settings`, token, {
+        settings: { "ai.memoryEnabled": "yes" },
+      });
+      expect(invalid.status).toBe(400);
+    });
   });
 });

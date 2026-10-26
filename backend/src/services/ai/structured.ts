@@ -25,9 +25,10 @@ import type { JsonSchemaObject } from "./tools/types";
 import {
   AiStructuredOutputError,
   AiProviderNotConfiguredError,
-  getAIProvider,
+  resolveAiProviderForUser,
   type AiProviderName,
 } from "./provider";
+import { recordUsage } from "./routing/telemetry";
 
 /** The system-style instruction glued into the task message. */
 function schemaInstruction(schemaText: string): string {
@@ -59,8 +60,14 @@ export async function extractStructured(options: {
   prompt: string;
   schema: Record<string, unknown>;
   ground: boolean;
+  /** The conversation this extraction belongs to, for the per-conversation override. */
+  conversationId?: string | null;
 }): Promise<StructuredExtractionResult> {
-  const provider = await getAIProvider(options.userId);
+  const resolved = await resolveAiProviderForUser(options.userId, {
+    feature: "structured",
+    conversationId: options.conversationId ?? null,
+  });
+  const provider = resolved.provider;
   if (!provider.isConfigured()) throw new AiProviderNotConfiguredError();
 
   let validator: z.ZodTypeAny;
@@ -88,6 +95,16 @@ export async function extractStructured(options: {
   const first = await call([{ role: "user", content: taskMessage }]);
   const firstCheck = validateJsonContent(first.content, validator);
   if (firstCheck.ok) {
+    await recordUsage({
+      userId: options.userId,
+      conversationId: options.conversationId ?? null,
+      connectionId: provider.connectionId,
+      provider: provider.providerName,
+      model: provider.model,
+      feature: "structured",
+      promptTokens: first.usage?.promptTokens,
+      completionTokens: first.usage?.completionTokens,
+    });
     return {
       result: firstCheck.value,
       repaired: false,
@@ -108,6 +125,17 @@ export async function extractStructured(options: {
 
   const repairCheck = validateJsonContent(repair.content, validator);
   if (!repairCheck.ok) throw new AiStructuredOutputError();
+
+  await recordUsage({
+    userId: options.userId,
+    conversationId: options.conversationId ?? null,
+    connectionId: provider.connectionId,
+    provider: provider.providerName,
+    model: provider.model,
+    feature: "structured",
+    promptTokens: (first.usage?.promptTokens ?? 0) + (repair.usage?.promptTokens ?? 0),
+    completionTokens: (first.usage?.completionTokens ?? 0) + (repair.usage?.completionTokens ?? 0),
+  });
 
   return {
     result: repairCheck.value,

@@ -74,13 +74,25 @@ describe("API contract safety", () => {
     ["get", "/ai/conversations"],
     ["get", "/ai/conversations/some-id/messages"],
     ["get", "/ai/study-plans"],
-    ["get", "/ai/study-plans/some-id/entries"],
     ["post", "/ai/structured"],
+    ["get", "/ai/tools"],
+    ["get", "/ai/missions"],
+    ["post", "/ai/missions"],
+    ["post", "/ai/missions/some-id/execute"],
+    ["post", "/ai/missions/some-id/approve"],
+    ["get", "/ai/memories"],
+    ["post", "/ai/memories"],
+    ["delete", "/ai/memories"],
+    ["get", "/ai/memories/some-id"],
+    ["patch", "/ai/memories/some-id"],
+    ["delete", "/ai/memories/some-id"],
+    ["get", "/ai/proactive/briefing"],
     ["get", "/ai-connections"],
     ["post", "/ai-connections"],
     ["post", "/ai-connections/some-id/activate"],
     ["post", "/ai-connections/some-id/test"],
   ];
+
 
   it("answers every protected module with one standard 401 envelope", async () => {
     for (const [method, path] of PROTECTED) {
@@ -138,6 +150,9 @@ describe("API contract safety", () => {
     "/settings",
     "/ai/conversations",
     "/ai/study-plans",
+    "/ai/tools",
+    "/ai/missions",
+    "/ai/memories",
     "/ai-connections",
   ];
 

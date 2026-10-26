@@ -56,6 +56,183 @@ export const agentRunsKey = (conversationId: string | undefined) => [
   conversationId,
 ];
 
+// ── Missions ────────────────────────────────────────
+
+export const missionsKey = ["ai", "missions"];
+export const missionKey = (missionId: string) => ["ai", "missions", missionId];
+
+/**
+ * How often the mission list refreshes itself, in milliseconds.
+ *
+ * A mission is a long-running job, so its state changes on the server long
+ * after the request that started it returned: steps complete, a proposal
+ * expires, a retry succeeds. Without polling the panel would show the state
+ * the mission had when the page loaded, and the student would never see the
+ * work finish.
+ *
+ * The interval depends on why the state can still change:
+ *
+ *   - A mission that is queued, running or cancelling is being worked on right
+ *     now, so it is polled often.
+ *   - A mission that is waiting is waiting for the *student* — but the proposal
+ *     it waits on can still be approved, cancelled or expire, and the panel is
+ *     where the student approves it, so it is polled slowly rather than not at
+ *     all.
+ *   - Everything else is settled: nothing polls, so an idle panel costs
+ *     nothing.
+ *
+ * `false` stops the polling entirely.
+ */
+export type MissionPollInterval = number | false;
+
+/** Statuses that mean the server is actively working on the mission. */
+const ACTIVE_MISSION_STATUSES: ReadonlySet<string> = new Set([
+  "QUEUED",
+  "RUNNING",
+  "CANCEL_REQUESTED",
+]);
+
+/** Statuses that mean the mission is waiting on the student, not on the server. */
+const WAITING_MISSION_STATUSES: ReadonlySet<string> = new Set(["WAITING"]);
+
+/** How fast a mission that is being worked on is re-read. */
+const ACTIVE_POLL_MS = 2_000;
+
+/** How fast a mission that is waiting on the student is re-read. */
+const WAITING_POLL_MS = 10_000;
+
+/**
+ * The poll interval for a set of missions.
+ *
+ * Exported so the rule is testable on its own and so the panel and the detail
+ * view cannot drift apart.
+ */
+export function missionPollInterval(
+  missions: ReadonlyArray<{ status: string }> | undefined,
+): MissionPollInterval {
+  if (!missions || missions.length === 0) return false;
+  if (missions.some((mission) => ACTIVE_MISSION_STATUSES.has(mission.status))) {
+    return ACTIVE_POLL_MS;
+  }
+  if (missions.some((mission) => WAITING_MISSION_STATUSES.has(mission.status))) {
+    return WAITING_POLL_MS;
+  }
+  return false;
+}
+
+export function useMissions(params: api.MissionListParams = {}) {
+  return useQuery({
+    queryKey: [...missionsKey, params],
+    queryFn: () => api.listMissions(params),
+    // Polled only while something can still change — see `missionPollInterval`.
+    refetchInterval: (query) => missionPollInterval(query.state.data?.items),
+  });
+}
+
+export function useMission(missionId: string | undefined) {
+  return useQuery({
+    queryKey: missionKey(missionId ?? ""),
+    queryFn: () => api.getMission(missionId!),
+    enabled: Boolean(missionId),
+    // Polled only while this mission can still change — see `missionPollInterval`.
+    refetchInterval: (query) => missionPollInterval(query.state.data ? [query.state.data] : undefined),
+  });
+}
+
+export function useCreateMission() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: api.CreateMissionInput) => api.createMission(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: missionsKey });
+    },
+    onError: () => toast.error("Could not create the mission"),
+  });
+}
+
+export function useCancelMission() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (missionId: string) => api.cancelMission(missionId),
+    onSuccess: (mission) => {
+      qc.invalidateQueries({ queryKey: missionsKey });
+      qc.setQueryData(missionKey(mission.id), mission);
+      toast.success("Mission cancelled");
+    },
+    onError: () => toast.error("Could not cancel the mission"),
+  });
+}
+
+export function useRetryMission() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (missionId: string) => api.retryMission(missionId),
+    onSuccess: (mission) => {
+      qc.invalidateQueries({ queryKey: missionsKey });
+      qc.setQueryData(missionKey(mission.id), mission);
+      toast.success("Mission retry started");
+    },
+    onError: () => toast.error("Could not retry the mission"),
+  });
+}
+
+export function useExecuteMission() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (missionId: string) => api.executeMission(missionId),
+    onSuccess: (mission) => {
+      qc.invalidateQueries({ queryKey: missionsKey });
+      qc.setQueryData(missionKey(mission.id), mission);
+    },
+    onError: () => toast.error("Could not execute the mission"),
+  });
+}
+
+/**
+ * Approve the change a mission is waiting on.
+ *
+ * The approval carries the mission on: the approved step is applied and the
+ * remaining steps run, so the mission that comes back is the new state rather
+ * than the one before the approval.
+ */
+export function useApproveMission() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (missionId: string) => api.approveMission(missionId),
+    onSuccess: (mission) => {
+      qc.invalidateQueries({ queryKey: missionsKey });
+      qc.setQueryData(missionKey(mission.id), mission);
+      toast.success("Change approved");
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : "";
+      if (/conflict|already/i.test(message)) {
+        toast.error("That change was already applied or is no longer waiting");
+      } else {
+        toast.error("Could not approve the change");
+      }
+    },
+  });
+}
+
+// ── Proactive briefing ───────────────────────────
+
+export const proactiveBriefingKey = ["ai", "proactive-briefing"];
+
+/**
+ * The "what needs you now" digest. A minute of staleness keeps a workspace
+ * from re-asking on every focus, and a failed briefing must never surface as
+ * an error in the chat — the strip simply stays hidden.
+ */
+export function useProactiveBriefing() {
+  return useQuery({
+    queryKey: proactiveBriefingKey,
+    queryFn: api.getProactiveBriefing,
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+}
+
 export function useConversations(params: api.ConversationListParams = {}) {
   return useQuery({
     queryKey: [...conversationsKey, params],
@@ -276,6 +453,123 @@ export function useSendMessage() {
   });
 }
 
+// ── Editing and regeneration ───────────────────────
+
+/**
+ * Apply a turn's result to the cached transcript: keep everything before the
+ * question it belongs to, then place the (possibly edited) question and its new
+ * reply. The tail the server deleted is dropped from the cache the same way, so
+ * a rewritten thread never shows a reply detached from its prompt.
+ */
+function applyTurnResult(
+  qc: ReturnType<typeof useQueryClient>,
+  conversationId: string,
+  result: api.AddMessageResult,
+) {
+  qc.setQueryData<AiMessage[]>(messagesKey(conversationId), (current) => {
+    if (!current) return current;
+    const index = current.findIndex((message) => message.id === result.message.id);
+    if (index === -1) return current;
+    return [
+      ...current.slice(0, index),
+      result.message,
+      ...(result.reply ? [result.reply] : []),
+    ];
+  });
+  qc.setQueryData(pendingActionKey(conversationId), result.pendingAction);
+  if (result.agent) qc.setQueryData(agentRunsKey(conversationId), result.agent);
+  qc.invalidateQueries({ queryKey: artifactsKey(conversationId) });
+  qc.invalidateQueries({ queryKey: conversationsKey });
+}
+
+export interface EditMessageVariables {
+  conversationId: string;
+  messageId: string;
+  content: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Edit a question and show the change immediately.
+ *
+ * The cached thread is rewritten optimistically — the question's new wording
+ * replaces the old, and everything the old answer said is removed — then the
+ * server's regenerated reply is dropped in. A failure restores the previous
+ * thread rather than leaving a half-edited one.
+ */
+export function useEditMessage() {
+  const qc = useQueryClient();
+  return useMutation<api.AddMessageResult, unknown, EditMessageVariables, { previous?: AiMessage[] }>({
+    mutationFn: ({ conversationId, messageId, content, signal }) =>
+      api.editMessage(conversationId, messageId, content, signal),
+    onMutate: async ({ conversationId, messageId, content }) => {
+      await qc.cancelQueries({ queryKey: messagesKey(conversationId) });
+      const key = messagesKey(conversationId);
+      const previous = qc.getQueryData<AiMessage[]>(key);
+      qc.setQueryData<AiMessage[]>(key, (current) => {
+        if (!current) return current;
+        const index = current.findIndex((message) => message.id === messageId);
+        if (index === -1) return current;
+        return [
+          ...current.slice(0, index),
+          { ...current[index], content, failed: false, optimistic: false },
+        ];
+      });
+      return { previous };
+    },
+    onError: (error, { conversationId, signal }, context) => {
+      if (context?.previous) qc.setQueryData(messagesKey(conversationId), context.previous);
+      if (signal?.aborted) return;
+      toast.error(formatApiError(error));
+    },
+    onSuccess: (result, { conversationId }) => applyTurnResult(qc, conversationId, result),
+    onSettled: (_data, _error, { conversationId }) =>
+      qc.invalidateQueries({ queryKey: messagesKey(conversationId) }),
+  });
+}
+
+export interface RegenerateMessageVariables {
+  conversationId: string;
+  messageId: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Regenerate an answer. The reply being replaced, and everything after it, is
+ * hidden at once so the student sees the thread that is actually being rebuilt;
+ * the new reply lands when the server answers.
+ */
+export function useRegenerateMessage() {
+  const qc = useQueryClient();
+  return useMutation<api.AddMessageResult, unknown, RegenerateMessageVariables, { previous?: AiMessage[] }>({
+    mutationFn: ({ conversationId, messageId, signal }) =>
+      api.regenerateMessage(conversationId, messageId, signal),
+    onMutate: async ({ conversationId, messageId }) => {
+      await qc.cancelQueries({ queryKey: messagesKey(conversationId) });
+      const key = messagesKey(conversationId);
+      const previous = qc.getQueryData<AiMessage[]>(key);
+      qc.setQueryData<AiMessage[]>(key, (current) => {
+        if (!current) return current;
+        const index = current.findIndex((message) => message.id === messageId);
+        if (index === -1) return current;
+        // An assistant message is replaced; a user message keeps its place and
+        // only the replies after it go.
+        const cut = current[index].role === "ASSISTANT" ? index : index + 1;
+        return current.slice(0, cut);
+      });
+      return { previous };
+    },
+    onError: (error, { conversationId, signal }, context) => {
+      if (context?.previous) qc.setQueryData(messagesKey(conversationId), context.previous);
+      if (signal?.aborted) return;
+      toast.error(formatApiError(error));
+    },
+    onSuccess: (result, { conversationId }) => applyTurnResult(qc, conversationId, result),
+    onSettled: (_data, _error, { conversationId }) =>
+      qc.invalidateQueries({ queryKey: messagesKey(conversationId) }),
+  });
+}
+
 // ── Pending-action confirmation ────────────────────
 
 export function usePendingAction(conversationId: string | undefined) {
@@ -489,5 +783,13 @@ export function useDownloadConversationFile() {
         : api.downloadAttachment(file.resourceId ?? file.id),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not download the file"),
+  });
+}
+
+export function useMissionTools() {
+  return useQuery({
+    queryKey: ["ai", "mission-tools"],
+    queryFn: () => api.listMissionTools(),
+    staleTime: 60_000,
   });
 }

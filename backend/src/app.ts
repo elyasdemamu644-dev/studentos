@@ -26,6 +26,7 @@ app.use(
   cors({
     origin: config.corsOrigins,
     credentials: true,
+    exposedHeaders: ["Content-Disposition", "Content-Range", "Accept-Ranges", "Content-Length"],
   }),
 );
 app.use(compression());

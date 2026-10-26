@@ -3,23 +3,37 @@
 import { useState } from "react";
 import { CheckCircle2, KeyRound, Pencil, Plug, Plus, Power, Sparkles, Trash2 } from "lucide-react";
 
-import type { AiConnection } from "@/types/api-types";
+import type { AiConnection, AiMode, ExecutionAutonomyMode } from "@/types/api-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ListSkeleton } from "@/components/feedback";
 import { ErrorState } from "@/components/states";
-import { AI_PROVIDER_LABELS } from "@/lib/labels";
+import { AI_MODE_DESCRIPTIONS, AI_MODE_LABELS, AI_MODES, AI_PROVIDER_LABELS, EXECUTION_AUTONOMY_MODE_DESCRIPTIONS, EXECUTION_AUTONOMY_MODE_LABELS, EXECUTION_AUTONOMY_MODES } from "@/lib/labels";
 import {
   useActivateConnection,
   useAiConnections,
   useAiProviderSelection,
+  useDefaultAiModels,
   useDeleteConnection,
+  useSetAiMode,
   useSetAiProviderMode,
+  useSetDefaultModel,
+  useSetExecutionAutonomyMode,
   useUpdateConnection,
 } from "./hooks";
 import { AiConnectionFormDialog } from "./connection-form";
+
+/** Radix Select forbids an empty value, so "server default" needs a sentinel. */
+const SERVER_DEFAULT_MODEL = "__server_default__";
 
 function ConnectionRow({
   connection,
@@ -109,6 +123,10 @@ export function AiConnectionsPanel() {
   const connections = useAiConnections();
   const providerSelection = useAiProviderSelection();
   const setProviderMode = useSetAiProviderMode();
+  const setAiMode = useSetAiMode();
+  const setExecutionAutonomyMode = useSetExecutionAutonomyMode();
+  const models = useDefaultAiModels();
+  const setDefaultModel = useSetDefaultModel();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AiConnection | undefined>(undefined);
 
@@ -187,6 +205,116 @@ export function AiConnectionsPanel() {
           </button>
         </fieldset>
       )}
+
+      {/* AI mode. How the assistant runs each reply, whatever provider answers.
+          Kept separate from the provider/model choice: it never changes who
+          answers, and no mode relaxes the write-confirmation rules. */}
+      {!providerSelection.isPending && !providerSelection.isError && (
+        <div className="mb-5 space-y-1.5">
+          <label htmlFor="ai-mode" className="text-sm font-medium">
+            AI mode
+          </label>
+          <Select
+            value={providerSelection.data.aiMode}
+            onValueChange={(value) => setAiMode.mutate(value as AiMode)}
+            disabled={setAiMode.isPending}
+          >
+            <SelectTrigger id="ai-mode" aria-label="AI mode" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AI_MODES.map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  {AI_MODE_LABELS[mode]} — {AI_MODE_DESCRIPTIONS[mode]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            How the assistant runs your replies. It does not change which model
+            answers, and it never changes what needs your confirmation.
+          </p>
+        </div>
+      )}
+
+      {/* Execution autonomy. Whether safe WRITE tools run without confirmation.
+          Kept separate from AI mode (which controls reasoning depth) and model
+          selection (which controls who answers). */}
+      {!providerSelection.isPending && !providerSelection.isError && (
+        <div className="mb-5 space-y-1.5">
+          <label htmlFor="execution-autonomy-mode" className="text-sm font-medium">
+            Execution autonomy
+          </label>
+          <Select
+            value={providerSelection.data.executionAutonomyMode}
+            onValueChange={(value) => setExecutionAutonomyMode.mutate(value as ExecutionAutonomyMode)}
+            disabled={setExecutionAutonomyMode.isPending}
+          >
+            <SelectTrigger id="execution-autonomy-mode" aria-label="Execution autonomy" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EXECUTION_AUTONOMY_MODES.map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  {EXECUTION_AUTONOMY_MODE_LABELS[mode]} — {EXECUTION_AUTONOMY_MODE_DESCRIPTIONS[mode]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Whether safe changes run automatically. In autonomous mode, a curated
+            set of safe WRITE tools (like creating tasks, notes, or study sessions)
+            runs without asking for confirmation each time. You can still review
+            and cancel any pending action.
+          </p>
+        </div>
+      )}
+
+      {/* Default AI model. Shown only when Tutor Walle Default AI is the
+          selected provider: a personal connection carries its own model, so the
+          preference would have no effect there. */}
+      {!providerSelection.isPending && !providerSelection.isError &&
+        providerSelection.data.mode === "default" && (
+          <div className="mb-5 space-y-1.5">
+            <label htmlFor="default-ai-model" className="text-sm font-medium">
+              Default AI model
+            </label>
+            <Select
+              value={
+                models.isPending
+                  ? undefined
+                  : providerSelection.data.model ?? SERVER_DEFAULT_MODEL
+              }
+              onValueChange={(value) =>
+                setDefaultModel.mutate(value === SERVER_DEFAULT_MODEL ? null : value)
+              }
+              disabled={models.isPending || setDefaultModel.isPending}
+            >
+              <SelectTrigger id="default-ai-model" aria-label="Default AI model" className="w-full">
+                <SelectValue placeholder="Server default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SERVER_DEFAULT_MODEL}>
+                  Server default ({providerSelection.data.defaultModel})
+                </SelectItem>
+                {models.data?.group.models.map((model) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.label}
+                  </SelectItem>
+                ))}
+                {providerSelection.data.model &&
+                  !models.data?.group.models.some((model) => model.id === providerSelection.data.model) && (
+                    <SelectItem value={providerSelection.data.model}>
+                      {providerSelection.data.model} (custom)
+                    </SelectItem>
+                  )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Applies to Tutor Walle Default AI. Your own connections keep their own model.
+            </p>
+          </div>
+        )}
 
       {connections.isPending ? (
         <ListSkeleton rows={2} />

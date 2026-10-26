@@ -218,10 +218,11 @@ const createTaskArgs = z.object({
 
 export const createTaskTool: AiToolDefinition = {
   name: "create_task",
-  description: "Create one task. Requires the student's confirmation first.",
+  description: "Create one task. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Creating a task",
   parameters: createTaskArgs,
+  confirmation: "autonomous",
   prepare: prepareWith([COURSE_REF]),
   async execute(args, ctx) {
     const input = createTaskArgs.parse(args);
@@ -312,10 +313,11 @@ const createSubtaskArgs = z.object({
 export const createSubtaskTool: AiToolDefinition = {
   name: "create_subtask",
   description:
-    "Break one task down by adding a subtask. Requires the student's confirmation first.",
+    "Break one task down by adding a subtask. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Adding a subtask",
   parameters: createSubtaskArgs,
+  confirmation: "autonomous",
   prepare: prepareWith([TASK_REF]),
   async execute(args, ctx) {
     const input = createSubtaskArgs.parse(args);
@@ -392,10 +394,11 @@ const createTaskTagArgs = z.object({
 
 export const createTaskTagTool: AiToolDefinition = {
   name: "create_task_tag",
-  description: "Label one task with a tag. Requires the student's confirmation first.",
+  description: "Label one task with a tag. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Tagging a task",
   parameters: createTaskTagArgs,
+  confirmation: "autonomous",
   prepare: prepareWith([TASK_REF]),
   async execute(args, ctx) {
     const input = createTaskTagArgs.parse(args);
@@ -426,10 +429,11 @@ const createStudySessionArgs = z.object({
 
 export const createStudySessionTool: AiToolDefinition = {
   name: "create_study_session",
-  description: "Log one study session. Requires the student's confirmation first.",
+  description: "Log one study session. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Adding a study session",
   parameters: createStudySessionArgs,
+  confirmation: "autonomous",
   prepare: prepareWith([COURSE_REF]),
   async execute(args, ctx) {
     const input = createStudySessionArgs.parse(args);
@@ -503,10 +507,11 @@ const createGoalArgs = z.object({
 
 export const createGoalTool: AiToolDefinition = {
   name: "create_goal",
-  description: "Create one goal. Requires the student's confirmation first.",
+  description: "Create one goal. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Creating a goal",
   parameters: createGoalArgs,
+  confirmation: "autonomous",
   async execute(args, ctx) {
     const input = createGoalArgs.parse(args);
     const goal = await goalsService.create(ctx.userId, { ...input, deadline: toDate(input.deadline) ?? null });
@@ -570,9 +575,10 @@ const createMilestoneArgs = z.object({
 
 export const createMilestoneTool: AiToolDefinition = {
   name: "create_milestone",
-  description: "Add a step to one goal. Requires the student's confirmation first.",
+  description: "Add a step to one goal. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Adding a milestone",
+  confirmation: "autonomous",
   parameters: createMilestoneArgs,
   prepare: prepareWith([GOAL_REF]),
   async execute(args, ctx) {
@@ -646,10 +652,11 @@ const createNoteArgs = z.object({
 
 export const createNoteTool: AiToolDefinition = {
   name: "create_note",
-  description: "Create one note. Requires the student's confirmation first.",
+  description: "Create one note. Requires the student's confirmation first, unless autonomous execution is enabled.",
   kind: "WRITE",
   activityLabel: "Creating a note",
   parameters: createNoteArgs,
+  confirmation: "autonomous",
   prepare: prepareWith([COURSE_REF]),
   async execute(args, ctx) {
     const input = createNoteArgs.parse(args);

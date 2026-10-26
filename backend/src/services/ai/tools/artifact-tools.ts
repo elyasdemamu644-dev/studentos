@@ -37,10 +37,11 @@ const createArtifactArgs = z.object({
 export const createArtifactTool: AiToolDefinition = {
   name: "create_artifact",
   description:
-    "Save a generated document (a study guide, summary, revision sheet or essay) as a downloadable file in the student's workspace, attached to this conversation. Requires the student's confirmation first — show them the full content before proposing it.",
+    "Save a generated document (a study guide, summary, revision sheet or essay) as a downloadable file in the student's workspace, attached to this conversation. Requires the student's confirmation first, unless autonomous execution is enabled — show them the full content before proposing it.",
   kind: "WRITE",
   activityLabel: "Saving a file",
   parameters: createArtifactArgs,
+  confirmation: "autonomous",
   async execute(args, ctx) {
     const input = createArtifactArgs.parse(args);
     const artifact = await artifactsService.createFromText(ctx.userId, ctx.conversationId, {

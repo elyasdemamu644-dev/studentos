@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAiMode, isExecutionAutonomyMode } from "./ai";
 
 // ─────────────────────────────────────────────
 // Settings contract
@@ -24,6 +25,49 @@ export const updateSettingsSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["ai.providerMode"],
         message: "AI provider mode must be 'default' or 'personal'",
+      });
+    }
+
+    // AI mode is a closed set; an unknown value would silently fall back to
+    // AUTO, so reject it here instead of storing something the assistant ignores.
+    const aiMode = settings["ai.mode"];
+    if (aiMode !== undefined && aiMode !== null && !isAiMode(aiMode)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ai.mode"],
+        message: "Unknown AI mode",
+      });
+    }
+
+    // Execution autonomy mode: controls whether safe WRITE tools run automatically.
+    const execMode = settings["ai.executionMode"];
+    if (execMode !== undefined && execMode !== null && !isExecutionAutonomyMode(execMode)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ai.executionMode"],
+        message: "Unknown execution autonomy mode",
+      });
+    }
+
+    // The Default AI model is a free-form provider model id, but never blank —
+    // an empty string would override the server default with nothing.
+    const model = settings["ai.model"];
+    if (model !== undefined && model !== null && (model.trim().length === 0 || model.length > 200)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ai.model"],
+        message: "AI model must be 1–200 characters",
+      });
+    }
+
+    // Saved memory is an on/off switch stored as "true"/"false"; anything else
+    // would silently flip the wrong way when read back.
+    const memoryEnabled = settings["ai.memoryEnabled"];
+    if (memoryEnabled !== undefined && memoryEnabled !== null && memoryEnabled !== "true" && memoryEnabled !== "false") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ai.memoryEnabled"],
+        message: "AI memory must be 'true' or 'false'",
       });
     }
   }),

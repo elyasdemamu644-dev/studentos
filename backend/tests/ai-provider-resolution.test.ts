@@ -107,6 +107,14 @@ describe("buildDefaultAiProvider (env default/fallback)", () => {
     expect(JSON.parse(init.body as string).model).toBe("owner-selected-model");
   });
 
+  it("lets a per-user model override win over the configured default model", () => {
+    expect(buildDefaultAiProvider(OPENROUTER_CONFIG, "user/model")?.model).toBe("user/model");
+    expect(buildDefaultAiProvider({ ...OPENROUTER_CONFIG, aiModel: "server/model" })?.model).toBe("server/model");
+    expect(buildDefaultAiProvider({ ...OPENROUTER_CONFIG, aiModel: "server/model" }, "user/model")?.model).toBe("user/model");
+    // A blank preference is not an override: the server default stands.
+    expect(buildDefaultAiProvider({ ...OPENROUTER_CONFIG, aiModel: "server/model" }, "  ")?.model).toBe("server/model");
+  });
+
   it("keeps Default AI unavailable for a blank key or unknown provider", () => {
     expect(buildDefaultAiProvider({
       ...OPENROUTER_CONFIG,
@@ -164,7 +172,6 @@ describe("buildDefaultAiProvider (env default/fallback)", () => {
   it("sends image content parts through the OpenRouter-compatible chat API", async () => {
     const fetchMock = stubFetch();
     const provider = buildDefaultAiProvider(OPENROUTER_CONFIG)!;
-
     await provider.chat({
       messages: [{
         role: "user",
@@ -180,6 +187,31 @@ describe("buildDefaultAiProvider (env default/fallback)", () => {
       { type: "text", text: "What is in this image?" },
       { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=", detail: "auto" } },
     ]);
+  });
+
+  it("appends the AI mode instruction to the grounded system message", async () => {
+    const fetchMock = stubFetch();
+    const context = JSON.stringify({ tutorWalle: { courses: [] } });
+    const provider = buildDefaultAiProvider(OPENROUTER_CONFIG)!;
+
+    await provider.chat({ messages: [{ role: "user", content: "hi" }], context, mode: "QUICK" });
+
+    const body = await bodyOf(fetchMock);
+    expect(body.messages[0].role).toBe("system");
+    expect(body.messages[0].content).toMatch(/MODE — QUICK/);
+    expect(body.messages[0].content).toContain(context);
+  });
+
+  it("sends the mode instruction even without a context snapshot", async () => {
+    const fetchMock = stubFetch();
+    const provider = buildDefaultAiProvider(OPENROUTER_CONFIG)!;
+
+    await provider.chat({ messages: [{ role: "user", content: "hi" }], mode: "STUDY" });
+
+    const body = await bodyOf(fetchMock);
+    expect(body.messages[0].role).toBe("system");
+    expect(body.messages[0].content).toMatch(/MODE — STUDY/);
+    expect(body.messages[1].content).toBe("hi");
   });
 
   it("passes tool calls to OpenRouter's feature-aware free router", async () => {
@@ -335,6 +367,30 @@ describe("getAIProvider resolution (active connection → env default)", () => {
     expect(body.model).toBe("inclusionai/ling-3.0-flash-sante:free");
     expect(body.messages[0].role).toBe("system");
     expect(body.messages[0].content).toContain(context);
+  });
+
+  it("honours the per-user Default AI model preference over the env model", async () => {
+    vi.stubEnv("AI_ENABLED", "true");
+    vi.stubEnv("AI_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test-openrouter-key-12345");
+    vi.stubEnv("AI_MODEL", "server-default-model");
+    vi.stubEnv("AI_BASE_URL", "https://openrouter.ai/api/v1");
+    const fetchMock = stubFetch();
+    vi.resetModules();
+
+    const providerMod = await import("@/services/ai/provider");
+    const serviceMod = await import("@/services/ai-connections");
+    const settingsMod = await import("@/services/settings");
+    vi.mocked(serviceMod.getActiveUserConnection).mockResolvedValue(null);
+    vi.mocked(settingsMod.settingsService.get)
+      .mockResolvedValue({ "ai.model": "user-chosen-model" });
+
+    const provider = await providerMod.getAIProvider("user-model-pref");
+    expect(provider.isConfigured()).toBe(true);
+    await provider.chat({ messages: [{ role: "user", content: "hi" }] });
+
+    const body = await bodyOf(fetchMock);
+    expect(body.model).toBe("user-chosen-model");
   });
 });
 

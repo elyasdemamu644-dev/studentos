@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { AiProviderName } from "@/types/api-types";
+import type { AiMode, ExecutionAutonomyMode } from "@/types/api-types";
 import * as api from "./ai-connections-api";
 
 const QUERY_KEY = ["ai-connections"];
@@ -31,6 +31,43 @@ export function useSetAiProviderMode() {
       toast.success("AI provider preference saved");
     },
     onError: () => toast.error("Could not change the AI provider"),
+  });
+}
+
+/** The selectable Default AI models, from the static server catalog. */
+export function useDefaultAiModels() {
+  return useQuery({
+    queryKey: ["ai-models"],
+    queryFn: api.listDefaultAiModels,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Persist the assistant behaviour mode. `null` restores the AUTO default. */
+export function useSetAiMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: AiMode | null) => api.setAiMode(mode),
+    onSuccess: (settings) => {
+      qc.setQueryData(["settings"], settings);
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
+      toast.success("AI mode updated");
+    },
+    onError: () => toast.error("Could not change the AI mode"),
+  });
+}
+
+/** Persist the Default AI model. `null` restores the server default. */
+export function useSetDefaultModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (model: string | null) => api.setDefaultModel(model),
+    onSuccess: (settings) => {
+      qc.setQueryData(["settings"], settings);
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
+      toast.success("Default AI model updated");
+    },
+    onError: () => toast.error("Could not change the model"),
   });
 }
 
@@ -106,4 +143,16 @@ export function useTestConnection() {
   });
 }
 
-export type { AiProviderName };
+/** Persist the assistant execution autonomy mode. `null` restores the manual default. */
+export function useSetExecutionAutonomyMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: ExecutionAutonomyMode | null) => api.setExecutionAutonomyMode(mode),
+    onSuccess: (settings) => {
+      qc.setQueryData(["settings"], settings);
+      qc.invalidateQueries({ queryKey: ["ai-provider-selection"] });
+      toast.success("Execution autonomy mode updated");
+    },
+    onError: () => toast.error("Could not change the execution autonomy mode"),
+  });
+}

@@ -1,3 +1,4 @@
+import { config } from "@/config";
 import { ZodError } from "zod";
 
 import { readTools } from "./read-tools";
@@ -6,8 +7,10 @@ import { actionTools } from "./action-tools";
 import { artifactTools } from "./artifact-tools";
 import { confirmPendingActionsTool } from "./confirm-tool";
 import { deleteTaskTool, deleteNoteTool, deleteStudySessionTool, createStudyPlanTool, addStudyPlanEntryTool, pushDailyAgendaTool, bulkUpdateTaskStatusTool } from "./missing-tools";
+import { getMemoriesTool, saveMemoryTool } from "./memory-tools";
 import { EntityResolutionError } from "./resolver";
 import { zodToJsonSchema } from "./json-schema";
+import { isAutonomousExecution } from "../mode-execution";
 import type {
   AiToolContext,
   AiToolDefinition,
@@ -16,6 +19,15 @@ import type {
   ProviderToolSchema,
   ProposedAction,
 } from "./types";
+
+/** Execution autonomy mode passed from the user's settings. */
+export type ExecutionAutonomyMode = "manual" | "autonomous";
+
+/** Extended tool context that includes execution autonomy mode. */
+export interface AiToolContextWithAutonomy extends AiToolContext {
+  /** The user's execution autonomy mode from settings. */
+  executionAutonomyMode: ExecutionAutonomyMode;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool registry
@@ -66,6 +78,8 @@ for (const tool of [
   addStudyPlanEntryTool,
   pushDailyAgendaTool,
   bulkUpdateTaskStatusTool,
+  getMemoriesTool,
+  saveMemoryTool,
 ]) {
   registerTool(tool);
 }
@@ -81,6 +95,30 @@ export function listTools(kind?: AiToolKind): AiToolDefinition[] {
 
 export function getToolNames(): string[] {
   return [...REGISTRY.keys()];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Confirmation gate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Does this tool need the student's approval before it may run?
+ *
+ * This is the single rule behind the confirmation gate, and the mission tool
+ * catalog reads it too — so the builder can tell the student up front which
+ * steps will stop for approval, and the two can never disagree.
+ *
+ *  - READ and ANALYZE tools never change anything, so they never need approval.
+ *  - A `"self"` tool *is* the approval (running it is the student's confirming
+ *    gesture), so the gate does not apply to it.
+ *  - An `"autonomous"` tool runs without approval only while the student has
+ *    autonomous execution enabled; in manual mode it is gated like any write.
+ */
+export function toolNeedsApproval(tool: AiToolDefinition, autonomousExecution: boolean): boolean {
+  if (tool.kind !== "WRITE") return false;
+  const confirmation = tool.confirmation ?? "required";
+  if (confirmation === "self") return false;
+  return !(confirmation === "autonomous" && autonomousExecution);
 }
 
 /** The `tools` payload for an OpenAI-compatible chat-completions request. */
@@ -117,7 +155,7 @@ export interface ToolCallRequest {
  */
 export async function executeTool(
   call: ToolCallRequest,
-  ctx: AiToolContext,
+  ctx: AiToolContextWithAutonomy,
 ): Promise<AiToolResult> {
   const tool = REGISTRY.get(call.name);
   if (!tool) {
@@ -179,7 +217,10 @@ export async function executeTool(
   const args = parsed as Record<string, unknown>;
 
   // ── Confirmation gate ──────────────────────────────────────────────────────
-  if (tool.kind === "WRITE" && (tool.confirmation ?? "required") === "required") {
+  //
+  // `toolNeedsApproval` holds the whole rule, so the mission tool catalog can
+  // answer the same question for the builder without a second implementation.
+  if (toolNeedsApproval(tool, isAutonomousExecution(ctx.executionAutonomyMode))) {
     if (!isApproved(ctx.approvedActions, tool.name, args)) {
       // Resolve natural references ("the Database exam", "CS210") *before* the
       // proposal is parked, so the card shows the real record and an ambiguous

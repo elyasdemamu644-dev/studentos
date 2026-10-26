@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { connectionFormSchema } from "@/features/ai-connections/connection-form";
+import {
+  listDefaultAiModels,
+  setAiMode,
+  setDefaultModel,
+} from "@/features/ai-connections/ai-connections-api";
 import { api } from "@/lib/api/client";
 import { ApiClientError } from "@/lib/api/errors";
 import {
@@ -214,5 +219,83 @@ describe("ai connection test transport", () => {
     );
 
     await expect(api.delete("/ai-connections/some-id")).resolves.toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────
+// AI preference transport (mode + Default AI model)
+// ─────────────────────────────────────────────
+
+describe("ai preference transport", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Capture every request the api client makes and answer with an empty success. */
+  function captureRequests() {
+    const calls: Array<{ url: string; method: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          method: init?.method ?? "GET",
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        });
+        return new Response(JSON.stringify({ success: true, data: {} }), {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        });
+      }),
+    );
+    return calls;
+  }
+
+  it("persists the AI mode as a namespaced setting", async () => {
+    const calls = captureRequests();
+
+    await setAiMode("STUDY");
+
+    expect(calls[0].method).toBe("PATCH");
+    expect(calls[0].url).toContain("/settings");
+    expect(calls[0].body).toEqual({ settings: { "ai.mode": "STUDY" } });
+  });
+
+  it("trims a real model id and clears the preference with null", async () => {
+    const calls = captureRequests();
+
+    await setDefaultModel("  gpt-4o  ");
+    await setDefaultModel("   ");
+
+    expect(calls[0].body).toEqual({ settings: { "ai.model": "gpt-4o" } });
+    expect(calls[1].body).toEqual({ settings: { "ai.model": null } });
+  });
+
+  it("reads the Default AI model catalog from the server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              defaultProvider: "openai",
+              defaultModel: "gpt-4o-mini",
+              group: {
+                provider: "openai",
+                defaultModel: "gpt-4o-mini",
+                models: [{ id: "gpt-4o", label: "GPT-4o" }],
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
+        ),
+      ),
+    );
+
+    const result = await listDefaultAiModels();
+
+    expect(result.group.provider).toBe("openai");
+    expect(result.group.models[0]).toEqual({ id: "gpt-4o", label: "GPT-4o" });
   });
 });

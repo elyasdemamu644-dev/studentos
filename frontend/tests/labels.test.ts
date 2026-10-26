@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  AI_MODE_DESCRIPTIONS,
+  AI_MODE_LABELS,
+  AI_MODES,
   EVENT_TYPE_LABELS,
   MILESTONE_STATUS_LABELS,
   PRIORITY_LABELS,
@@ -32,5 +35,16 @@ describe("lib/labels", () => {
     for (const type of ["ASSIGNMENT", "HOMEWORK", "PROJECT", "READING", "PRACTICE", "REVISION", "OTHER"]) {
       expect(TASK_TYPE_LABELS[type as keyof typeof TASK_TYPE_LABELS]).toBeTruthy();
     }
+  });
+
+  it("labels every AI mode the API accepts, Auto first", () => {
+    expect(AI_MODES[0]).toBe("AUTO");
+    for (const mode of AI_MODES) {
+      expect(AI_MODE_LABELS[mode]).toBeTruthy();
+      expect(AI_MODE_DESCRIPTIONS[mode]).toBeTruthy();
+    }
+    expect(AI_MODE_LABELS.AUTO).toBe("Auto");
+    expect(AI_MODE_LABELS.STUDY).toBe("Study");
+    expect(AI_MODE_LABELS.AGENT).toBe("Agent");
   });
 });

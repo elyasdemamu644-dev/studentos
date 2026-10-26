@@ -48,6 +48,12 @@ const FINISH_COPY: Record<
       "This turn used as many tool calls as one message is allowed. It may have stopped before finishing.",
     tone: "warning",
   },
+  write_intent_unfulfilled: {
+    label: "Change not prepared",
+    detail:
+      "You asked for a change, but the assistant did not prepare one, so nothing was saved. Rephrase with the exact details or make the change yourself from the matching page.",
+    tone: "warning",
+  },
   no_tool_support: {
     label: "No tool calling on this provider",
     detail:

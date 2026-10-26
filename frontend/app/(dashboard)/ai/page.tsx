@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, FolderOpen, History, Layers, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, FolderOpen, History, Layers, Sparkles, Zap } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { AiConversationDrawer, AiConversationSidebar } from "@/components/domain/ai-conversation-sidebar";
@@ -12,10 +12,13 @@ import {
   MessageError,
   MessageList,
   PendingActionCard,
+  type ActivityRun,
 } from "@/components/domain/ai-chat";
 import { AgentRunReport } from "@/components/domain/agent-run-report";
 import { AiContextPanel, AiContextDrawer } from "@/components/domain/ai-context-panel";
 import { AiFilesDrawer, AiFilesPanel } from "@/components/domain/ai-files-panel";
+import { AiMissionsDrawer, AiMissionsPanel } from "@/components/domain/ai-missions-panel";
+import { ProactiveBriefingStrip } from "@/features/ai/proactive-briefing";
 import { StructuredExtractionDialog } from "@/features/ai/structured-extraction";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,9 +37,11 @@ import {
   useConversations,
   useCreateConversation,
   useDeleteConversation,
+  useEditMessage,
   useLastAgentRun,
   useMessages,
   usePendingAction,
+  useRegenerateMessage,
   useRenameConversation,
   useSendMessage,
 } from "@/features/ai/hooks";
@@ -44,6 +49,7 @@ import { generateConversationTitle } from "@/features/ai/chat-utils";
 import { CONVERSATION_TYPE_LABELS } from "@/lib/labels";
 import type { AiMessage, AiToolActivity, ConversationType } from "@/types/api-types";
 import { useResource } from "@/features/resources/hooks";
+import { useAiProviderSelection, useSetAiMode } from "@/features/ai-connections/hooks";
 
 /** Where the open conversation is remembered so a reload lands back in it. */
 const ACTIVE_CONVERSATION_KEY = "studentos.ai.activeConversation";
@@ -101,10 +107,13 @@ export default function AiPage() {
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
   }, []);
 
-  // Auto-attach resource from URL when it loads
+  // Auto-attach resource from URL when it loads. Deduplicate inside the state
+  // updater because effects can run twice in development StrictMode.
   useEffect(() => {
-    if (urlResource && !attachments.some((a) => a.resourceId === urlResource.id)) {
-      setAttachments((prev) => [
+    if (!urlResource) return;
+    setAttachments((prev) => {
+      if (prev.some((a) => a.resourceId === urlResource.id)) return prev;
+      return [
         ...prev,
         {
           id: `attachment-${urlResource.id}`,
@@ -114,9 +123,9 @@ export default function AiPage() {
           progress: 100,
           resourceId: urlResource.id,
         },
-      ]);
-    }
-  }, [urlResource, attachments]);
+      ];
+    });
+  }, [urlResource]);
   const [newType, setNewType] = useState<ConversationType>("CHAT");
   const [unconfigured, setUnconfigured] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);
@@ -128,9 +137,7 @@ export default function AiPage() {
   const [liveActivity, setLiveActivity] = useState<AiToolActivity[]>([]);
   // Tool activity is returned with the reply but never persisted, so it is
   // only ever shown against the single message that produced it.
-  const [activityRun, setActivityRun] = useState<{ replyId: string; activity: AiToolActivity[] } | null>(
-    null,
-  );
+  const [activityRun, setActivityRun] = useState<ActivityRun | null>(null);
   // Titles derived from the first message, shown before the rename persists.
   const [derivedTitles, setDerivedTitles] = useState<Record<string, string>>({});
   const abortRef = useRef<AbortController | null>(null);
@@ -157,6 +164,8 @@ export default function AiPage() {
   const deleteConversation = useDeleteConversation();
   const renameConversation = useRenameConversation();
   const sendMessage = useSendMessage();
+  const editMessage = useEditMessage();
+  const regenerateMessage = useRegenerateMessage();
   const confirmAction = useConfirmPendingAction();
   const cancelAction = useCancelPendingAction();
   // Real per-step results from the last confirm, shown on the proposal card.
@@ -165,6 +174,15 @@ export default function AiPage() {
   // ended. Cache-only, so it is `null` after a reload rather than invented.
   const lastAgentRun = useLastAgentRun(selectedId ?? undefined);
 
+  // The student's saved AI mode. The composer's control shares this query key
+  // with the AI settings panel, so the two stay in sync, and a change applies to
+  // the student's account rather than this one conversation.
+  const providerSelection = useAiProviderSelection();
+  const setAiMode = useSetAiMode();
+
+  // Missions
+  const [missionsOpen, setMissionsOpen] = useState(true);
+
   const convoItems = useMemo(() => conversations.data?.items ?? [], [conversations.data]);
   const selected = useMemo(
     () => convoItems.find((conversation) => conversation.id === selectedId),
@@ -172,7 +190,8 @@ export default function AiPage() {
   );
   const messageItems = useMemo(() => messages.data ?? [], [messages.data]);
   const proposal = pendingAction.data ?? null;
-  const generating = sendMessage.isPending;
+  const generating =
+    sendMessage.isPending || editMessage.isPending || regenerateMessage.isPending;
   // The history list has to have answered before "no conversation here" means
   // anything. Until it does, the panel shows the loading skeleton rather than
   // the empty state — otherwise a page that is about to restore a conversation
@@ -282,7 +301,11 @@ export default function AiPage() {
           // it is only ever shown against the run that produced it.
           setLiveActivity([]);
           if (result.reply) {
-            setActivityRun({ replyId: result.reply.id, activity: result.toolActivity ?? [] });
+            setActivityRun({
+              replyId: result.reply.id,
+              activity: result.toolActivity ?? [],
+              context: result.agent?.context ?? null,
+            });
             setDerivedTitles((current) => {
               const next = { ...current };
               delete next[selectedId];
@@ -292,11 +315,12 @@ export default function AiPage() {
         })
         .catch((error) => {
           if (controller.signal.aborted) return;
-          if (isAiNotConfigured(error)) setUnconfigured(true);
-          else {
-            setSendError(error);
-            setFailedText(text);
-          }
+          // Every generation failure — including "no provider configured" — is
+          // reported in the transcript beside the stored message rather than by
+          // replacing the workspace. The question is persisted server-side, so
+          // the student keeps both their words and a usable way to recover.
+          setSendError(error);
+          setFailedText(text);
         })
         .finally(() => {
           sendingRef.current = false;
@@ -309,6 +333,72 @@ export default function AiPage() {
   const stopGenerating = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+  /**
+   * Rewrite a question and regenerate its answer. The thread's tail is
+   * replaced, so any tool activity attached to the old answer no longer
+   * describes what is on screen and is cleared; the new reply's activity is
+   * reported the same way a send's is.
+   */
+  const handleEditMessage = useCallback(
+    (message: AiMessage, content: string) => {
+      if (!selectedId || sendingRef.current) return;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setLiveActivity([]);
+      setActivityRun(null);
+      void editMessage
+        .mutateAsync({
+          conversationId: selectedId,
+          messageId: message.id,
+          content,
+          signal: controller.signal,
+        })
+        .then((result) => {
+          if (result.reply) {
+            setActivityRun({
+              replyId: result.reply.id,
+              activity: result.toolActivity ?? [],
+              context: result.agent?.context ?? null,
+            });
+          }
+        })
+        .finally(() => {
+          if (abortRef.current === controller) abortRef.current = null;
+        });
+    },
+    [selectedId, editMessage],
+  );
+
+  /** Regenerate an answer in place, dropping the stale tail from view. */
+  const handleRegenerateMessage = useCallback(
+    (message: AiMessage) => {
+      if (!selectedId || sendingRef.current) return;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setLiveActivity([]);
+      setActivityRun(null);
+      void regenerateMessage
+        .mutateAsync({
+          conversationId: selectedId,
+          messageId: message.id,
+          signal: controller.signal,
+        })
+        .then((result) => {
+          if (result.reply) {
+            setActivityRun({
+              replyId: result.reply.id,
+              activity: result.toolActivity ?? [],
+              context: result.agent?.context ?? null,
+            });
+          }
+        })
+        .finally(() => {
+          if (abortRef.current === controller) abortRef.current = null;
+        });
+    },
+    [selectedId, regenerateMessage],
+  );
 
   /**
    * Entry point for the composer and the empty-state prompts. With a
@@ -423,6 +513,10 @@ export default function AiPage() {
        on every flex child is what keeps the panels bounded instead of letting
        the document grow, and each box scrolls its own content. */
     <div className="flex h-full min-h-0 flex-col gap-3 bg-ai p-3 font-ai">
+      {/* Proactive briefing. Read-only "what needs you now" strip; renders
+          nothing when there is nothing to flag, so the workspace keeps its
+          full height on a quiet day. */}
+      <ProactiveBriefingStrip />
       {/* ── The three panels ─────────────────────────────────────────────
           Three equal-height boxes on one row. The chat is the one that grows
           and never collapses; the other two are fixed supporting columns, and
@@ -466,6 +560,7 @@ export default function AiPage() {
               <AiConversationDrawer {...sidebarProps} />
               <AiContextDrawer />
               <AiFilesDrawer conversationId={selectedId} />
+              <AiMissionsDrawer conversationId={selectedId} />
               <StructuredExtractionDialog />
               <Select value={newType} onValueChange={(value) => setNewType(value as ConversationType)}>
                 <SelectTrigger className="h-11 w-16 shrink-0 px-1 sm:h-9 sm:w-36 sm:px-3" aria-label="Conversation type">
@@ -523,6 +618,8 @@ export default function AiPage() {
               liveActivity={liveActivity}
               activityRun={activityRun}
               onRetryMessage={(message: AiMessage) => send(message.content, message.id)}
+              onEditMessage={handleEditMessage}
+              onRegenerateMessage={handleRegenerateMessage}
               empty={
                 <ChatEmptyState
                   onPrompt={handlePrompt}
@@ -590,6 +687,9 @@ export default function AiPage() {
               conversationId={selectedId ?? ""}
               attachments={attachments}
               onAttachmentsChange={setAttachments}
+              mode={providerSelection.data?.aiMode}
+              onModeChange={(value) => setAiMode.mutate(value)}
+              enableModelSelector
             />
           </section>
         </WorkspacePanel>
@@ -622,6 +722,21 @@ export default function AiPage() {
           className="hidden min-[1360px]:flex"
         >
           <AiContextPanel />
+        </WorkspacePanel>
+
+        {/* Missions. A box only on wider viewports; below that it's available
+            via a drawer from the toolbar. Shows the student's persistent
+            multi-step missions and their progress. */}
+        <WorkspacePanel
+          title="Missions"
+          label="missions"
+          icon={Zap}
+          collapsed={!missionsOpen}
+          onCollapsedChange={(collapsed) => setMissionsOpen(!collapsed)}
+          expandedClassName="w-80"
+          className="hidden min-[1800px]:flex"
+        >
+          <AiMissionsPanel conversationId={selectedId} />
         </WorkspacePanel>
       </div>
     </div>

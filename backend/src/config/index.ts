@@ -113,6 +113,15 @@ export const config = {
     // not pin a request (and its socket) open indefinitely; this mirrors the
     // EMAIL_TIMEOUT_MS convention used for SMTP.
     aiRequestTimeoutMs: Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 60_000),
+
+    // Pending-action retention (gap #30). How long a *decided* proposal
+    // (executed/cancelled/superseded) is kept before the retention sweep deletes
+    // it — the window in which a replayed confirm is still recognised as a
+    // duplicate. Expired-but-never-decided rows get a shorter grace so the
+    // student can still understand why a card disappeared. Both are days/hours;
+    // see `services/ai/pending-action-retention.ts`.
+    pendingActionRetentionDays: Number(process.env.AI_PENDING_ACTION_RETENTION_DAYS ?? 7),
+    pendingActionExpiredGraceHours: Number(process.env.AI_PENDING_ACTION_EXPIRED_GRACE_HOURS ?? 24),
     aiRateLimitPerMinute: Number(process.env.AI_RATE_LIMIT_PER_MINUTE ?? 10),
     aiDailyQuota: Number(process.env.AI_DAILY_QUOTA ?? 100),
 

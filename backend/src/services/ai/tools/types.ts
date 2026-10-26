@@ -28,8 +28,11 @@ export type AiToolKind = "READ" | "ANALYZE" | "WRITE";
  *    already approved by the student. Anything else is refused.
  *  - `"self"`: the tool *is* the confirmation — running it is the student's
  *    explicit approval. Reserved for `confirm_pending_actions`.
+ *  - `"autonomous"`: the tool runs automatically when the student has enabled
+ *    autonomous execution mode. This is for a curated set of safe WRITE tools
+ *    (create_task, create_note, etc.) that are bounded, verifiable, and low-risk.
  */
-export type AiToolConfirmation = "required" | "self";
+export type AiToolConfirmation = "required" | "self" | "autonomous";
 
 /**
  * A single mutation the student can approve.

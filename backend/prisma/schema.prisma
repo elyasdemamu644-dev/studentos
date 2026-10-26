@@ -46,6 +46,8 @@ model User {
   notifications    Notification[]
   studySessions    StudySession[]
   resources        Resource[] // top-level resources not under a course
+  resourceProgress ResourceProgress[]
+  resourceBookmarks ResourceBookmark[]
   grades           Grade[]
   // AI
   aiConversations  AiConversation[]
@@ -55,6 +57,15 @@ model User {
   aiArtifacts      AiArtifact[]
   // AI study plans (owned by user but entries belong to tasks)
   aiStudyPlans     AiStudyPlan[]
+  // AI missions (persistent multi-step missions)
+  aiMissions       AiMission[]
+  // AI memories (user-controlled facts the assistant may reuse)
+  aiMemories       AiMemory[]
+  // AI model routing (fixed/auto policy, presets, preferences)
+  aiRoutingPolicy  AiRoutingPolicy?
+  aiModelPrefs     AiModelPreference[]
+  aiModelCapabilities AiModelCapability[]
+  aiUsageRecords   AiUsageRecord[]
   // Settings (key/value for flexible preferences)
   settings         UserSetting[]
 
@@ -285,17 +296,20 @@ model TaskTag {
 // 5. NOTES
 // ─────────────────────────────────────────────
 model Note {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId  String?
-  course    Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
-  title     String
-  content   String // Markdown body
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId   String?
+  course     Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  resourceId String?
+  resource   Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  title      String
+  content    String // Markdown body
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([userId, updatedAt])
+  @@index([userId, resourceId, updatedAt])
   @@map("notes")
 }
 
@@ -321,9 +335,57 @@ model Resource {
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   artifacts    AiArtifact[]
+  progress     ResourceProgress[]
+  bookmarks    ResourceBookmark[]
+  notes        Note[]
 
   @@index([userId, createdAt])
   @@map("resources")
+}
+
+/**
+ * Where a student stopped in a resource.
+ *
+ * One row per (student, resource), so resuming is a single lookup. The fields
+ * are deliberately format-specific: a PDF uses `page`, slides use `slide`,
+ * audio/video use `positionSeconds`, and formats without pagination use
+ * `percent`. A viewer only writes the fields that apply to it.
+ */
+model ResourceProgress {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resourceId      String
+  resource        Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  page            Int?
+  slide           Int?
+  positionSeconds Float?
+  percent         Float?
+  completed       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, resourceId])
+  @@index([userId, updatedAt])
+  @@map("resource_progress")
+}
+
+/** A student-named place inside a resource (page, slide or timestamp). */
+model ResourceBookmark {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resourceId      String
+  resource        Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  label           String
+  page            Int?
+  slide           Int?
+  positionSeconds Float?
+  note            String?
+  createdAt       DateTime @default(now())
+
+  @@index([userId, resourceId, createdAt])
+  @@map("resource_bookmarks")
 }
 
 enum ResourceStorageType {
@@ -542,6 +604,7 @@ model AiConversation {
   messages       AiMessage[]
   pendingActions AiPendingAction[]
   aiArtifacts    AiArtifact[]
+  missions       AiMission[]
 
   @@index([userId, updatedAt])
   @@map("ai_conversations")
@@ -578,6 +641,88 @@ enum AiMessageRole {
   USER
   ASSISTANT
   SYSTEM
+}
+
+// ─────────────────────────────────────────────
+// 12b. AI MISSIONS (persistent multi-step missions)
+// ─────────────────────────────────────────────
+
+enum AiMissionStatus {
+  QUEUED
+  RUNNING
+  WAITING
+  PARTIAL
+  FAILED_RECOVERABLE
+  FAILED_TERMINAL
+  CANCEL_REQUESTED
+  CANCELLED
+  COMPLETED
+}
+
+enum AiMissionStepStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  WAITING
+  COMPLETED
+  FAILED_RECOVERABLE
+  FAILED_TERMINAL
+  SKIPPED
+  CANCELLED
+}
+
+model AiMission {
+  id               String            @id @default(cuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId   String?
+  conversation     AiConversation?   @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  objective        String
+  contextSnapshot  Json?
+  status           AiMissionStatus   @default(QUEUED)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  startedAt        DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  terminalError    String?
+  steps            AiMissionStep[]
+
+  @@index([userId, status])
+  @@index([userId, updatedAt])
+  @@index([conversationId])
+  @@map("ai_missions")
+}
+
+model AiMissionStep {
+  id              String              @id @default(cuid())
+  missionId       String
+  mission         AiMission           @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  stepOrder       Int
+  toolName        String
+  description     String
+  arguments       Json
+  dependsOn       String[]            @default([])
+  status          AiMissionStepStatus @default(PENDING)
+  attempts        Int                 @default(0)
+  maxAttempts     Int                 @default(3)
+  idempotencyKey  String?             @unique
+  // The proposal this step is waiting on, when a write needed the student's
+  // approval. Nullable: a step that runs no confirmation has no proposal.
+  pendingActionId String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  startedAt       DateTime?
+  completedAt     DateTime?
+  result          Json?
+  error           String?
+  verification    Json?
+
+  @@index([missionId, stepOrder])
+  @@index([missionId, status])
+  @@index([pendingActionId])
+  @@unique([missionId, stepOrder])
+  @@map("ai_mission_steps")
 }
 
 // ─────────────────────────────────────────────
@@ -684,4 +829,237 @@ model AiArtifact {
 
   @@index([userId, conversationId, createdAt])
   @@map("ai_artifacts")
+}
+
+// ─────────────────────────────────────────────
+// 14. AI MEMORIES (user-controlled assistant memory)
+// ─────────────────────────────────────────────
+// Facts about the student the assistant may reuse across conversations.
+// Nothing here is extracted automatically: a row is created either by the
+// student in Settings or through the confirmation-gated save_memory tool, so
+// ordinary chat never silently retains anything.
+
+enum MemoryCategory {
+  PREFERENCE
+  ACADEMIC
+  GOALS
+  SCHEDULE
+  OTHER
+}
+
+enum MemoryProvenance {
+  USER // saved by the student directly
+  AI // saved by the assistant after the student confirmed
+}
+
+model AiMemory {
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   MemoryCategory   @default(OTHER)
+  content    String
+  provenance MemoryProvenance @default(USER)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  // The settings list groups by category; the prompt loader reads the newest
+  // bounded slice per user.
+  @@index([userId, category])
+  @@index([userId, updatedAt])
+  @@map("ai_memories")
+}
+
+// ─────────────────────────────────────────────
+// 15. AI MODEL ROUTING (unified provider + model routing)
+// ─────────────────────────────────────────────
+//
+// One shared routing architecture. The routing policy is the per-user decision
+// of *how* a model is chosen for every AI feature, so no feature bypasses it:
+//
+//  * FIXED — always the student's explicit connection + model.
+//  * AUTO  — the engine chooses from the candidate connections/models under the
+//            policy's allow/deny lists, priorities and free-only/spending rules.
+//
+// Supporting rows:
+//  * AiModelPreference — the student's ordered allow/deny + priority per model,
+//    and the per-conversation override, all in one table.
+//  * AiModelCapability — capability + evidence metadata (verified / provider-
+//    reported / user-configured / unknown). A text test never verifies images.
+//  * AiProviderHealth — bounded rolling health samples per connection.
+//  * AiUsageRecord — usage/cost telemetry per turn (tokens, cost, provider).
+//
+// All rows are additive; existing AiConnection/UserSetting rows are untouched.
+
+enum AiRoutingStrategy {
+  FIXED // never switch; the pinned connection/model or an unavailable state
+  AUTO // choose per the policy (presets, priorities, allow/deny, fallback)
+}
+
+enum AiModelCapabilityKind {
+  TEXT
+  VISION
+  TOOLS
+  STRUCTURED_OUTPUT
+  LONG_CONTEXT
+  REASONING
+}
+
+/**
+ * How a capability claim is known to be true. Ordered from strongest to weakest:
+ * a `VERIFIED` claim is one we exercised, never inferred from a text reply.
+ */
+enum AiCapabilityEvidence {
+  VERIFIED // we exercised the capability against this exact model and it worked
+  PROVIDER_REPORTED // the provider's own model metadata declares it
+  USER_CONFIGURED // the student asserted it when configuring the connection
+  UNKNOWN // we do not know; must not be treated as supported
+}
+
+enum AiHealthStatus {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+  UNKNOWN
+}
+
+model AiRoutingPolicy {
+  id        String            @id @default(cuid())
+  userId    String            @unique
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategy  AiRoutingStrategy @default(AUTO)
+  // The pinned connection/model for FIXED. Null means "not yet chosen".
+  fixedConnectionId String?
+  fixedModel        String?
+  // When true the engine may only consider free models.
+  freeOnly          Boolean @default(false)
+  // Spend ceiling in cents for the rolling window; null = no user ceiling.
+  spendCeilingCents Int?
+  spendWindowDays   Int     @default(30)
+  // "Auto only when configured": when false, AUTO never silently substitutes a
+  // model — an unavailable state is surfaced instead. Default true.
+  allowAutoFallback Boolean @default(true)
+  // Privacy: when true, no turn may be sent to an external provider. Enforced
+  // against the actual execution destination, never a UI hint.
+  externalProcessingDisabled Boolean @default(false)
+  // Ordered preference preset applied by the engine (e.g. "quality", "speed",
+  // "cost"). Free-form so the UI can add presets without a migration.
+  preset            String?
+  // Ordered fallback connection ids the engine may try, after the primary.
+  fallbackOrder     String[] @default([])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("ai_routing_policies")
+}
+
+/**
+ * One model's routing preference for a user. `scope` distinguishes the user's
+ * global list from a per-conversation override, so the precedence rule
+ * (conversation → feature default → global default → Auto) reads from one place.
+ */
+enum AiModelPreferenceScope {
+  GLOBAL
+  CONVERSATION
+}
+
+model AiModelPreference {
+  id             String                 @id @default(cuid())
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope          AiModelPreferenceScope @default(GLOBAL)
+  // Set only for CONVERSATION scope; the conversation this override belongs to.
+  conversationId String?
+  provider       String
+  model          String
+  connectionId   String?
+  // Lower number = higher priority. Null means unordered.
+  priority       Int?
+  allowed        Boolean                @default(true)
+  // Capability assertions the student set for this model (UNKNOWN by default).
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([userId, scope, conversationId, provider, model])
+  @@index([userId, scope])
+  @@index([userId, conversationId])
+  @@map("ai_model_preferences")
+}
+
+/**
+ * Capability + evidence metadata for a model. There is at most one row per
+ * (provider, model); a deployment-wide row (userId null) records what we have
+ * verified, and a per-user row narrows it for a specific connection.
+ */
+model AiModelCapability {
+  id           String              @id @default(cuid())
+  userId       String?
+  user         User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId String?
+  provider     String
+  model        String
+  kind         AiModelCapabilityKind
+  evidence     AiCapabilityEvidence @default(UNKNOWN)
+  // A bounded, human-readable note about how the claim was established.
+  note         String?
+  // When the capability was last exercised (VERIFIED rows only).
+  verifiedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([userId, connectionId, provider, model, kind])
+  @@index([provider, model])
+  @@index([userId])
+  @@map("ai_model_capabilities")
+}
+
+/**
+ * A bounded rolling health sample for a connection. The engine reads the newest
+ * samples to skip a connection that is currently failing, and the UI shows the
+ * latest status. Samples are trimmed by the retention sweep.
+ */
+model AiProviderHealth {
+  id           String         @id @default(cuid())
+  userId       String
+  connectionId String
+  provider     String
+  status       AiHealthStatus @default(UNKNOWN)
+  latencyMs    Int?
+  // A sanitized, credential-free message. Never provider internals or keys.
+  message      String?
+  // Error class code (e.g. AI_PROVIDER_TIMEOUT) when status is not HEALTHY.
+  code         String?
+  checkedAt    DateTime       @default(now())
+
+  @@index([userId, connectionId, checkedAt])
+  @@index([connectionId, checkedAt])
+  @@map("ai_provider_health")
+}
+
+/**
+ * Usage/cost telemetry for one provider turn. Token counts and cost come from
+ * the provider's own usage block when present; `estimated` marks a value we
+ * derived from a static price table rather than the provider's report.
+ */
+model AiUsageRecord {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  connectionId   String?
+  provider       String
+  model          String
+  feature        String   @default("chat")
+  promptTokens   Int      @default(0)
+  completionTokens Int    @default(0)
+  totalTokens    Int      @default(0)
+  // Cost in cents (integer to avoid float drift). Null when unknown.
+  costCents      Int?
+  estimated      Boolean  @default(false)
+  free           Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, provider, model])
+  @@index([conversationId])
+  @@map("ai_usage_records")
 }

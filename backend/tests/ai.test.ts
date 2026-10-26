@@ -1,16 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { app } from "@/app";
-import { registerAndLogin, authRequestJson } from "./helpers";
+import { registerAndLogin, authRequestJson, prisma } from "./helpers";
+import { resourcesService } from "@/services/resources";
+import { DocumentExtractionError } from "@/services/document-extraction";
 
 const BASE = "/api/v1";
 
 describe("AI Module (no provider configured)", () => {
   let token: string;
+  let userId: string;
   let courseId: string;
 
   beforeAll(async () => {
     const auth = await registerAndLogin("ai@test.com", "Pass123!");
     token = auth.token;
+    userId = auth.user.id;
 
     const yearRes = await authRequestJson("post", `${BASE}/academics/years`, token, {
       name: "2034-2035",
@@ -195,23 +199,79 @@ describe("AI Module (no provider configured)", () => {
       expect(res.body.error?.code).toBe("AI_PROVIDER_NOT_CONFIGURED");
     });
 
-    it("should not persist a message when generation is requested but unavailable", async () => {
-      const before = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, token);
-      const beforeCount = before.body.data.length;
-
+    it("should persist the submitted message even when generation is unavailable", async () => {
       await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, token, {
         content: "Explain sorting",
       });
 
+      const stored = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, token);
+      const contents = stored.body.data.map((m: { content: string }) => m.content);
+      // The typed failure above must not erase what the student typed: the
+      // question is stored before the provider is resolved, so the client can
+      // reconcile its transcript and keep it on screen.
+      expect(contents).toContain("Explain recursion");
+      expect(contents).toContain("Explain sorting");
+    });
+
+    it("should reuse the stored message when the same unanswered question is retried", async () => {
+      const before = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, token);
+      const beforeCount = before.body.data.length;
+
+      const res = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, token, {
+        content: "Explain sorting",
+      });
+      expect(res.status).toBe(503);
+
       const after = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, token);
+      // A retry is the same stored row, not a second copy of the question.
       expect(after.body.data.length).toBe(beforeCount);
+      const copies = after.body.data.filter((m: { content: string }) => m.content === "Explain sorting");
+      expect(copies).toHaveLength(1);
     });
 
     it("should list stored messages in order", async () => {
       const res = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, token);
       expect(res.status).toBe(200);
-      expect(res.body.data.length).toBe(1);
-      expect(res.body.data[0].content).toBe("Remind me to review chapter 4");
+      expect(res.body.data.map((m: { content: string }) => m.content)).toEqual([
+        "Remind me to review chapter 4",
+        "Explain recursion",
+        "Explain sorting",
+      ]);
+    });
+
+    it("should persist the question when an attached document cannot be extracted", async () => {
+      const resource = await prisma.resource.create({
+        data: {
+          userId: userId,
+          title: "corrupt.pdf",
+          storageType: "UPLOAD",
+          fileKey: "resources/corrupt.pdf",
+          fileName: "corrupt.pdf",
+          fileSize: 10,
+          mimeType: "application/pdf",
+          resourceType: "PDF",
+        },
+      });
+      // A file that passed upload validation can still be unreadable. The
+      // extractor throwing must degrade to an inline note, never discard the
+      // student's turn.
+      const getContent = vi
+        .spyOn(resourcesService, "getContent")
+        .mockRejectedValue(new DocumentExtractionError("Failed to extract text from PDF"));
+      try {
+        const res = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, token, {
+          content: "Summarise this",
+          attachmentIds: [resource.id],
+        });
+        // Generation still fails (no provider), but not because of the file.
+        expect(res.status).toBe(503);
+
+        const stored = await authRequestJson("get", `${BASE}/ai/conversations/${conversationId}/messages`, token);
+        const contents = stored.body.data.map((m: { content: string }) => m.content);
+        expect(contents).toContain("Summarise this");
+      } finally {
+        getContent.mockRestore();
+      }
     });
   });
 

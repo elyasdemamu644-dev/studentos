@@ -15,6 +15,7 @@ import notifications from "@/routes/notifications";
 import settings from "@/routes/settings";
 import ai from "@/routes/ai";
 import aiConnections from "@/routes/ai-connections";
+import aiRouting from "@/routes/ai-routing";
 import imports from "@/routes/imports";
 import subtasks from "@/routes/subtasks";
 import taskTags from "@/routes/task-tags";
@@ -38,6 +39,9 @@ apiRouter.use("/notifications", notifications);
 apiRouter.use("/settings", settings);
 
 // AI assistant
+// Routing is mounted before `/ai` so its specific paths (`/ai/routing/...`)
+// are resolved first and can never be shadowed by the chat router.
+apiRouter.use("/ai/routing", aiRouting);
 apiRouter.use("/ai", ai);
 apiRouter.use("/ai-connections", aiConnections);
 

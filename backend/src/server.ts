@@ -2,6 +2,7 @@ import { app } from "@/app";
 import { config, validateConfig } from "@/config";
 import { prisma } from "@/utils/prisma";
 import { initializeOutboundProxy } from "@/utils/outbound-client";
+import { startRetentionScheduler, stopRetentionScheduler } from "@/services/ai/pending-action-retention";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -39,6 +40,13 @@ async function main(): Promise<void> {
     );
   });
 
+  // Best-effort pending-action retention trim. Not a reliable distributed
+  // scheduler (Render free tiers sleep / can run several instances); the sweep
+  // is idempotent and also runs opportunistically on confirmation reads, so
+  // correctness never depends on this timer firing. See
+  // `services/ai/pending-action-retention.ts`.
+  startRetentionScheduler();
+
   // EADDRINUSE and friends arrive as `error` events; without a listener Node
   // throws them as an unhandled exception, which looks like a crash rather
   // than the port conflict it is.
@@ -51,6 +59,7 @@ async function main(): Promise<void> {
   // disconnect Prisma, then exit.
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`Received ${signal}. Shutting down gracefully...`);
+    stopRetentionScheduler();
     server.close(async () => {
       console.log("HTTP server closed");
       await prisma.$disconnect();

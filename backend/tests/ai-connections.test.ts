@@ -188,6 +188,20 @@ describe("AI Connections — Tutor Walle Phase 2", () => {
         });
         expect(JSON.stringify(res.body)).not.toMatch(/apiKey|credentials|sk-or-/i);
       });
+
+      it("reports the AI mode and Default AI model preferences", async () => {
+        const res = await authRequestJson("get", `${AI_BASE}/provider-selection`, alice.token);
+        expect(res.status).toBe(200);
+        expect(res.body.data).toMatchObject({ aiMode: "AUTO", model: null });
+      });
+
+      it("lists selectable Default AI models without exposing credentials", async () => {
+        const res = await authRequestJson("get", `${AI_BASE}/models`, alice.token);
+        expect(res.status).toBe(200);
+        expect(res.body.data.group.models.length).toBeGreaterThan(0);
+        expect(res.body.data.group.defaultModel).toBeTruthy();
+        expect(JSON.stringify(res.body)).not.toMatch(/apiKey|credentials|sk-/i);
+      });
     });
 
     it("rejects unauthenticated GET list", async () => {

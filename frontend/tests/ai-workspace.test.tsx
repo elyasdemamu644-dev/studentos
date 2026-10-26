@@ -91,6 +91,17 @@ function stubWorkspaceApi() {
     if (url.includes("/artifacts")) return envelope({ artifacts: [] });
     if (url.includes("/messages")) return envelope([]);
     if (url.includes("/pending-action")) return envelope(null);
+    if (url.endsWith("/ai/provider-selection")) {
+      return envelope({
+        mode: "default",
+        defaultAvailable: true,
+        defaultProvider: "OpenAI",
+        defaultModel: "gpt-4o-mini",
+        personalConnectionAvailable: false,
+        aiMode: "AUTO",
+        model: null,
+      });
+    }
     if (url === `${base}/dashboard`) return envelope(DASHBOARD);
     throw new Error(`no mock for ${url}`);
   });
@@ -115,10 +126,10 @@ const chat = () => screen.queryByRole("region", { name: "AI conversation" });
 const composer = () => screen.queryByLabelText("Message Tutor Walle AI");
 
 /**
- * The collapsible panels, by the names their own collapse control answers to
- * and their position in the row. `Hide …` and `Show …` are the only names any
- * of them answers to. The AI chat is absent on purpose: it is permanent and
- * owns no control, so it is at index 1 with nothing between the two lists.
+ * The four collapsible panels, their hide/show labels and their position in the
+ * row. `Hide …` and `Show …` are the only names any of them answers to. The AI
+ * chat is absent on purpose: it is permanent and owns no control, so it is at
+ * index 1 with nothing between the two lists.
  */
 const PANELS = [
   { name: "Chat History", hide: "Hide chat history", show: "Show chat history", index: 0 },
@@ -133,6 +144,12 @@ const PANELS = [
     hide: "Hide Tutor Walle context",
     show: "Show Tutor Walle context",
     index: 3,
+  },
+  {
+    name: "Missions",
+    hide: "Hide missions",
+    show: "Show missions",
+    index: 4,
   },
 ] as const;
 
@@ -186,23 +203,36 @@ describe("AI workspace panels", () => {
     expect(screen.getByRole("combobox", { name: "Conversation type" }).textContent).toContain("Chat");
   });
 
+  it("shows the AI mode in the composer, beside the attachment control", async () => {
+    renderWithQuery(<AiPage />);
+    await screen.findByRole("navigation", { name: "Conversation history" });
+
+    const mode = await screen.findByRole("combobox", {
+      name: "AI mode — applies to all your conversations",
+    });
+    // Radix renders the selected label into the trigger; the panel cannot be
+    // opened by click in jsdom, so the rendered text is the assertion.
+    expect(mode.textContent).toContain("Auto");
+  });
+
   it("renders the sections as separate boxes of one consistent kind", async () => {
     const { container } = renderWithQuery(<AiPage />);
     await screen.findByRole("navigation", { name: "Conversation history" });
 
     const { row, panels } = panelRow(container);
 
-    // Four boxes on one row, in the order the product describes them. The chat
+    // Five boxes on one row, in the order the product describes them. The chat
     // box is titled "AI Assistant": that is the label its top bar carries, now
     // that the workspace controls live in it instead of in a bar of their own.
     // Conversation Files sits next to the chat because it is scoped to the open
-    // conversation; the app-wide context is last.
-    expect(panels).toHaveLength(4);
+    // conversation; the app-wide context is last; Missions is after context.
+    expect(panels).toHaveLength(5);
     expect(panels.map((panel) => panel.querySelector("h2")?.textContent)).toEqual([
       "Chat History",
       "AI Assistant",
       "Conversation Files",
       "Tutor Walle Context",
+      "Missions",
     ]);
 
     for (const panel of panels) {
@@ -339,11 +369,11 @@ describe("AI workspace panels", () => {
     expect(controlsFor("Hide context panel")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /context panel/i })).not.toBeInTheDocument();
 
-    // Four boxes, and only the three collapsible ones carry a disclosure
+    // Four boxes, and only the four collapsible ones carry a disclosure
     // control. Counted inside the panels, not across the workspace, because
     // Radix's own Select trigger in the toolbar also sets `aria-controls`.
     const { panels } = panelRow(container);
-    expect(panels.filter((box) => box.querySelector("button[aria-controls]"))).toHaveLength(3);
+    expect(panels.filter((box) => box.querySelector("button[aria-controls]"))).toHaveLength(4);
     expect(panels[1].querySelector("button[aria-controls]")).toBeNull();
   });
 
@@ -459,9 +489,9 @@ describe("AI workspace panels", () => {
         if (!wanted[i]) await userEvent.click(screen.getByRole("button", { name: PANELS[i].hide }));
       }
 
-      // Four boxes either way — a rail is still a box.
+      // Five boxes either way — a rail is still a box.
       const { panels } = panelRow(container);
-      expect(panels).toHaveLength(4);
+      expect(panels).toHaveLength(5);
 
       expect(Boolean(history())).toBe(historyWanted);
       expect(Boolean(files())).toBe(filesWanted);
@@ -666,9 +696,11 @@ describe("app shell workspace routes", () => {
     expect(hasClass(root, "min-h-dvh")).toBe(false);
   });
 
-  it("recognises the workspace route and nothing else", () => {
+  it("recognises the workspace routes and nothing else", () => {
     expect(isWorkspaceRoute("/ai")).toBe(true);
     expect(isWorkspaceRoute("/ai/something")).toBe(true);
+    expect(isWorkspaceRoute("/resources/abc-123")).toBe(true);
+    expect(isWorkspaceRoute("/resources")).toBe(false);
     expect(isWorkspaceRoute("/dashboard")).toBe(false);
     expect(isWorkspaceRoute("/analytics")).toBe(false);
     expect(isWorkspaceRoute("/")).toBe(false);

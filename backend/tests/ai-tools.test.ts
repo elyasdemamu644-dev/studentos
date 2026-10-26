@@ -174,7 +174,7 @@ describe("Tool registry: registration and schemas", () => {
 
   it("marks every write tool as confirmation-gated", () => {
     for (const tool of listTools("WRITE")) {
-      expect(tool.confirmation ?? "required").toMatch(/required|self/);
+      expect(tool.confirmation ?? "required").toMatch(/required|self|autonomous/);
     }
   });
 
@@ -726,6 +726,41 @@ describe("Agent loop", () => {
     expect(system?.content).toContain("Fall 2034");
   });
 
+  it("puts the selected AI mode into the tool-path system prompt", async () => {
+    const harness = openAiProvider([textTurn("Ok.")]);
+
+    await runAgent({
+      provider: harness.provider,
+      userId: userA.id,
+      conversationId: "conv-mode",
+      history: [],
+      userMessage: "Explain photosynthesis",
+      mode: "STUDY",
+    });
+
+    const system = (harness.bodies[0].messages as Array<{ role: string; content: string }>).find(
+      (m) => m.role === "system",
+    );
+    expect(system?.content).toMatch(/MODE — STUDY/);
+  });
+
+  it("adds no mode block when no mode is set", async () => {
+    const harness = openAiProvider([textTurn("Ok.")]);
+
+    await runAgent({
+      provider: harness.provider,
+      userId: userA.id,
+      conversationId: "conv-nomode",
+      history: [],
+      userMessage: "Hi",
+    });
+
+    const system = (harness.bodies[0].messages as Array<{ role: string; content: string }>).find(
+      (m) => m.role === "system",
+    );
+    expect(system?.content).not.toContain("MODE —");
+  });
+
   it("forwards image parts on the agent tool path", async () => {
     const harness = openAiProvider([textTurn("I can see a diagram.")]);
     const imageUrl = "data:image/png;base64,aW1hZ2U=";
@@ -1135,6 +1170,25 @@ describe("AI HTTP surface: tool activity, proposals and confirmations", () => {
     expect(res.body.data.reply.content).toContain("Problem set 1");
     expect(res.body.data.toolActivity[0]).toMatchObject({ tool: "get_tasks", status: "success" });
     expect(res.body.data.agent).toMatchObject({ usedTools: true, toolSupport: true, provider: "openai" });
+  });
+
+  it("applies the student's saved AI mode to the next turn", async () => {
+    await authRequestJson("patch", `${BASE}/settings`, userA.token, {
+      settings: { "ai.mode": "STUDY" },
+    });
+    const script = scriptedFetch([textTurn("Let's work through it.")]);
+    vi.stubGlobal("fetch", script.mock);
+
+    const conversationId = await newConversation();
+    const res = await authRequestJson("post", `${BASE}/ai/conversations/${conversationId}/messages`, userA.token, {
+      content: "Explain recursion",
+    });
+
+    expect(res.status).toBe(201);
+    const system = (script.bodies[0].messages as Array<{ role: string; content: string }>).find(
+      (m) => m.role === "system",
+    );
+    expect(system?.content).toMatch(/MODE — STUDY/);
   });
 
   it("returns a pending action for an unconfirmed write and creates nothing", async () => {
@@ -2253,6 +2307,7 @@ describe("Post-write verification", () => {
       "create_event", "update_event",
       "create_grade", "update_grade",
       "create_course", "update_course",
+      "save_memory",
     ];
 
     for (const tool of writeTools) {

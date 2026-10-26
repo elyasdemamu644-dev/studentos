@@ -9,29 +9,47 @@ import { aiService } from "../services/ai/service";
 import { resourcesService } from "../services/resources";
 import {
   createConversationSchema,
+  createMemorySchema,
   createMessageSchema,
+  createMissionSchema,
   createStudyPlanSchema,
+  missionStepInputSchema,
+  missionStatusSchema,
+  queryConversationSchema,
+  queryMemorySchema,
+  queryMissionSchema,
+  queryStudyPlanSchema,
   structuredRequestSchema,
   updateConversationSchema,
-  updateStudyPlanSchema,
+  updateMemorySchema,
+  updateMessageSchema,
   updateStudyPlanEntrySchema,
-  queryConversationSchema,
-  queryStudyPlanSchema,
+  updateStudyPlanSchema,
   uploadAttachmentFieldsSchema,
+  type AiProviderName,
   type CreateConversationInput,
+  type CreateMemoryInput,
   type CreateMessageInput,
+  type CreateMissionInput,
   type CreateStudyPlanInput,
+  type QueryMemoryInput,
+  type QueryMissionInput,
   type StructuredRequestInput,
   type UpdateConversationInput,
-  type UpdateStudyPlanInput,
+  type UpdateMemoryInput,
+  type UpdateMessageInput,
   type UpdateStudyPlanEntryInput,
+  type UpdateStudyPlanInput,
   type UploadAttachmentFields,
 } from "../schemas/ai";
+import { memoryService } from "../services/ai/memory";
+import { proactiveService } from "../services/ai/proactive";
 import { UPLOAD_ERROR_CODES } from "@/utils/file-validation";
 import { storageKeyFor } from "@/services/storage";
 import { getFileStorage } from "@/services/storage";
 import { limitAndLogAiUsage } from "@/middlewares/ai-usage";
 import { buildDefaultAiProvider } from "@/services/ai/provider";
+import { listAiModels } from "@/services/ai/models";
 import { settingsService } from "@/services/settings";
 import * as aiConnectionsService from "@/services/ai-connections";
 
@@ -40,8 +58,11 @@ router.use(authenticate);
 
 const idParam = { id: z.string().min(1) };
 const messageParam = { id: z.string().min(1) };
+const singleMessageParam = { id: z.string().min(1), messageId: z.string().min(1) };
 const studyPlanIdParam = { id: z.string().min(1) };
 const studyPlanEntryParam = { id: z.string().min(1), entryId: z.string().min(1) };
+const missionIdParam = { id: z.string().min(1) };
+const missionActionParam = { id: z.string().min(1), actionId: z.string().min(1) };
 
 router.get("/provider-selection", async (req: AuthRequest, res, next) => {
   try {
@@ -62,6 +83,32 @@ router.get("/provider-selection", async (req: AuthRequest, res, next) => {
         defaultProvider: config.aiProvider,
         defaultModel: defaultProvider?.model ?? config.aiModel,
         personalConnectionAvailable: Boolean(personalConnection),
+        // Behaviour mode + Default AI model preference. Kept alongside the
+        // provider choice because the assistant's preferences are read together.
+        aiMode: settings["ai.mode"] ?? "AUTO",
+        model: settings["ai.model"] ?? null,
+        // Execution autonomy: whether safe WRITE tools run without confirmation.
+        executionAutonomyMode: settings["ai.executionMode"] ?? "manual",
+      },
+    });
+  } catch (error) { next(error); }
+});
+
+/**
+ * Selectable models for the Default AI. Static and read-only: the picker offers
+ * real model ids without the server calling out to any provider. The stored
+ * preference is a plain string, so an unlisted id is still accepted by PATCH
+ * /settings.
+ */
+router.get("/models", async (_req: AuthRequest, res, next) => {
+  try {
+    const provider = config.aiProvider as AiProviderName;
+    return res.status(200).json({
+      success: true,
+      data: {
+        defaultProvider: provider,
+        defaultModel: buildDefaultAiProvider()?.model ?? config.aiModel,
+        group: listAiModels(provider),
       },
     });
   } catch (error) { next(error); }
@@ -191,6 +238,52 @@ router.post("/conversations/:id/messages", zValidator("params", messageParam), z
     const input = req.body as unknown as CreateMessageInput;
     const result = await aiService.addMessage(req.currentUser!.id, String(req.params.id), input, controller.signal);
     return res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    next(error);
+  }
+});
+
+/**
+ * Edit one of the student's own questions and regenerate its answer. Every
+ * message after the edited question is removed, so the reply they see always
+ * belongs to the question they are reading.
+ */
+router.patch("/conversations/:id/messages/:messageId", zValidator("params", singleMessageParam), zValidator("body", updateMessageSchema), limitAndLogAiUsage, async (req: AuthRequest, res, next) => {
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  try {
+    const input = req.body as unknown as UpdateMessageInput;
+    const result = await aiService.editMessage(
+      req.currentUser!.id,
+      String(req.params.id),
+      String(req.params.messageId),
+      input,
+      controller.signal,
+    );
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    next(error);
+  }
+});
+
+/** Regenerate an answer, replacing it and everything after it. */
+router.post("/conversations/:id/messages/:messageId/regenerate", zValidator("params", singleMessageParam), limitAndLogAiUsage, async (req: AuthRequest, res, next) => {
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  try {
+    const result = await aiService.regenerateMessage(
+      req.currentUser!.id,
+      String(req.params.id),
+      String(req.params.messageId),
+      controller.signal,
+    );
+    return res.status(200).json({ success: true, data: result });
   } catch (error) {
     if (controller.signal.aborted) return;
     next(error);
@@ -337,6 +430,154 @@ router.patch("/study-plans/:id/entries/:entryId", zValidator("params", studyPlan
       input,
     );
     return res.status(200).json({ success: true, data: entry });
+  } catch (error) { next(error); }
+});
+
+// ── Mission tools ──────────────────────────────────
+//
+// The tool catalog the mission builder uses: names, kinds, confirmation
+// requirements, and the JSON Schema for each tool's arguments. The schema
+// comes from the tool definitions themselves, so the builder and the
+// registry cannot drift apart.
+
+router.get("/tools", async (req: AuthRequest, res, next) => {
+  try {
+    const catalog = await aiService.listMissionTools(req.currentUser!.id);
+    return res.status(200).json({ success: true, data: catalog });
+  } catch (error) { next(error); }
+});
+
+// ── Missions ─────────────────────────────────────
+//
+// Persistent multi-step missions. Each mission has ordered steps with
+// explicit dependencies. Missions survive restarts and can be resumed,
+// retried, or cancelled. Steps execute using the same tool layer as chat.
+
+router.get("/missions", zValidator("query", queryMissionSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const { status, limit, cursor } = req.query as unknown as QueryMissionInput;
+    const result = await aiService.listMissions(req.currentUser!.id, { status, limit, cursor });
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+router.post("/missions", zValidator("body", createMissionSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const input = req.body as unknown as CreateMissionInput;
+    const mission = await aiService.createMission(req.currentUser!.id, input);
+    return res.status(201).json({ success: true, data: mission });
+  } catch (error) { next(error); }
+});
+
+router.get("/missions/:id", zValidator("params", missionIdParam), async (req: AuthRequest, res, next) => {
+  try {
+    const mission = await aiService.getMission(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: mission });
+  } catch (error) { next(error); }
+});
+
+router.post("/missions/:id/cancel", zValidator("params", missionIdParam), async (req: AuthRequest, res, next) => {
+  try {
+    const mission = await aiService.cancelMission(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: mission });
+  } catch (error) { next(error); }
+});
+
+router.post("/missions/:id/retry", zValidator("params", missionIdParam), async (req: AuthRequest, res, next) => {
+  try {
+    const mission = await aiService.retryMission(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: mission });
+  } catch (error) { next(error); }
+});
+
+router.post("/missions/:id/execute", zValidator("params", missionIdParam), async (req: AuthRequest, res, next) => {
+  try {
+    const mission = await aiService.executeMission(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: mission });
+  } catch (error) { next(error); }
+});
+
+// Approve the change a mission is waiting on. A mission step that writes in
+// manual mode parks the proposal and waits; this claims it atomically and
+// carries the mission on. A second approval of the same proposal is a 409 —
+// the write happens exactly once.
+router.post("/missions/:id/approve", zValidator("params", missionIdParam), async (req: AuthRequest, res, next) => {
+  try {
+    const mission = await aiService.approveMission(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: mission });
+  } catch (error) { next(error); }
+});
+
+// ── Saved memories ─────────────────────────────
+//
+// Facts the student has explicitly saved so the assistant can reuse them.
+// Rows exist only through this UI (provenance USER) or a confirmed save_memory
+// proposal in chat (provenance AI) — ordinary chat is never retained. The
+// `ai.memoryEnabled` setting (PATCH /settings) turns assistant-side use off;
+// these endpoints keep serving the student's own list either way, so nothing
+// they saved becomes unreachable.
+
+const memoryParam = { id: z.string().min(1) };
+
+router.get("/memories", zValidator("query", queryMemorySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const { category, limit } = req.query as unknown as QueryMemoryInput;
+    const result = await memoryService.list(req.currentUser!.id, { category, limit });
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+/** 201 for a new memory; 200 when an equivalent one already existed (dedup). */
+router.post("/memories", zValidator("body", createMemorySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const input = req.body as unknown as CreateMemoryInput;
+    const { memory, created } = await memoryService.create(req.currentUser!.id, input);
+    return res.status(created ? 201 : 200).json({ success: true, data: memory });
+  } catch (error) { next(error); }
+});
+
+/** Clear every saved memory for the current user. */
+router.delete("/memories", async (req: AuthRequest, res, next) => {
+  try {
+    const result = await memoryService.clearAll(req.currentUser!.id);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+router.get("/memories/:id", zValidator("params", memoryParam), async (req: AuthRequest, res, next) => {
+  try {
+    const memory = await memoryService.getById(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: memory });
+  } catch (error) { next(error); }
+});
+
+router.patch("/memories/:id", zValidator("params", memoryParam), zValidator("body", updateMemorySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const input = req.body as unknown as UpdateMemoryInput;
+    const memory = await memoryService.update(req.currentUser!.id, String(req.params.id), input);
+    return res.status(200).json({ success: true, data: memory });
+  } catch (error) { next(error); }
+});
+
+router.delete("/memories/:id", zValidator("params", memoryParam), async (req: AuthRequest, res, next) => {
+  try {
+    const result = await memoryService.remove(req.currentUser!.id, String(req.params.id));
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+// ── Proactive briefing ────────────────────────
+//
+// A deterministic, read-only digest of what needs the student now: overdue and
+// imminently due work, upcoming exams, at-risk goals and a study-week summary.
+// No model call and no stored rows — the client fetches it when the AI
+// workspace opens (and on refresh), which is why there is no scheduler behind
+// it.
+
+router.get("/proactive/briefing", async (req: AuthRequest, res, next) => {
+  try {
+    const briefing = await proactiveService.briefing(req.currentUser!.id);
+    return res.status(200).json({ success: true, data: briefing });
   } catch (error) { next(error); }
 });
 

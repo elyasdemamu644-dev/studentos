@@ -130,6 +130,7 @@ export interface Task {
 export interface Note {
   id: string;
   courseId: string | null;
+  resourceId: string | null;
   title: string;
   content: string;
   createdAt: string;
@@ -285,6 +286,46 @@ export interface ResourceRecord {
   course?: CourseRef | null;
 }
 
+export interface ResourceProgress {
+  page: number | null;
+  slide: number | null;
+  positionSeconds: number | null;
+  percent: number | null;
+  completed: boolean;
+  updatedAt: string | null;
+}
+
+export interface ResourceBookmark {
+  id: string;
+  label: string;
+  page: number | null;
+  slide: number | null;
+  positionSeconds: number | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface ResourceTextStatus {
+  supported: boolean;
+  status: "ready" | "unsupported" | "unavailable" | "failed";
+  reason: string | null;
+  format: string | null;
+  pageCount: number | null;
+  charCount: number | null;
+  preview: string | null;
+}
+
+export interface ResourceLinkPreview {
+  available: boolean;
+  url: string;
+  reason: string | null;
+  title: string;
+  siteName: string | null;
+  description: string | null;
+  excerpt: string | null;
+  truncated: boolean;
+}
+
 // ── Grades ────────────────────────────────────────
 
 export type GradeType =
@@ -325,6 +366,21 @@ export interface Settings {
 // ── AI ────────────────────────────────────────────
 
 export type ConversationType = "CHAT" | "TUTOR" | "QUIZ" | "STUDY_PLAN" | "EXPLAIN";
+
+/**
+ * The behaviour the assistant runs a turn in. Separate from the selected model
+ * (who answers) and from the write-confirmation rules (which no mode relaxes).
+ * Mirrors `AI_MODES` in `backend/src/schemas/ai.ts`.
+ */
+export type AiMode = "AUTO" | "QUICK" | "THINK" | "BUILDER" | "AGENT" | "RESEARCH" | "STUDY";
+
+/**
+ * Whether the assistant must ask before applying a change, or may execute a
+ * curated set of low-risk writes on its own. Separate from `AiMode`, which
+ * governs reasoning depth and which tools the model can see. Mirrors
+ * `EXECUTION_AUTONOMY_MODES` in `backend/src/schemas/ai.ts`.
+ */
+export type ExecutionAutonomyMode = "manual" | "autonomous";
 
 export interface Conversation {
   id: string;
@@ -469,8 +525,31 @@ export interface AiAgentRun {
   usedTools: boolean;
   /** The provider supports native tool calling. */
   toolSupport: boolean;
-  finish: "answered" | "tool_limit" | "confirmation_pending" | "no_tool_support";
+  finish: "answered" | "tool_limit" | "confirmation_pending" | "write_intent_unfulfilled" | "no_tool_support";
   rounds: number;
+  /**
+   * What grounded this reply: the real record types read, the honest gaps, and
+   * the count of records used. Mirrors `AiContextSummary` in
+   * `backend/src/services/ai/academic-context.ts`. `null` when nothing was
+   * assembled (e.g. the store-only path).
+   */
+  context: AiContextSummary | null;
+}
+
+/**
+ * The compact, user-safe summary of what grounded a reply.
+ *
+ * Truthful by construction — `sources` names record types that actually backed
+ * the answer, `gaps` states plainly what could not be grounded, and `records`
+ * counts the real records used. Never a fabricated count or source.
+ */
+export interface AiContextSummary {
+  /** The record types that actually grounded this turn (provenance). */
+  sources: string[];
+  /** Plain statements of what could not be grounded. */
+  gaps: string[];
+  /** Total number of real records that backed the answer. */
+  records: number;
 }
 
 export interface PendingAction {
@@ -511,6 +590,139 @@ export interface AiConnectionTestResult {
   message: string;
   model: string | null;
   error: string | null;
+}
+
+// ── AI routing ────────────────────────────────────
+
+// Mirrors the enum in `backend/prisma/schema.prisma`.
+export type AiRoutingStrategy = "FIXED" | "AUTO";
+
+export type AiRoutingPreset = "quality" | "speed" | "cost" | "local-first" | "balanced";
+
+export interface AiRoutingPolicy {
+  id: string;
+  userId: string;
+  strategy: AiRoutingStrategy;
+  fixedConnectionId: string | null;
+  fixedModel: string | null;
+  freeOnly: boolean;
+  spendCeilingCents: number | null;
+  spendWindowDays: number;
+  allowAutoFallback: boolean;
+  externalProcessingDisabled: boolean;
+  preset: AiRoutingPreset | null;
+  fallbackOrder: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiRoutingPolicyUpdate {
+  strategy?: AiRoutingStrategy;
+  fixedConnectionId?: string | null;
+  fixedModel?: string | null;
+  freeOnly?: boolean;
+  spendCeilingCents?: number | null;
+  spendWindowDays?: number;
+  allowAutoFallback?: boolean;
+  externalProcessingDisabled?: boolean;
+  preset?: AiRoutingPreset | null;
+  fallbackOrder?: string[];
+}
+
+export type AiCapabilityKind =
+  | "TEXT"
+  | "VISION"
+  | "TOOLS"
+  | "STRUCTURED_OUTPUT"
+  | "LONG_CONTEXT"
+  | "REASONING";
+
+export type AiCapabilityEvidence =
+  | "VERIFIED"
+  | "PROVIDER_REPORTED"
+  | "USER_CONFIGURED"
+  | "UNKNOWN";
+
+export interface AiCatalogCapability {
+  kind: AiCapabilityKind;
+  evidence: AiCapabilityEvidence;
+  trusted: boolean;
+  note?: string;
+}
+
+export interface AiCatalogModel {
+  provider: AiProviderName;
+  id: string;
+  label: string;
+  capabilities: AiCatalogCapability[];
+  contextTokens: number | null;
+  inputCostPerMTokCents: number | null;
+  outputCostPerMTokCents: number | null;
+  free: boolean;
+}
+
+export interface AiCatalogProvider {
+  provider: AiProviderName;
+  models: AiCatalogModel[];
+}
+
+export interface AiModelPreference {
+  id: string;
+  scope: "GLOBAL" | "CONVERSATION";
+  conversationId: string | null;
+  provider: AiProviderName;
+  model: string;
+  connectionId: string | null;
+  priority: number | null;
+  allowed: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiModelPreferenceInput {
+  scope?: "GLOBAL" | "CONVERSATION";
+  conversationId?: string | null;
+  provider: AiProviderName;
+  model: string;
+  connectionId?: string | null;
+  priority?: number | null;
+  allowed?: boolean;
+}
+
+export interface AiCapabilityOverride {
+  provider: AiProviderName;
+  model: string;
+  kind: AiCapabilityKind;
+  evidence: AiCapabilityEvidence;
+  note: string | null;
+  connectionId: string | null;
+}
+
+export interface AiUsageSummary {
+  windowDays: number;
+  totalRequests: number;
+  totalTokens: number;
+  totalCostCents: number;
+  hasUnknownPricing: boolean;
+  byProvider: Array<{
+    provider: string;
+    model: string;
+    requests: number;
+    totalTokens: number;
+    costCents: number;
+  }>;
+}
+
+export type AiHealthStatus = "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
+
+export interface AiProviderHealth {
+  connectionId: string;
+  provider: string;
+  status: AiHealthStatus;
+  latencyMs: number | null;
+  message: string | null;
+  code: string | null;
+  checkedAt: string;
 }
 
 // ── Dashboard ─────────────────────────────────────
@@ -682,4 +894,204 @@ export interface CourseSummary {
   study: { sessions: number; totalMinutes: number };
   goals: { relatedActive: number };
   eventsToday: number;
+}
+
+// ── Missions ────────────────────────────────────────
+
+export type MissionStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "WAITING"
+  | "PARTIAL"
+  | "FAILED_RECOVERABLE"
+  | "FAILED_TERMINAL"
+  | "CANCEL_REQUESTED"
+  | "CANCELLED"
+  | "COMPLETED";
+
+export type MissionStepStatus =
+  | "PENDING"
+  | "QUEUED"
+  | "RUNNING"
+  | "WAITING"
+  | "COMPLETED"
+  | "FAILED_RECOVERABLE"
+  | "FAILED_TERMINAL"
+  | "SKIPPED"
+  | "CANCELLED";
+
+export interface AiMissionStep {
+  id: string;
+  missionId: string;
+  stepOrder: number;
+  toolName: string;
+  description: string;
+  arguments: Record<string, unknown>;
+  dependsOn: string[];
+  status: MissionStepStatus;
+  attempts: number;
+  maxAttempts: number;
+  idempotencyKey: string | null;
+  /** The proposal this step waits on, when a change needs the student's approval. */
+  pendingActionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  verification: Record<string, unknown> | null;
+}
+
+/**
+ * The change a mission is waiting on.
+ *
+ * A step that writes in manual mode cannot run until the student approves it,
+ * so the mission parks the proposal and stops. Without this the mission would
+ * look identical to one that is still working.
+ */
+export interface MissionPendingAction {
+  id: string;
+  title: string;
+  status: string;
+  actions: Array<{ tool: string; description: string }>;
+  createdAt: string;
+  expiresAt: string;
+  result: { executed: number; verified: number; failed: number; summary: string } | null;
+}
+
+export interface AiMission {
+  id: string;
+  userId: string;
+  conversationId: string | null;
+  objective: string;
+  contextSnapshot: Record<string, unknown> | null;
+  status: MissionStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  terminalError: string | null;
+  steps: AiMissionStep[];
+  pendingAction: MissionPendingAction | null;
+}
+
+export interface MissionPage {
+  items: AiMission[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+// ── Mission tool catalog ─────────────────────────
+
+export type MissionToolKind = "READ" | "ANALYZE" | "WRITE";
+
+export type MissionToolConfirmation = "none" | "required" | "autonomous";
+
+export interface JsonSchemaObject {
+  type?: string;
+  description?: string;
+  properties?: Record<string, JsonSchemaObject>;
+  required?: string[];
+  items?: JsonSchemaObject;
+  enum?: unknown[];
+  anyOf?: JsonSchemaObject[];
+  additionalProperties?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+  default?: unknown;
+}
+
+export interface MissionToolCatalogEntry {
+  name: string;
+  kind: MissionToolKind;
+  activityLabel: string;
+  description: string;
+  confirmation: MissionToolConfirmation;
+  requiresApproval: boolean;
+  parameters: JsonSchemaObject;
+}
+
+export interface MissionToolCatalog {
+  tools: MissionToolCatalogEntry[];
+  executionAutonomyMode: "manual" | "autonomous";
+}
+
+// ── Saved memories ─────────────────────────────
+
+export type MemoryCategory = "PREFERENCE" | "ACADEMIC" | "GOALS" | "SCHEDULE" | "OTHER";
+
+export type MemoryProvenance = "USER" | "AI";
+
+export interface AiMemory {
+  id: string;
+  category: MemoryCategory;
+  content: string;
+  provenance: MemoryProvenance;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryPage {
+  items: AiMemory[];
+  hasMore: boolean;
+}
+
+export interface MemoryListParams {
+  category?: MemoryCategory;
+  limit?: number;
+}
+
+export interface CreateMemoryInput {
+  content: string;
+  category?: MemoryCategory;
+}
+
+export interface UpdateMemoryInput {
+  content?: string;
+  category?: MemoryCategory;
+}
+
+// ── Proactive briefing ─────────────────────────
+
+export type BriefingItemKind =
+  | "TASK_OVERDUE"
+  | "TASK_DUE_SOON"
+  | "EXAM_UPCOMING"
+  | "GOAL_AT_RISK"
+  | "STUDY_SUMMARY";
+
+export type BriefingSeverity = "info" | "warning" | "urgent";
+
+export interface BriefingItem {
+  /** Record id, or a stable synthetic id for computed items (the study line). */
+  id: string;
+  kind: BriefingItemKind;
+  title: string;
+  /** One human line: "Overdue · due 2 days ago", "Exam · in 3 days". */
+  detail: string;
+  dueAt: string | null;
+  /** Workspace path the client deep-links to, e.g. "/tasks". */
+  link: string;
+  severity: BriefingSeverity;
+}
+
+export interface BriefingSummary {
+  overdueTasks: number;
+  dueSoonTasks: number;
+  upcomingExams: number;
+  atRiskGoals: number;
+  studySessionsThisWeek: number;
+  studyMinutesThisWeek: number;
+}
+
+export interface ProactiveBriefing {
+  generatedAt: string;
+  items: BriefingItem[];
+  summary: BriefingSummary;
 }

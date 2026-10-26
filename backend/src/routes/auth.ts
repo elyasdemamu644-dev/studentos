@@ -96,9 +96,8 @@ export const authService = {
     const claims = await verifyGoogleIdToken(idToken);
     const email = claims.email.toLowerCase();
 
-    // Registration and password login are case-sensitive, so the stored row
-    // may carry mixed case. Google always reports the mailbox lowercased —
-    // match case-insensitively so a Google sign-in links to the existing
+    // Registration normalises to lower case and both password login and this
+    // lookup are case-insensitive, so a Google sign-in links to the existing
     // account instead of silently provisioning a duplicate for the same user.
     let user = await prisma.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },

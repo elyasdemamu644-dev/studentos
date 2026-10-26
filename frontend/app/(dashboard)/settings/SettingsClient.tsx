@@ -19,6 +19,8 @@ import { useAuth } from "@/features/auth/auth-provider";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useMarkAllNotificationsRead, useNotifications, useSettings, useUpdateSettings, useUpdateProfile, useChangePassword } from "@/features/settings/hooks";
 import { AiConnectionsPanel } from "@/features/ai-connections/connection-list";
+import { RoutingPanel } from "@/features/ai-routing/routing-panel";
+import { MemoryPanel } from "@/features/ai-memories/memory-panel";
 import { ThemeSelector } from "@/components/theme/selector";
 import { ThemeModeToggle } from "@/components/theme-toggle";
 import { relativeTime } from "@/lib/format";
@@ -100,7 +102,7 @@ export default function SettingsPage() {
       <PageHeader
         kicker="Preferences"
         title="Settings"
-        description="Profile, appearance, AI connections, notifications and app preferences."
+        description="Profile, appearance, AI connections, assistant memory, notifications and app preferences."
         chips={
           <>
             <Chip tone="neutral" icon={Palette}>
@@ -290,6 +292,10 @@ export default function SettingsPage() {
       </Panel>
 
       <AiConnectionsPanel />
+
+      <RoutingPanel />
+
+      <MemoryPanel />
 
       <Panel title="Preferences" icon={Check} tone="success" collapsible={false}>
         <p className="mb-4 text-sm text-muted-foreground">
